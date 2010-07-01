@@ -1,0 +1,86 @@
+#!/bin/sh
+# Copyright (c) 2010 The Chromium OS Authors. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+# All scripts should die on error unless commands are specifically excepted
+# by prefixing with '!' or surrounded by 'set +e' / 'set -e'.
+set -e
+
+# Global variable
+TMP_DIR=  # will be set by make_temp() function.
+
+# Prints a message and return an error code.
+error_exit()
+{
+  echo $1
+  clean_temp
+  exit 1
+}
+
+# Untar the file to a temp directory, then chdir to that directory.
+untar_and_chdir()
+{
+  SELF="$1"
+
+  echo "Extract to $TMP_DIR ..."
+  uudecode -o - "$SELF" | tar -C "$TMP_DIR" -zxf -
+
+  if [ ! -x "$TMP_DIR" ] || [ ! -d "$TMP_DIR" ]; then
+    error_exit "Create temp directory $TMP_DIR failed ..."
+  fi
+
+  if ! cd $TMP_DIR; then
+    error_exit "Cannot chdir to $TMP_DIR ..."
+  fi
+}
+
+make_temp()
+{
+  TMP_DIR=`mktemp -d`
+}
+
+clean_temp()
+{
+  echo "Clean up $TMP_DIR ..."
+  rm -rf $TMP_DIR
+}
+
+# check tool: we need uuencode to create the shell ball.
+which uudecode > /dev/null || error_exit "You need uudecode to extract file"
+
+SELF="$0"
+case $1 in
+  -V)
+    make_temp
+    untar_and_chdir "$SELF"
+    cat VERSION
+    clean_temp
+    break
+    ;;
+  "")
+    make_temp
+    untar_and_chdir "$SELF"
+
+    SCRIPT=./install_firmware
+    if [ ! -x $SCRIPT ]; then
+      error_exit "Cannot execute $SCRIPT"
+    fi
+    echo "Run built-in script ($SCRIPT) ..."
+    if ! $SCRIPT; then
+      error_exit "Script $SCRIPT returns failed!"
+    fi
+    clean_temp
+    break
+    ;;
+  *)
+    echo "Shellball -- self-extract and install"
+    echo ""
+    echo "Usage: $SELF [-V]"
+    echo "         -V  show version of containing files"
+    echo ""
+    exit 1
+    ;;
+esac
+exit 0
+# Below are uuencoded blob. Don't put code behind exit 0.
