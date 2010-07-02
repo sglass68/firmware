@@ -46,9 +46,6 @@ clean_temp()
   rm -rf $TMP_DIR
 }
 
-# check tool: we need uuencode to create the shell ball.
-which uudecode > /dev/null || error_exit "You need uudecode to extract file"
-
 SELF="$0"
 case $1 in
   -V)

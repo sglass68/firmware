@@ -1,4 +1,303 @@
-#!/usr/bin/python
-import sys
+#!/usr/bin/env python
 
-print "install_firmware: PASS"
+# Copyright (c) 2010 The Chromium OS Authors. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+# For factory and autoupdate, after shellball self-extracts, this script is
+# called to update BIOS and EC firmware as per how many files are extracted.
+
+import os
+import sys
+import warnings
+
+# flashrom utility wrapper
+# Since the running environment is different, we copy some functions from
+# src/third_party/autotest/files/client/common_lib/flashrom_util.py.
+class flashrom_util(object):
+    """ a wrapper for "flashrom" utility.
+
+    You can read, write, or query flash ROM size with this utility.
+    Although you can do "partial-write", the tools always takes a
+    full ROM image as input parameter.
+
+    NOTE before accessing flash ROM, you may need to first "select"
+    your target - usually BIOS or EC. That part is not handled by
+    this utility. Please find other external script to do it.
+
+    To perform a read, you need to:
+     1. Prepare a flashrom_util object
+        ex: flashrom = flashrom_util.flashrom_util()
+     2. Perform read operation
+        ex: image = flashrom.read_whole()
+
+    To perform a (partial) write, you need to:
+     1. Create or load a layout map (see explain of layout below)
+        ex: layout_map = { 'all': (0, rom_size - 1) }
+        ex: layout_map = { 'ro': (0, 0xFFF), 'rw': (0x1000, rom_size-1) }
+     2. Prepare a full base image
+        ex: image = flashrom.read_whole()
+        ex: image = chr(0xFF) * rom_size
+     3. (optional) Modify data in base image
+        ex: new_image = flashrom.put_section(image, layout_map, 'all', mydata)
+     4. Perform write operation
+        ex: flashrom.write_partial(new_image, layout_map, ('all',))
+
+     P.S: you can also create the new_image in your own way, for example:
+        rom_size = flashrom_util.get_size()
+        erase_image = chr(0xFF) * rom_size
+        flashrom.write_partial(erase_image, layout_map, ('all',))
+
+    The layout is a dictionary of { 'name': (address_begin, addres_end) }.
+    Note that address_end IS included in the range.
+
+    Attributes:
+        tool_path:  file path to the tool 'flashrom'
+        tmp_root:   a folder for temporary files (created for layout and images)
+        tmp_prefix: prefix of file names
+        verbose:    print debug and helpful messages
+        keep_temp_files: boolean flag to control cleaning of temporary files
+    """
+    def __init__(self,
+                 tool_path='./flashrom',
+                 tmp_root='/tmp',
+                 tmp_prefix='fr_',
+                 verbose=False,
+                 keep_temp_files=False):
+        """ constructor of flashrom_util. help(flashrom_util) for more info """
+        self.tool_path = tool_path
+        self.tmp_root = tmp_root
+        self.tmp_prefix = tmp_prefix
+        self.verbose = verbose
+        self.keep_temp_files = keep_temp_files
+
+    def get_temp_filename(self, prefix):
+        ''' (internal) Returns name of a temporary file in self.tmp_root '''
+        with warnings.catch_warnings():
+            # although tempnam is not safe, it's OK to use here for testing.
+            warnings.simplefilter("ignore")
+            return os.tempnam(self.tmp_root, self.tmp_prefix + prefix)
+
+    def remove_temp_file(self, filename):
+        """ (internal) Removes a temp file if self.keep_temp_files is false. """
+        if self.keep_temp_files:
+            return
+        if os.path.exists(filename):
+            os.remove(filename)
+
+    def create_layout_file(self, layout_map):
+        '''
+        (internal) Creates a layout file based on layout_map.
+        Returns the file name containing layout information.
+        '''
+        layout_text = [ '0x%08lX:0x%08lX %s' % (v[0], v[1], k)
+            for k, v in layout_map.items() ]
+        layout_text.sort()  # XXX unstable if range exceeds 2^32
+        tmpfn = self.get_temp_filename('lay')
+        open(tmpfn, 'wb').write('\n'.join(layout_text) + '\n')
+        return tmpfn
+
+    def read_whole(self):
+        '''
+        Reads whole flash ROM data.
+        Returns the data read from flash ROM, or empty string for other error.
+        '''
+        tmpfn = self.get_temp_filename('rd_')
+        cmd = '%s -r %s' % (self.tool_path, tmpfn)
+        if self.verbose:
+            print 'flashrom_util.read_whole(): ', cmd
+        result = ''
+
+        if os.system(cmd) == 0:  # failure for non-zero
+            try:
+                result = open(tmpfn, 'rb').read()
+            except IOError:
+                result = ''
+
+        # clean temporary resources
+        self.remove_temp_file(tmpfn)
+        return result
+
+    def write_partial(self, base_image, layout_map, write_list):
+        '''
+        Writes data in sections of write_list to flash ROM.
+        Returns True on success, otherwise False.
+        '''
+        tmpfn = self.get_temp_filename('wr_')
+        open(tmpfn, 'wb').write(base_image)
+        layout_fn = self.create_layout_file(layout_map)
+
+        cmd = '%s -l %s -i %s -w %s' % (
+                self.tool_path, layout_fn, ' -i '.join(write_list), tmpfn)
+        if self.verbose:
+            print 'flashrom.write_partial(): ', cmd
+        result = False
+
+        if os.system(cmd) == 0:  # failure for non-zero
+            result = True
+
+        # clean temporary resources
+        self.remove_temp_file(tmpfn)
+        self.remove_temp_file(layout_fn)
+        return result
+
+class Installer(object):
+    """ Installer contains the flash content and a file content which is going
+    to update to flash chip.
+    """
+    flashrom = flashrom_util()
+    flash = []
+    file = []
+    layout_map = {}
+
+    def ReadFlash(self):
+        """Reads flash content and saves it.
+        """
+        self.flash = self.flashrom.read_whole()
+        if not self.flash:
+            raise SystemError, "flashrom.read_whole() failed.\n"
+
+    def __init__(self):
+        self.ReadFlash()
+
+    def LoadFile(self, filename):
+        """Loads a file and expects its size is equal to flash size.
+        """
+        self.file = open(filename, "rb").read()
+        if not self.file:
+            raise SystemError, "open('%s') failed.\n" % (filename)
+
+        flash_size = len(self.flash)
+        file_size = len(self.file)
+        if flash_size != file_size:
+            raise SystemError, "image size (%d) != flash size (%d)" % \
+                  (file_size, flash_size)
+
+    def SetLayoutMap(self, layout_map):
+        """Normalizes the layout_map and saves it.
+        How: if x in layout_map is negative, that means file_size - x.
+        """
+        file_size = len(self.file)
+        for k in layout_map.keys():
+            v = layout_map[k]
+            layout_map[k] = ((file_size + v[0]) % file_size,
+                             (file_size + v[1]) % file_size)
+        self.layout_map = layout_map
+
+    def Compare(self, compare_parts):
+        """Returns True if all partitions specified in 'compare_parts'
+        are identical. Returns False if any byte is different.
+        """
+        for name in compare_parts:
+            (start, end) = self.layout_map[name]
+            for offset in range(start, end + 1):
+                if not self.flash[offset] == self.file[offset]:
+                    return False
+        return True
+
+    def WriteFlash(self, write_parts):
+        if not self.flashrom.write_partial(self.file, self.layout_map,
+                                           write_parts):
+            raise SystemError, "flashrom.write_partial() failed.\n"
+
+    def Install(self, partitions):
+        """First compares all 'partitions'. If any partition is different,
+        write all of them to flash.
+        """
+        if not self.Compare(partitions):
+            self.WriteFlash(partitions)
+        else:
+            print "Flash is up-to-date. Ignore flash."
+
+#-----------------------------------------------------------------------------
+# Factory images:
+#  . the first item in tuple is image filename.
+#  . the second item is the select script for BBS register
+#  . the third item is layout_map.
+#    (if x is negative, that means file_size + x).
+factory = [
+    ("bios.bin", "./select_bios_flashrom.sh", {"all": (0, -1)}),
+    ("ec.bin", "./select_ec_flashrom.sh", {"all": (0, -1)})]
+
+# If there is a custom script, load it now.
+custom_factory = "custom_factory.py"
+if os.path.exists(custom_factory):
+    execfile(custom_factory)
+
+for (filename, select_bbs, layout_map) in factory:
+    # The procedure is:
+    #   If the file is included in shellball,
+    #     switch BBS register of south bridge.
+    #     new an installer (flash content is read).
+    #     installer loads from file.
+    #     installer.Install() according to layout_map.
+    if not os.path.exists(filename):
+        print "No file '%s' is included, ignore it." % filename
+    else:
+        cmd = "'%s'" % select_bbs
+        if os.system(cmd):
+            raise SystemError, "Cannot execute '%s'" % (cmd)
+
+        installer = Installer()
+        installer.LoadFile(filename)
+        installer.SetLayoutMap(layout_map)
+        installer.Install([k for k in layout_map.keys()])
+
+#-----------------------------------------------------------------------------
+# AutoUpdate images
+#  . the first item in tuple is image filename.
+#  . the second item is the select script for BBS register
+#  . the third item is layout_map.
+#  . the fourth item indicates whether it is EC or not.
+#    (if x is negative, that means file_size + x).
+autoupdate = [
+    # According to "Chrome OS Firmware Memory Maps",
+    # The rewriteable firmware B is at 0x30000 (size 704KB) and A is at 0x98000
+    # (size 704KB).
+    ("autoupdate_bios.bin", "./select_bios_flashrom.sh",
+        {"fw_a": (0x098000, 0x0FFFFF), "fw_b": (0x030000, 0x097FFF)}, False),
+    # The EC rewriteable part is the top 64KB of flash.
+    ("autoupdate_ec.bin", "./select_ec_flashrom.sh",
+        {"ec_rw": (-(0x10000), -1)}, True)]
+
+# If there is a custom script, load it now.
+custom_autoupdate = "custom_autoupdate.py"
+if os.path.exists(custom_autoupdate):
+    execfile(custom_autoupdate)
+
+for (filename, select_bbs, layout_map, ec) in autoupdate:
+    # The procedure is:
+    #   If the file is included in shellball,
+    #     switch BBS register of south bridge
+    #     new an installer (flash content is read)
+    #     if BIOS, choose firmware A or B
+    #     read file content and replace in flash content
+    #     compare and write
+    #     set boot flag
+    if not os.path.exists(filename):
+        print "No file '%s' is included, ignore it." % filename
+    else:
+        cmd = "'%s'" % select_bbs
+        if os.system(cmd):
+            raise SystemError, "Cannot execute '%s'" % (cmd)
+
+        installer = Installer()
+
+        if ec:
+          write_to = [k for k in layout_map.keys()]
+        else:
+          # TODO(yjlou): determine boot flag, now assume boot from A.
+          write_to = ["fw_b"]
+
+        file = open(filename, "rb").read()
+        installer.file = installer.flash
+        (start, end) = layout_map[write_to]
+        if len(file) <= (end - start + 1):
+            raise SystemError, \
+                "file size (%d) is larger than partition size (%d)" % \
+                (len(file), (end - start + 1))
+        installer.file[start : end + 1] = file
+        installer.SetLayoutMap(layout_map)
+        installer.Install(write_to)
+
+        # TODO(yjlou): set boot flag for BIOS
