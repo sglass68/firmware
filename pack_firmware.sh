@@ -46,6 +46,12 @@ fi
 #  - all files in $BOARD (usually used by install_firmware like selectors)
 
 board_base="$script_base/${FLAGS_board}"
+if [ ! -d "$board_base" ] && \
+   [ -d "$script_base/${FLAGS_board/-*/-generic}" ]; then
+   board_base="${script_base}/${FLAGS_board/-*/-generic}"
+   # echo "FLAGS_board changed to: ${board_base}"
+fi
+
 flashrom_bin="${FLAGS_flashrom}"
 install_firmware_script="$board_base/install_firmware"
 template_file="$script_base/shellball.sh.template"
@@ -109,10 +115,16 @@ fi
 # XXX do not put any files with dot in prefix ( eg: .blah )
 cp "$flashrom_bin" "$tmpbase" || err_die "cannot copy tool flashrom(8)"
 cp -r "$board_base"/* "$tmpbase" || err_die "cannot copy board folder"
-if [ "${FLAGS_extra}" != "" ]; then
+
+# copy extra files. if $FLAGS_extra is a folder, copy all content inside.
+if [ -d "${FLAGS_extra}" ]; then
+  cp -r "${FLAGS_extra}"/* "$tmpbase" || \
+    err_die "cannot copy extra files from folder ${FLAGS_extra}"
+  echo "Extra files from folder: ${FLAGS_extra}" >> "$version_file"
+elif [ "${FLAGS_extra}" != "" ]; then
   cp -r "${FLAGS_extra}" "$tmpbase" || \
-    err_die "cannot copy extra files from ${FLAGS_extra}"
-  echo "Extra files: ${FLAGS_extra}" >> "$version_file"
+    err_die "cannot copy extra files ${FLAGS_extra}"
+  echo "Extra file: ${FLAGS_extra}" >> "$version_file"
 fi
 
 # create MD5 checksum logs
