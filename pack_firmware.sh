@@ -28,8 +28,11 @@ DEFINE_string ec_image "" "Path of input EC firmware image" "e"
 DEFINE_string output "-" "Path of output filename; '-' for stdout." "o"
 DEFINE_string board "$DEFAULT_BOARD" "The board to build packages for."
 DEFINE_string extra "" "Directory of extra files to be put in firmware package."
+
 DEFINE_string flashrom "" \
   "Path of flashrom(8), using /build/[board]/usr/sbin/flashrom if not assigned"
+DEFINE_string iotools "" \
+  "Path of iotools, using /build/[board]/usr/sbin/iotools if not assigned"
 
 # Parse command line
 FLAGS "$@" || exit 1
@@ -39,9 +42,13 @@ eval set -- "${FLAGS_ARGV}"
 if [ "${FLAGS_flashrom}" == "" ]; then
   FLAGS_flashrom="/build/${FLAGS_board}/usr/sbin/flashrom"
 fi
+if [ "${FLAGS_iotools}" == "" ]; then
+  FLAGS_iotools="/build/${FLAGS_board}/usr/sbin/iotools"
+fi
 
 # we need following tools to be inside a package:
 #  - flashrom(8): native binary tool
+#  - iotools: native binary tool
 #  - $BOARD/install_firmware
 #  - all files in $BOARD (usually used by install_firmware like selectors)
 
@@ -53,6 +60,7 @@ if [ ! -d "$board_base" ] && \
 fi
 
 flashrom_bin="${FLAGS_flashrom}"
+iotools_bin="${FLAGS_iotools}"
 install_firmware_script="$board_base/install_firmware"
 template_file="$script_base/shellball.sh.template"
 
@@ -74,7 +82,8 @@ function err_die {
 which uuencode >/dev/null || err_die "ERROR: You need uuencode(sharutils)"
 
 # check required basic files
-for X in "$flashrom_bin" "$install_firmware_script" "$template_file"; do
+for X in "$flashrom_bin" "$iotools_bin" \
+         "$install_firmware_script" "$template_file"; do
   if [ ! -r "$X" ]; then
     err_die "ERROR: Cannot find required file: $X"
   fi
@@ -97,7 +106,9 @@ version_file="$tmpbase/VERSION"
 echo "Package create date: `date +'%c'`
 
 Board:       ${FLAGS_board}
-Flashrom(8): $(md5sum -b "$flashrom_bin")
+iotools:     $(md5sum -b "$iotools_bin")
+             $(file -b "$iotools_bin")
+flashrom(8): $(md5sum -b "$flashrom_bin")
              $(file -b "$flashrom_bin")" >> \
   "$version_file"
 
@@ -113,7 +124,8 @@ fi
 
 # copy other resources files from $board
 # XXX do not put any files with dot in prefix ( eg: .blah )
-cp "$flashrom_bin" "$tmpbase" || err_die "cannot copy tool flashrom(8)"
+cp "$flashrom_bin" "$tmpbase"/flashrom || err_die "cannot copy tool flashrom(8)"
+cp "$iotools_bin" "$tmpbase"/iotools || err_die "cannot copy tool iotools"
 cp -r "$board_base"/* "$tmpbase" || err_die "cannot copy board folder"
 
 # copy extra files. if $FLAGS_extra is a folder, copy all content inside.
@@ -145,6 +157,7 @@ else
   (cat "$template_file" &&
    tar zcf - -C "$tmpbase" . | uuencode firmware_package.tgz) > "$output" ||
    err_die "ERROR: Failed to archive firmware package"
+  chmod a+rx "$output"
   cat "$tmpbase/VERSION"
   echo ""
   echo "Packed output image is: $output"

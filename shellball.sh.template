@@ -55,6 +55,18 @@ case $1 in
     clean_temp
     break
     ;;
+  --sb_check)
+    make_temp
+    untar_and_chdir "$SELF"
+    md5sum -c VERSION
+    clean_temp
+    break
+    ;;
+  --sb_extract)
+    make_temp
+    untar_and_chdir "$SELF"
+    break
+    ;;
   "")
     make_temp
     untar_and_chdir "$SELF"
@@ -73,8 +85,12 @@ case $1 in
   *)
     echo "Shellball -- self-extract and install"
     echo ""
-    echo "Usage: $SELF [-V]"
-    echo "         -V  show version of containing files"
+    echo "Usage: $SELF [options]"
+    echo ""
+    echo "options:"
+    echo "           -V  show version of containing files"
+    echo "   --sb_check  check content integrity"
+    echo " --sb_extract  extract content to temp folder"
     echo ""
     exit 1
     ;;
