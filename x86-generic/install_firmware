@@ -302,7 +302,7 @@ def main():
     flashrom = flashrom_util.flashrom_util(
         tool_path=DEFAULT_FLASHROM_TOOLPATH,
         cmd_prefix=DEFAULT_FLASHROM_CMDPREFIX,
-        target_maps=DEFAULT_FLASHROM_TARGET_MAP,
+        target_map=DEFAULT_FLASHROM_TARGET_MAP,
         verbose=is_verbose)
 
     # update all firmware targets
