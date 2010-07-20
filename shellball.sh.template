@@ -47,53 +47,63 @@ clean_temp()
 }
 
 SELF="$0"
-case $1 in
+case "$1" in
   -V)
     make_temp
     untar_and_chdir "$SELF"
     cat VERSION
     clean_temp
-    break
+    exit 0
     ;;
   --sb_check)
     make_temp
     untar_and_chdir "$SELF"
     md5sum -c VERSION
+    ret=$?
     clean_temp
-    break
+    exit $ret
     ;;
   --sb_extract)
     make_temp
     untar_and_chdir "$SELF"
-    break
+    exit 0
     ;;
-  "")
-    make_temp
-    untar_and_chdir "$SELF"
-
-    SCRIPT=./install_firmware
-    if [ ! -x $SCRIPT ]; then
-      error_exit "Cannot execute $SCRIPT"
-    fi
-    echo "Run built-in script ($SCRIPT) ..."
-    if ! $SCRIPT; then
-      error_exit "Script $SCRIPT returns failed!"
-    fi
-    clean_temp
-    break
-    ;;
-  *)
+  -h|"-?"|--help)
     echo "Shellball -- self-extract and install"
     echo ""
-    echo "Usage: $SELF [options]"
+    echo "Usage: $SELF [options] [-- [inside-script-options]]"
     echo ""
     echo "options:"
+    echo "           -h  show usage help"
     echo "           -V  show version of containing files"
     echo "   --sb_check  check content integrity"
     echo " --sb_extract  extract content to temp folder"
     echo ""
+    echo " All other parameters will be passed to the script inside."
+    echo ""
+    echo " You can invoke as '$SELF -- -h'"
+    echo " to see the usage and options of inside-script."
+    echo ""
     exit 1
     ;;
+  --)
+    shift
+    ;;
 esac
+
+# for all other cases, invoke carried script
+make_temp
+untar_and_chdir "$SELF"
+
+SCRIPT=./install_firmware
+if [ ! -x $SCRIPT ]; then
+  error_exit "Cannot execute $SCRIPT"
+fi
+echo "Run built-in script ($SCRIPT) ..."
+if ! $SCRIPT "$@"; then
+  error_exit "Script $SCRIPT returns failed!"
+fi
+clean_temp
 exit 0
+
 # Below are uuencoded blob. Don't put code behind exit 0.

@@ -124,9 +124,10 @@ fi
 
 # copy other resources files from $board
 # XXX do not put any files with dot in prefix ( eg: .blah )
-cp "$flashrom_bin" "$tmpbase"/flashrom || err_die "cannot copy tool flashrom(8)"
-cp "$iotools_bin" "$tmpbase"/iotools || err_die "cannot copy tool iotools"
-cp -r "$board_base"/* "$tmpbase" || err_die "cannot copy board folder"
+cp -p "$flashrom_bin" "$tmpbase"/flashrom || err_die "cannot copy tool flashrom"
+cp -p "$iotools_bin" "$tmpbase"/iotools || err_die "cannot copy tool iotools"
+cp -rp "$board_base"/* "$tmpbase" || err_die "cannot copy board folder"
+chmod a+rx "$tmpbase"/flashrom "$tmpbase"/iotools "$tmpbase"/install_firmware
 
 # copy extra files. if $FLAGS_extra is a folder, copy all content inside.
 if [ -d "${FLAGS_extra}" ]; then
