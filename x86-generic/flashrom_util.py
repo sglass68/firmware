@@ -24,6 +24,7 @@ For more information, see help(flashrom_util.flashrom_util).
 
 import os
 import re
+import subprocess
 import sys
 import tempfile
 import types
@@ -423,10 +424,16 @@ class mock_utils(object):
         return arch
 
     def system(self, cmd, ignore_status=False):
-        ret = os.system(cmd)
-        if (not ignore_status) and ret != 0:
-            raise TestError("failed to execute: " % cmd)
-        return ret
+        p = subprocess.Popen(cmd, shell=True,
+                             stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE)
+        p.wait()
+        if p.returncode:
+            print p.stdout.read()
+            if not ignore_status:
+                raise TestError("failed to execute: %s\nError messages: %s" % (
+                    cmd, p.stderr.read()))
+        return p.returncode
 
 
 # import autotest or mock utilities
