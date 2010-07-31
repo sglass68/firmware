@@ -21,7 +21,7 @@ class FvImage(object):
     self.sig_name = sig_name
     self.body_name = body_name
 
-  def Names(self):
+  def names(self):
     return (self.sig_name, self.body_name)
 
 class FlashromHandlerError(Exception):
@@ -42,17 +42,17 @@ class FlashromHandler(object):
     self.fv_sections = { 'a': FvImage('VBOOTA', 'FVMAIN'),
                          'b': FvImage('VBOOTB', 'FVMAINB')}
 
-  def Init(self, flashrom_util_module, state_dir, pub_key_file):
+  def init(self, flashrom_util_module, state_dir, pub_key_file):
     # make sure it does not accidentally overwrite the image.
     self.fum = flashrom_util_module.flashrom_util()
     self.state_dir = state_dir
     self.pub_key_file = pub_key_file
 
-  def _StateFile(self, name):
+  def _state_file(self, name):
     'Return full path name of a given file in the state directory.'
     return os.path.join(self.state_dir, name)
 
-  def NewImage(self, image_file=None):
+  def new_image(self, image_file=None):
     '''Parse the full flashrom image and store sections into files.
 
     Args:
@@ -74,18 +74,18 @@ class FlashromHandler(object):
     self.whole_flash_layout = self.fum.detect_layout('all', len(self.image))
 
     for section in self.fv_sections.itervalues():
-      for subsection_name in section.Names():
-        f = open(self._StateFile(subsection_name), 'wb')
+      for subsection_name in section.names():
+        f = open(self._state_file(subsection_name), 'wb')
         f.write(self.fum.get_section(
             self.image, self.bios_layout, subsection_name))
         f.close()
 
-  def VerifyImage(self):
+  def verify_image(self):
     '''Confirm the image's validity.
 
-    Using the file supplied to Init() as the public key container verify the
+    Using the file supplied to init() as the public key container verify the
     two sections' (FirmwareA and FirmwareB) integrity. The contents of the
-    sections is taken from the files created by NewImage()
+    sections is taken from the files created by new_image()
 
     In case there is an integrity error raises FlashromHandlerError exception
     with the appropriate error message text.
@@ -93,15 +93,15 @@ class FlashromHandler(object):
 
     for section in self.fv_sections.itervalues():
       cmd = 'vbutil_firmware --verify %s --signpubkey %s  --fv %s' % (
-          self._StateFile(section.sig_name), self.pub_key_file,
-          self._StateFile(section.body_name))
+          self._state_file(section.sig_name), self.pub_key_file,
+          self._state_file(section.body_name))
       p = subprocess.Popen(
           cmd.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
       p.wait()
       if p.returncode:
         raise FlashromHandlerError('Failed verifying %s' % section.body_name)
 
-  def _ModifySection(self, section, delta):
+  def _modify_section(self, section, delta):
     '''Modify a firmware section inside the image.
 
     The passed in delta is added to the value located at 5% offset into the
@@ -127,31 +127,31 @@ class FlashromHandler(object):
                                      subsection_name, ''.join(body_list))
     return subsection_name
 
-  def CorruptSection(self, section):
+  def corrupt_section(self, section):
     '''Corrupt a section of the image'''
-    return self._ModifySection(section, self.DELTA)
+    return self._modify_section(section, self.DELTA)
 
-  def RestoreSection(self, section):
+  def restore_section(self, section):
     '''Restore a previously corrupted section of the image.'''
-    return self._ModifySection(section, -self.DELTA)
+    return self._modify_section(section, -self.DELTA)
 
-  def CorruptFirmware(self, section):
+  def corrupt_firmware(self, section):
     '''Corrupt a section in the FLASHROM!!!'''
-    subsection_name = self.CorruptSection(section)
+    subsection_name = self.corrupt_section(section)
     self.fum.write_partial(self.image, self.bios_layout, (subsection_name,))
 
-  def RestoreFirmware(self, section):
+  def restore_firmware(self, section):
     '''Restore the previously corrupted section in the FLASHROM!!!'''
-    subsection_name = self.RestoreSection(section)
+    subsection_name = self.restore_section(section)
     self.fum.write_partial(self.image, self.bios_layout, (subsection_name,))
 
-  def WriteWhole(self):
+  def write_whole(self):
     '''Write the whole image into the flashrom.'''
     if not self.image:
       raise FlashromHandlerError('Attempt at using an uninitialized object')
     self.fum.write_partial(self.image, self.whole_flash_layout, ('all',))
 
-  def DumpWhole(self, filename):
+  def dump_whole(self, filename):
     '''Write the whole image into a file.'''
     if not self.image:
       raise FlashromHandlerError('Attempt at using an uninitialized object')

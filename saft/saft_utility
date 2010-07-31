@@ -15,12 +15,8 @@ import sys
 import tempfile
 import traceback
 
-import saft.flashrom_handler
-
-DEFAULT_BOARD = 'x86-generic'
-this_board = os.environ.get('CHROS_BOARD_TYPE', DEFAULT_BOARD)
-sys.path.append(this_board)
-import flashrom_util   # Import board specific flashrom utilities
+import flashrom_handler
+import flashrom_util
 
 # Source of ACPI information.
 ACPI_DIR = '/sys/bus/platform/devices/chromeos_acpi'
@@ -47,7 +43,7 @@ script
   mkdir /tmp/"${dev}"
   mount /dev/"${dev}" /tmp/"${dev}"
   cd /tmp/"${dev}"%s
-  ./%s --next_step
+  PYTHONPATH=$(realpath ../../..) ./%s --next_step
 end script
 
 console output
@@ -73,7 +69,7 @@ required_programs = 'vbutil_firmware reboot_mode rootdev blkid flashrom'
 # point, is determined at run time).
 state_dir = None
 
-flashrom_handler = saft.flashrom_handler.FlashromHandler()
+FlashromHandler = flashrom_handler.FlashromHandler()
 
 progname = ''
 
@@ -81,12 +77,12 @@ class FwError(Exception):
   pass
 
 
-def TargetHosted():
+def target_hosted():
   '''Return True if running on a ChromeOS target.'''
   return 'chromeos' in open('/proc/version_signature', 'r').read()
 
 
-def Log(text):
+def log(text):
   '''Print message on the screen and save it in the log file.
 
   The output is seen on the screen only before the first reboot. Then, after
@@ -114,24 +110,24 @@ def Log(text):
   f.close()
 
 
-def SetTryFwB():
-  Log('Requesting restart with FW B')
-  RunShellCommand('reboot_mode --try_firmware_b=1')
+def set_try_fw_b():
+  log('Requesting restart with FW B')
+  run_shell_command('reboot_mode --try_firmware_b=1')
 
 
-def RestoreFirmware():
-  Log('Restoring to original firmware')
-  RunShellCommand('flashrom -w %s' % os.path.join(state_dir, FW_BACKUP_FILE))
+def restore_firmware():
+  log('Restoring to original firmware')
+  run_shell_command('flashrom -w %s' % os.path.join(state_dir, FW_BACKUP_FILE))
 
 
-def VerifyFwId(compare_to_file):
+def verify_fw_id(compare_to_file):
   old_fwid = open(os.path.join(state_dir, compare_to_file), 'r').read()
   now_fwid = open(os.path.join(ACPI_DIR, 'FWID'), 'r').read()
   return old_fwid == now_fwid
 
 
-def CorruptFirmware(section):
-  flashrom_handler.CorruptFirmware(section)
+def corrupt_firmware(section):
+  FlashromHandler.corrupt_firmware(section)
 
 # This is a tuple of tuples controlling the SAFT state machine. The states are
 # expected to be passed strictly in order. The states are identified by the
@@ -150,26 +146,26 @@ def CorruptFirmware(section):
 # function.
 
 test_state_sequence = (
-    ('1:1:0', SetTryFwB),
+    ('1:1:0', set_try_fw_b),
     ('1:2:0', lambda: None),
-    ('1:1:0', CorruptFirmware, 'a'),
-    ('1:2:0', RestoreFirmware),
+    ('1:1:0', corrupt_firmware, 'a'),
+    ('1:2:0', restore_firmware),
     ('1:1:0', None)
 )
 
 
-def GetStep():
+def get_step():
   step_file = os.path.join(state_dir, STEP_FILE)
   step = open(step_file, 'r').read().strip()
   return int(step)
 
 
-def SetStep(step):
+def set_step(step):
   step_file = os.path.join(state_dir, STEP_FILE)
   open(step_file, 'w').write('%d' % step)
 
 
-def ExecExists(program):
+def exec_exists(program):
   '''Check if the passed in string is a valid executable found in PATH.'''
   for path in os.environ['PATH'].split(os.pathsep):
     exe_file = os.path.join(path, program)
@@ -186,7 +182,7 @@ def ExecExists(program):
 #   to words, then the words which have -- in them are stripped off the
 #   leading/traling brackets and dashes and used to prepare inut parameters
 #   for getopt. This is the only way to pass the parameters to getopt, this
-#   enforces that each accepted parameter is mentioned in the Usage() output.
+#   enforces that each accepted parameter is mentioned in the usage() output.
 usage_string = '''
  [--image_file=<firmware_image_file>] [--pub_key=<file>] [--next_step]
 
@@ -201,19 +197,19 @@ usage_string = '''
 '''
 
 
-def Usage(msg='', rv=0):
+def usage(msg='', rv=0):
   if rv:
     of = sys.stderr
   else:
     of = sys.stdout
   if msg:
     print >> of, '%s: %s' % (progname, msg)
-    Log(msg)
+    log(msg)
   print >> of, 'usage: %s %s' % (progname, usage_string.strip())
   sys.exit(rv)
 
 
-def RunShellCommand(cmd):
+def run_shell_command(cmd):
   '''Run a bash command.
 
   In case of the command returning an error print its stdout and stderr
@@ -225,7 +221,7 @@ def RunShellCommand(cmd):
   Return the subprocess.Popen() instance to provide access to console output in
   case command succeeded.
   '''
-  Log('Executing %s' % cmd)
+  log('Executing %s' % cmd)
   p = subprocess.Popen(cmd, shell=True,
                        stdout=subprocess.PIPE,
                        stderr=subprocess.PIPE)
@@ -238,21 +234,21 @@ def RunShellCommand(cmd):
     err.append(p.stderr.read())
     text = '\n'.join(err)
     print text
-    Log(text)
+    log(text)
     raise FwError('command %s failed' % cmd)
   return p
 
 
-def RunShellCommandGetOutput(cmd):
+def run_shell_command_get_output(cmd):
   '''Run bash command and return its console output to the caller.
 
   The output is returned as a list of strings stripped of the newline
   characters.'''
-  p = RunShellCommand(cmd)
+  p = run_shell_command(cmd)
   return [x.rstrip() for x in p.stdout.readlines()]
 
 
-def BootStateVector():
+def boot_state_vector():
   '''Read and return to caller a ':' concatenated contents of BINF files.'''
   binf_fname_template = 'BINF.%d'
   state = []
@@ -263,7 +259,7 @@ def BootStateVector():
   return state_str
 
 
-def GetOptionsSet():
+def get_options_set():
   '''Generate the list of command line options accepted by this program.
 
   This function derives the set of accepted command line options from
@@ -287,7 +283,7 @@ def GetOptionsSet():
   return option_set
 
 
-def GetWriteableMountPoint(dev, tmp_dir):
+def get_writeable_mount_point(dev, tmp_dir):
   '''Return the muntpoint of the passed in device mounted in read/write more.
 
   If the device is already mounted and is writeable - return its mount point.
@@ -299,25 +295,25 @@ def GetWriteableMountPoint(dev, tmp_dir):
   # The device root file system is mounted on is represented as /dev/root
   # otherwise.
   options_filter = re.compile('.*\((.+)\).*')
-  root_dev = RunShellCommandGetOutput('rootdev')[0]
+  root_dev = run_shell_command_get_output('rootdev')[0]
   if dev == root_dev:
     dev = '/dev/root'
 
-  for line in RunShellCommandGetOutput('mount'):
+  for line in run_shell_command_get_output('mount'):
     if not line.startswith(dev):
       continue
     mount_options = options_filter.match(line).groups(0)[0]
     # found mounted
     if 'ro' in mount_options.split(','):
       # mounted read only
-      RunShellCommand('mount -o remount,rw %s' % dev)
+      run_shell_command('mount -o remount,rw %s' % dev)
     return line.split()[2]  # Mountpoint is the third element of the output
   # Not found, needs to be mounted
-  RunShellCommand('mount %s %s' % (dev, tmp_dir))
+  run_shell_command('mount %s %s' % (dev, tmp_dir))
   return tmp_dir
 
 
-def HandleUpstartScript(base_partition, install):
+def handle_upstart_script(base_partition, install):
   '''Install or remove the SAFT upstart script.
 
   When the test prepares to start, this function is invoked to install the
@@ -331,7 +327,7 @@ def HandleUpstartScript(base_partition, install):
   scripts from all three locations.
   '''
 
-  if not TargetHosted():
+  if not target_hosted():
     print 'bypassing upstart management'
     return
 
@@ -341,17 +337,17 @@ def HandleUpstartScript(base_partition, install):
   tmp_dir = tempfile.mkdtemp()
 
   # Find out our file name off the root of the device
-  mount_point = (RunShellCommandGetOutput('df %s' % mydir)[-1]).split()[-1]
+  mount_point = (run_shell_command_get_output('df %s' % mydir)[-1]).split()[-1]
   this_prog = prog_real_path[len(mount_point):]
 
-  for line in RunShellCommandGetOutput('blkid'):
+  for line in run_shell_command_get_output('blkid'):
     m = label_pattern.search(line)
     if not m:
       continue
     dev = m.groups(0)[0]
-    mount_point = GetWriteableMountPoint('/dev/' + dev, tmp_dir)
+    mount_point = get_writeable_mount_point('/dev/' + dev, tmp_dir)
     file_name = mount_point + UPSTART_SCRIPT
-    Log('Handling ' + file_name)
+    log('Handling ' + file_name)
     if install:
       us = open(file_name, 'w')
       us.write(upstart_script_template % (
@@ -361,12 +357,12 @@ def HandleUpstartScript(base_partition, install):
     else:
       os.unlink(file_name)
     if mount_point.startswith(tmp_dir):
-      RunShellCommand('umount %s' % (tmp_dir))
+      run_shell_command('umount %s' % (tmp_dir))
 
   os.rmdir(tmp_dir)
 
 
-def InitFwTest(opt_dictionary, base_partition, mydir, acpi_dir=ACPI_DIR):
+def init_fw_test(opt_dictionary, base_partition, mydir, acpi_dir=ACPI_DIR):
   """Prepare firmware test context.
 
   This function tries creating the state directory for the fw test and
@@ -384,28 +380,28 @@ def InitFwTest(opt_dictionary, base_partition, mydir, acpi_dir=ACPI_DIR):
     raise FwError('state directory %s exists' % state_dir)
   try:
     os.mkdir(state_dir)
-    Log('Automated firmware test log generated on %s' %(
+    log('Automated firmware test log generated on %s' %(
         datetime.datetime.strftime(datetime.datetime.now(), '%b %d %Y')))
-    Log('Original boot state %s' % BootStateVector())
+    log('Original boot state %s' % boot_state_vector())
 
     # add more header data here
   except OSError, e:
     raise FwError(e)
 
   fw_image = opt_dictionary['image_file']
-  flashrom_handler.NewImage()
-  flashrom_handler.VerifyImage()
-  flashrom_handler.DumpWhole(os.path.join(state_dir, FW_BACKUP_FILE))
-  flashrom_handler.NewImage(fw_image)
-  flashrom_handler.VerifyImage()
-  HandleUpstartScript(base_partition, True)
+  FlashromHandler.new_image()
+  FlashromHandler.verify_image()
+  FlashromHandler.dump_whole(os.path.join(state_dir, FW_BACKUP_FILE))
+  FlashromHandler.new_image(fw_image)
+  FlashromHandler.verify_image()
+  handle_upstart_script(base_partition, True)
   shutil.copyfile(os.path.join(ACPI_DIR, 'FWID'),
                   os.path.join(state_dir, FWID_BACKUP_FILE))
   shutil.copyfile(fw_image, os.path.join(state_dir, FW_COPY_FILE))
-  SetStep(0)
+  set_step(0)
 
 
-def NextStep(base_partition):
+def next_step(base_partition):
   '''Function to execute a single SAFT step.
 
   This function is running after each reboot. It determines the current step
@@ -413,50 +409,50 @@ def NextStep(base_partition):
   and then restats the machine.
   '''
 
-  this_step = GetStep()
-  flashrom_handler.NewImage(os.path.join(state_dir, FW_COPY_FILE))
+  this_step = get_step()
+  FlashromHandler.new_image(os.path.join(state_dir, FW_COPY_FILE))
 
   if this_step == 0:
     shutil.copyfile(os.path.join(ACPI_DIR, 'FWID'),
                     os.path.join(state_dir, FWID_NEW_FILE))
 
-    if VerifyFwId(FWID_BACKUP_FILE):
+    if verify_fw_id(FWID_BACKUP_FILE):
       # we expected FWID to change, but it did not - have the firmware been
       # even replaced?
-      Log('New firmware - old FWID')
+      log('New firmware - old FWID')
       sys.exit(1)
   test_state_tuple = test_state_sequence[this_step]
   expected_vector = test_state_tuple[0]
   action = test_state_tuple[1]
-  boot_vector = BootStateVector()
-  Log('Rebooted into state %s on step %d' % (boot_vector, this_step))
-  if action and not VerifyFwId(FWID_NEW_FILE):
-    Log('Error: Wrong FWID value')
+  boot_vector = boot_state_vector()
+  log('Rebooted into state %s on step %d' % (boot_vector, this_step))
+  if action and not verify_fw_id(FWID_NEW_FILE):
+    log('Error: Wrong FWID value')
     sys.exit(1)
 
   if boot_vector != expected_vector:
-    Log('Error: Wrong boot vector, %s was expected' % expected_vector)
+    log('Error: Wrong boot vector, %s was expected' % expected_vector)
     sys.exit(1)
   if not action:
-    if not VerifyFwId(FWID_BACKUP_FILE):
-      Log('Error: Failed to restore to original firmware')
+    if not verify_fw_id(FWID_BACKUP_FILE):
+      log('Error: Failed to restore to original firmware')
       sys.exit(1)
-    Log('Removing upstart scripts')
-    HandleUpstartScript(base_partition, False)
-    Log('we are done!')
+    log('Removing upstart scripts')
+    handle_upstart_script(base_partition, False)
+    log('we are done!')
     sys.exit(0)
   if len(test_state_tuple) > 2:
-    Log('calling %s with parameter %s' % (
+    log('calling %s with parameter %s' % (
         str(action), str(test_state_tuple[2])))
     action(test_state_tuple[2])
   else:
-    Log('calling %s' % str(action))
+    log('calling %s' % str(action))
     action()
-  SetStep(this_step + 1)
-  RunShellCommand('reboot')
+  set_step(this_step + 1)
+  run_shell_command('reboot')
 
 
-def CheckRuntimeEnv(mydir):
+def check_runtime_env(mydir):
   """Ensure that the script is running in proper environment.
 
   This involves checking that the script is running off a removable device,
@@ -465,11 +461,11 @@ def CheckRuntimeEnv(mydir):
   # Drop trailing digit(s) and letter(s) (if any)
   dev_name_stripper = re.compile('[0-9].*$')
 
-  line = RunShellCommandGetOutput('df %s' % mydir)[-1]
+  line = run_shell_command_get_output('df %s' % mydir)[-1]
 
   base_partition = line.split()[0]
   if base_partition == '/dev/root':
-    base_partition = RunShellCommandGetOutput('rootdev')[0]
+    base_partition = run_shell_command_get_output('rootdev')[0]
 
   base_dev = dev_name_stripper.sub('', base_partition.split('/')[2])
   removable = int(open('/sys/block/%s/removable' % base_dev, 'r').read())
@@ -482,13 +478,13 @@ def CheckRuntimeEnv(mydir):
   state_fs = '/dev/%s1' % base_dev
 
   # is state file system mounted?
-  for line in RunShellCommandGetOutput('mount'):
+  for line in run_shell_command_get_output('mount'):
     if line.startswith('%s on %s' % (state_fs, env_root)):
       state_root = env_root
       break
   else:
     tmp_dir = tempfile.mkdtemp()
-    RunShellCommand('mount %s %s' % (state_fs, tmp_dir))
+    run_shell_command('mount %s %s' % (state_fs, tmp_dir))
     state_root = '%s%s' % (tmp_dir, env_root)
 
   global state_dir
@@ -497,9 +493,9 @@ def CheckRuntimeEnv(mydir):
   return base_partition
 
 
-def Main(args):
+def main(args):
   # Process command line options
-  opts, params = getopt.gnu_getopt(args, '', GetOptionsSet())
+  opts, params = getopt.gnu_getopt(args, '', get_options_set())
   if (params):
     raise FwError('unrecognized parameters: %s' % ' '.join(params))
 
@@ -508,48 +504,49 @@ def Main(args):
     opt_dictionary[name.lstrip('-')] = value
 
   mydir = os.path.dirname(os.path.realpath(progname))
-  base_partition = CheckRuntimeEnv(mydir)
+  base_partition = check_runtime_env(mydir)
 
-  flashrom_handler.Init(flashrom_util, state_dir, opt_dictionary.get('pub_key'))
+  FlashromHandler.init(client.common_lib.flashrom_util,
+                        state_dir, opt_dictionary.get('pub_key'))
 
   if 'next_step' in opt_dictionary:
     if len(opt_dictionary) != 1:
-      Usage('--next_step (when specified) must be the only parameter', 1)
-    NextStep(base_partition)
+      usage('--next_step (when specified) must be the only parameter', 1)
+    next_step(base_partition)
     sys.exit(0)
 
   # check if all executables are available
   missing_execs = []
   for p in required_programs.split(' '):
-    if not ExecExists(p):
+    if not exec_exists(p):
       missing_execs.append(p)
   if missing_execs:
-    Usage('Program(s) %s not found in PATH' % (' '.join(missing_execs)), 1)
+    usage('Program(s) %s not found in PATH' % (' '.join(missing_execs)), 1)
 
   for req_param in 'image_file pub_key'.split(' '):
     if req_param not in opt_dictionary:
-      Usage(rv=1)
+      usage(rv=1)
 
-  InitFwTest(opt_dictionary, base_partition, mydir)
-  Log('program the new image')
-  flashrom_handler.WriteWhole()
-  Log('restart')
-  RunShellCommand('reboot')
+  init_fw_test(opt_dictionary, base_partition, mydir)
+  log('program the new image')
+  FlashromHandler.write_whole()
+  log('restart')
+  run_shell_command('reboot')
   return 0
 
 
 if __name__ == '__main__':
   progname = os.path.basename(sys.argv[0])
   try:
-    Main(sys.argv[1:])
+    main(sys.argv[1:])
 
   except (getopt.GetoptError, ImportError):
-    Usage(sys.exc_info()[1], 1)
+    usage(sys.exc_info()[1], 1)
 
-  except (FwError, saft.flashrom_handler.FlashromHandlerError):
+  except (FwError, flashrom_handler.FlashromHandlerError):
     msg = 'Error: %s' % str(sys.exc_info()[1])
     print msg
-    Log(msg)
+    log(msg)
     sys.exit(1)
 
   sys.exit(0)

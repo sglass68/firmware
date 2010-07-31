@@ -25,6 +25,7 @@ import tempfile
 import unittest
 
 import flashrom_handler
+import flashrom_util
 
 progname = os.path.basename(sys.argv[0])
 pub_key_file = None
@@ -45,34 +46,34 @@ class TestFlashromHandler(unittest.TestCase):
   def setUp(self):
     self.tmpd = tempfile.mkdtemp()
     self.fh = flashrom_handler.FlashromHandler()
-    self.fh.Init(flashrom_util, self.tmpd, pub_key_file)
+    self.fh.init(flashrom_util, self.tmpd, pub_key_file)
 
-  def test_ImageRead(self):
-    self.fh.NewImage(test_fd_file)
-    self.fh.VerifyImage()
+  def test_image_read(self):
+    self.fh.new_image(test_fd_file)
+    self.fh.verify_image()
 
-  def test_ImageCorruptRestore(self):
+  def test_image_corrupt_restore(self):
     image_name = os.path.join(self.tmpd, 'tmp.image')
-    self.fh.NewImage(test_fd_file)
-    self.fh.VerifyImage()
-    self.fh.DumpWhole(image_name)
-    self.fh.NewImage(image_name)
-    self.fh.VerifyImage()
+    self.fh.new_image(test_fd_file)
+    self.fh.verify_image()
+    self.fh.dump_whole(image_name)
+    self.fh.new_image(image_name)
+    self.fh.verify_image()
     for section in ('a', 'b'):
       corrupted_file_name = image_name + section
-      corrupted_subsection = self.fh.CorruptSection(section)
-      self.fh.DumpWhole(corrupted_file_name)
-      self.fh.NewImage(corrupted_file_name)
+      corrupted_subsection = self.fh.corrupt_section(section)
+      self.fh.dump_whole(corrupted_file_name)
+      self.fh.new_image(corrupted_file_name)
       try:
-        self.fh.VerifyImage()
+        self.fh.verify_image()
       except flashrom_handler.FlashromHandlerError, e:
         self.assertEqual(e[0], 'Failed verifying ' + corrupted_subsection)
 
-      self.fh.RestoreSection(section)
-      self.fh.DumpWhole(corrupted_file_name)
-      self.fh.NewImage(corrupted_file_name)
-      self.fh.VerifyImage()
-      self.fh.NewImage(image_name)
+      self.fh.restore_section(section)
+      self.fh.dump_whole(corrupted_file_name)
+      self.fh.new_image(corrupted_file_name)
+      self.fh.verify_image()
+      self.fh.new_image(image_name)
 
   def tearDown(self):
     shutil.rmtree(self.tmpd)
@@ -85,5 +86,4 @@ if __name__ == '__main__':
     test_fd_file = sys.argv[2]
   sys.argv = sys.argv[0:1]
   sys.path.append('../x86-generic')
-  flashrom_util = __import__('flashrom_util')
   unittest.main()
