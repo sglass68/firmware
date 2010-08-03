@@ -8,9 +8,9 @@
 # It requires:
 #  - at least one BIOS image and/or EC image (*.bin / *.fd)
 #  - flashrom(8) as native binary tool
-#  - $BOARD/install_firmware script to execute flashrom(8)
-#  - shellball.sh.template as the stub script template for output
-#  - any other additional files used by install_firmware in $BOARD folder
+#  - pack_dist/install_firmware script to execute flashrom(8)
+#  - pack_stub as the template/stub script for output
+#  - any other additional files used by install_firmware in pack_dist folder
 
 # Load common constants.  This should be the first executable line.
 # The path to common.sh should be relative to your script's location.
@@ -49,20 +49,14 @@ fi
 # we need following tools to be inside a package:
 #  - flashrom(8): native binary tool
 #  - iotools: native binary tool
-#  - $BOARD/install_firmware
-#  - all files in $BOARD (usually used by install_firmware like selectors)
+#  - pack_dist/install_firmware
+#  - all files in pack_dist (usually used by install_firmware like selectors)
 
-board_base="$script_base/${FLAGS_board}"
-if [ ! -d "$board_base" ] && \
-   [ -d "$script_base/${FLAGS_board/-*/-generic}" ]; then
-   board_base="${script_base}/${FLAGS_board/-*/-generic}"
-   # echo "FLAGS_board changed to: ${board_base}"
-fi
-
+pack_dist="$script_base/pack_dist"
 flashrom_bin="${FLAGS_flashrom}"
 iotools_bin="${FLAGS_iotools}"
-install_firmware_script="$board_base/install_firmware"
-template_file="$script_base/shellball.sh.template"
+install_firmware_script="$pack_dist/install_firmware"
+stub_file="$script_base/pack_stub"
 
 function do_cleanup {
   if [ -d "$tmpbase" ]; then
@@ -83,7 +77,7 @@ which uuencode >/dev/null || err_die "ERROR: You need uuencode(sharutils)"
 
 # check required basic files
 for X in "$flashrom_bin" "$iotools_bin" \
-         "$install_firmware_script" "$template_file"; do
+         "$install_firmware_script" "$stub_file"; do
   if [ ! -r "$X" ]; then
     err_die "ERROR: Cannot find required file: $X"
   fi
@@ -122,11 +116,11 @@ if [ "$ec_bin" != "" ]; then
   echo "EC image:    $(md5sum -b "$ec_bin")" >> "$version_file"
 fi
 
-# copy other resources files from $board
+# copy other resources files from pack_dist
 # XXX do not put any files with dot in prefix ( eg: .blah )
 cp -p "$flashrom_bin" "$tmpbase"/flashrom || err_die "cannot copy tool flashrom"
 cp -p "$iotools_bin" "$tmpbase"/iotools || err_die "cannot copy tool iotools"
-cp -rp "$board_base"/* "$tmpbase" || err_die "cannot copy board folder"
+cp -rp "$pack_dist"/* "$tmpbase" || err_die "cannot copy pack_dist folder"
 chmod a+rx "$tmpbase"/flashrom "$tmpbase"/iotools "$tmpbase"/install_firmware
 
 # copy extra files. if $FLAGS_extra is a folder, copy all content inside.
@@ -150,12 +144,12 @@ Package Content:" >> "$version_file"
 # TODO(hungte) use 'shar' instead?
 output="${FLAGS_output}"
 if [ "$output" == "-" ]; then
-  (cat "$template_file" &&
+  (cat "$stub_file" &&
    tar zcf - -C "$tmpbase" . | uuencode firmware_package.tgz) ||
   err_die "ERROR: Failed to archive firmware package"
 else
   # we can provide more information when output is not stdout
-  (cat "$template_file" &&
+  (cat "$stub_file" &&
    tar zcf - -C "$tmpbase" . | uuencode firmware_package.tgz) > "$output" ||
    err_die "ERROR: Failed to archive firmware package"
   chmod a+rx "$output"
