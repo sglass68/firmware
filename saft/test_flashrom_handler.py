@@ -24,6 +24,7 @@ import sys
 import tempfile
 import unittest
 
+import chromeos_interface
 import flashrom_handler
 import flashrom_util
 
@@ -47,8 +48,12 @@ class TestFlashromHandler(unittest.TestCase):
 
     def setUp(self):
         self.tmpd = tempfile.mkdtemp()
+        shutil.rmtree(self.tmpd)
         self.fh = flashrom_handler.FlashromHandler()
-        self.fh.init(flashrom_util, self.tmpd, pub_key_file)
+        chros_if = chromeos_interface.ChromeOSInterface(True)
+        chros_if.init(self.tmpd, 'logfile')
+        chros_if.init_environment()
+        self.fh.init(flashrom_util, chros_if, pub_key_file)
 
     def test_image_read(self):
         self.fh.new_image(test_fd_file)

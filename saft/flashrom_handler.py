@@ -11,7 +11,6 @@ flashrom chip and to parse the flash rom image.
 See docstring for FlashromHandler class below.
 '''
 
-import os
 import subprocess
 
 
@@ -39,7 +38,7 @@ class FlashromHandler(object):
     # make sure it does not accidentally overwrite the image.
         self.fum = None
         self.bios_layout = None
-        self.state_dir = None
+        self.chros_if = None
         self.image = ''
         self.pub_key_file = ''
         self.fv_sections = {
@@ -47,30 +46,32 @@ class FlashromHandler(object):
             'b': FvImage('VBOOTB', 'FVMAINB'),
             }
 
-    def init(self, flashrom_util_module, state_dir, pub_key_file,):
-    # make sure it does not accidentally overwrite the image.
+    def init(self, flashrom_util_module, chros_if, pub_key_file):
+        '''Flashrom handler initializer.
+
+        Args:
+          flashrom_util_module - a module providing flashrom access utilities.
+          chros_if - a module providing interface to Chromium OS services
+          pub_key_file - a string, name of the file contaning a public key to
+                         use for verifying both existing and new firmware.
+        '''
         self.fum = flashrom_util_module.flashrom_util()
-        self.state_dir = state_dir
+        self.chros_if = chros_if
         self.pub_key_file = pub_key_file
-
-    def _state_file(self, name):
-        '''Return full path name of a given file in the state directory.'''
-
-        return os.path.join(self.state_dir, name)
 
     def new_image(self, image_file=None):
         '''Parse the full flashrom image and store sections into files.
 
-    Args:
-      image_file - a string, the name of the file contaning full ChromeOS
-                   flashrom image. If not passed in or empty - the actual
-                   flashrom is read and its contents are saved into a temp.
-                   file which is used instead.
+        Args:
+          image_file - a string, the name of the file contaning full ChromeOS
+                       flashrom image. If not passed in or empty - the actual
+                       flashrom is read and its contents are saved into a
+                       temporary file which is used instead.
 
-    The input file is parsed and the sections of importance (as defined in
-    self.fv_sections) are saved in separate files in self.state_dir.
-
-    '''
+        The input file is parsed and the sections of importance (as defined in
+        self.fv_sections) are saved in separate files in the state directory
+        as defined in the chros_if object.
+        '''
 
         if image_file:
             self.image = open(image_file, 'rb').read()
@@ -83,7 +84,7 @@ class FlashromHandler(object):
 
         for section in self.fv_sections.itervalues():
             for subsection_name in section.names():
-                f = open(self._state_file(subsection_name), 'wb')
+                f = open(self.chros_if.state_dir_file(subsection_name), 'wb')
                 f.write(self.fum.get_section(self.image,
                                              self.bios_layout, subsection_name))
                 f.close()
@@ -91,19 +92,19 @@ class FlashromHandler(object):
     def verify_image(self):
         '''Confirm the image's validity.
 
-    Using the file supplied to init() as the public key container verify the
-    two sections' (FirmwareA and FirmwareB) integrity. The contents of the
-    sections is taken from the files created by new_image()
+        Using the file supplied to init() as the public key container verify
+        the two sections' (FirmwareA and FirmwareB) integrity. The contents of
+        the sections is taken from the files created by new_image()
 
-    In case there is an integrity error raises FlashromHandlerError exception
-    with the appropriate error message text.
-    '''
+        In case there is an integrity error raises FlashromHandlerError
+        exception with the appropriate error message text.
+        '''
 
         for section in self.fv_sections.itervalues():
             cmd = 'vbutil_firmware --verify %s --signpubkey %s  --fv %s' % (
-                self._state_file(section.sig_name),
+                self.chros_if.state_dir_file(section.sig_name),
                 self.pub_key_file,
-                self._state_file(section.body_name))
+                self.chros_if.state_dir_file(section.body_name))
             p = subprocess.Popen(cmd.split(), stdout=subprocess.PIPE,
                                  stderr=subprocess.PIPE)
             p.wait()
@@ -114,12 +115,12 @@ class FlashromHandler(object):
     def _modify_section(self, section, delta):
         '''Modify a firmware section inside the image.
 
-    The passed in delta is added to the value located at 5% offset into the
-    section body.
+        The passed in delta is added to the value located at 5% offset into
+        the section body.
 
-    Calling this function again for the same section the complimentary delta
-    value would restore the section contents.
-    '''
+        Calling this function again for the same section the complimentary
+        delta value would restore the section contents.
+        '''
 
         if not self.image:
             raise FlashromHandlerError(
@@ -127,12 +128,13 @@ class FlashromHandler(object):
         if section not in self.fv_sections:
             raise FlashromHandlerError('Unknown FW section %s'
                                        % section)
-    # get the appropriate section of the image
+
+        # Get the appropriate section of the image.
         subsection_name = self.fv_sections[section].body_name
         body = self.fum.get_section(self.image, self.bios_layout,
                                     subsection_name)
 
-    # corrupt a byte in it
+        # Modify the byte in it within 5% of the section body.
         index = len(body) / 20
         body_list = list(body)
         body_list[index] = '%c' % ((ord(body[index]) + delta) % 0x100)
