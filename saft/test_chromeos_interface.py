@@ -32,5 +32,12 @@ class TestShellCommands(unittest.TestCase):
         live_text = CHROS_IF.run_shell_command_get_output(self.TEST_CMD)
         self.assertEqual(live_text, self.expected_text.split('\n'))
 
+    def test_boot_state_vector(self):
+        '''Verify the format (not the contents) of the boot vector.'''
+        bv = CHROS_IF.boot_state_vector()
+        self.assertEqual(bv.count(':'), 4)
+        self.assertEqual(len(bv), 9)
+
+
 if __name__ == '__main__':
     unittest.main()

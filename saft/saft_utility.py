@@ -162,29 +162,20 @@ class FirmwareTest(object):
       This involves checking that the script is running off a removable
       device, configuring proper file names for logging, etc.
       '''
-
-        # Drop trailing digit(s) and letter(s) (if any)
-        dev_name_stripper = re.compile('[0-9].*$')
-
         line = self.chros_if.run_shell_command_get_output(
             'df %s' % self.mydir)[-1]
 
         self.base_partition = line.split()[0]
         if self.base_partition == '/dev/root':
-            self.base_partition = self.chros_if.run_shell_command_get_output(
-                'rootdev')[0]
+            self.base_partition = self.chros_if.get_root_dev()
 
-        base_dev = dev_name_stripper.sub('', self.base_partition.split('/')[2])
-        removable = int(open('/sys/block/%s/removable' % base_dev, 'r'
-                             ).read())
-
-        if not removable:
+        if not self.chros_if.is_removable_device(self.base_partition):
             raise FwError(
                 'This test must run off a removable device, not /dev/%s'
                 % base_dev)
 
         env_root = '/var'
-        state_fs = '/dev/%s1' % base_dev
+        state_fs = '%s1' % self.base_partition[:-1]
 
       # is state file system mounted?
         for line in self.chros_if.run_shell_command_get_output('mount'):
@@ -336,11 +327,11 @@ FST = FirmwareTest()
 # function.
 
 TEST_STATE_SEQUENCE = (
-    ('1:1:0', FST.set_try_fw_b),
-    ('1:2:0', lambda : None),
-    ('1:1:0', FST.corrupt_firmware, 'a'),
-    ('1:2:0', FST.restore_firmware),
-    ('1:1:0', None),
+    ('1:1:0:0:3', FST.set_try_fw_b),
+    ('1:2:0:0:3', lambda : None),
+    ('1:1:0:0:3', FST.corrupt_firmware, 'a'),
+    ('1:2:0:0:3', FST.restore_firmware),
+    ('1:1:0:0:3', None),
     )
 
 

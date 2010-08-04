@@ -137,6 +137,28 @@ class ChromeOSInterface(object):
             raise ChromeOSInterfaceError('command %s failed' % cmd)
         return process
 
+    def is_removable_device(self, device):
+        '''Check if a certain storage device is removable.
+
+        device - a string, file name of a storage device or a device partition
+                 (as in /dev/sda[0-9]).
+
+        Returns True if the device is removable, False if not.
+        '''
+
+        # Drop trailing digit(s) and letter(s) (if any)
+        dev_name_stripper = re.compile('[0-9].*$')
+
+        base_dev = dev_name_stripper.sub('', device.split('/')[2])
+        removable = int(open('/sys/block/%s/removable' % base_dev, 'r'
+                             ).read())
+
+        return removable == 1
+
+    def get_root_dev(self):
+        '''Return a string, the name of the root device'''
+        return self.run_shell_command_get_output('rootdev')[0]
+
     def run_shell_command_get_output(self, cmd):
         '''Run shell command and return its console output to the caller.
 
@@ -147,13 +169,26 @@ class ChromeOSInterface(object):
         return [x.rstrip() for x in process.stdout.readlines()]
 
     def boot_state_vector(self):
-        '''Read and return to caller a ':' concatenated BINF files contents.'''
+        '''Read and return to caller a string describing the system state.
+
+        The string has a form of x:x:x:<removable>:<partition_number>, where
+        x' represent contents of the appropriate BINF files as reported by
+        ACPI, <removable> is set to 1 or 0 depending if the root device is
+        removable or not, and <partition number> is the last element of the
+        root device name, designating the partition where the root fs is
+        mounted.
+
+        This vector fully describes the way the system came up.
+        '''
 
         binf_fname_template = 'BINF.%d'
         state = []
         for index in range(3):
             fname = os.path.join(self.acpi_dir, binf_fname_template % index)
             state.append(open(fname, 'r').read())
+        root_dev = self.get_root_dev()
+        state.append('%d' % int(self.is_removable_device(root_dev)))
+        state.append('%s' % root_dev[-1])
         state_str = ':'.join(state)
         return state_str
 
