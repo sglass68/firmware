@@ -711,10 +711,9 @@ function flashrom_verify_sections() {
           err_die "invalid section in $section1 $section2"
         len1=${#blob1}
         len2=${#blob2}
-        test "$len1" = "$len2" \
-          || err_die "flashrom_verify_sections: unmatched length: " \
-                     "$section1:$len1 $section2:$len2"
-        debug_msg "section1[$section1]: $len1, section2[$section2]: $len2"
+        # XXX we can't check "$len1=$len2" because cat results may be very
+        # different.
+        debug_msg "(cat) section1[$section1]:$len1, section2[$section2]:$len2"
         test $len1 -gt 0 || err_die "empty section!? check $section1"
         test $len2 -gt 0 || err_die "empty section!? check $section2"
         test "$blob1" = "$blob2" || result=$?
@@ -985,6 +984,14 @@ function update_firmware() {
   flashrom_select_target $code
   echo "  - reading current flashrom image"
   flashrom_read_whole
+
+  # Check if target image size is same as current flashrom chip.
+  # TODO(hungte) In the future we may allow expanding image to real flashrom
+  # chips, but let's assume they must be the same now.
+  test "$(echo_file_size $current_fname)" = "$(echo_file_size $image_fname)" \
+    || err_die "Target image size=$(echo_file_size $image_fname) is" \
+               "different from real flashrom=$(echo_file_size $current_fname)"
+
   flashrom_detect_layout $code
   flashrom_set_skip_verify_list "$7"
 
