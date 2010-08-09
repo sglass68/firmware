@@ -59,6 +59,7 @@ def get_upstart_scripts():
         if tmp_dir:
             ChrosIf.run_shell_command('umount %s' % tmp_dir)
             os.rmdir(tmp_dir)
+            tmp_dir = None
     return scripts
 
 

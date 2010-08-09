@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 
 # Source of ACPI information on ChromeOS machines.
 ACPI_DIR = '/sys/bus/platform/devices/chromeos_acpi'
@@ -32,7 +33,7 @@ class ChromeOSInterface(object):
         self.log_file = None
         self.acpi_dir = ACPI_DIR
 
-    def init(self, state_dir, log_file):
+    def init(self, state_dir=None, log_file=None):
         '''Initialize the ChromeOS interface object.
         Args:
           state_dir - a string, the name of the directory (as defined by the
@@ -40,9 +41,15 @@ class ChromeOSInterface(object):
                       system restarts and power cycles.
           log_file - a string, the name of the log file kept in the state
                      directory.
+
+        Default argument values support unit testing.
         '''
         self.state_dir = state_dir
-        self.log_file = os.path.join(state_dir, log_file)
+
+        if state_dir and log_file:
+            self.log_file = os.path.join(state_dir, log_file)
+        else:
+            self.log_file = None
 
     def target_hosted(self):
         '''Return True if running on a ChromeOS target.'''
@@ -57,19 +64,30 @@ class ChromeOSInterface(object):
         return os.path.join(self.acpi_dir, file_name)
 
     def init_environment(self):
-        '''Initialize Chrome OS interface environment.'''
+        '''Initialize Chrome OS interface environment.
+
+        If state dir was not set up by the constructor, create a temp
+        directory, otherwise create the directory defined during construction
+        of this object.
+
+        Return the state directory name.
+        '''
 
         if self.target_hosted() and not os.path.exists(self.acpi_dir):
             raise ChromeOSInterfaceError(
                 'ACPI directory %s not found' % self.acpi_dir)
 
-        if os.path.exists(self.state_dir):
-            raise ChromeOSInterfaceError(
-                'state directory %s exists' % self.state_dir)
-        try:
-            os.mkdir(self.state_dir)
-        except OSError, err:
-            raise ChromeOSInterfaceError(err)
+        if self.state_dir:
+            if os.path.exists(self.state_dir):
+                raise ChromeOSInterfaceError(
+                    'state directory %s exists' % self.state_dir)
+            try:
+                os.mkdir(self.state_dir)
+            except OSError, err:
+                raise ChromeOSInterfaceError(err)
+        else:
+            self.state_dir = tempfile.mkdtemp()
+        return self.state_dir
 
     def shut_down(self, new_log='/var/saft_log.txt'):
         '''Destroy temporary environment so that the test can be restarted.'''
@@ -87,8 +105,8 @@ class ChromeOSInterface(object):
         if not self.silent:
             print text
 
-        if not self.log_file:
-            # called before log file name was set, ignore.
+        if not self.log_file or not os.path.exists(self.state_dir):
+            # Called before environment was initialized, ignore.
             return
 
         timestamp = datetime.datetime.strftime(

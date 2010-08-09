@@ -11,8 +11,6 @@ flashrom chip and to parse the flash rom image.
 See docstring for FlashromHandler class below.
 '''
 
-import subprocess
-
 
 class FvImage(object):
     '''An object to hold names of matching signature and firmware sections.'''
@@ -105,12 +103,7 @@ class FlashromHandler(object):
                 self.chros_if.state_dir_file(section.sig_name),
                 self.pub_key_file,
                 self.chros_if.state_dir_file(section.body_name))
-            p = subprocess.Popen(cmd.split(), stdout=subprocess.PIPE,
-                                 stderr=subprocess.PIPE)
-            p.wait()
-            if p.returncode:
-                raise FlashromHandlerError('Failed verifying %s'
-                                           % section.body_name)
+            self.chros_if.run_shell_command(cmd)
 
     def _modify_section(self, section, delta):
         '''Modify a firmware section inside the image.
