@@ -100,6 +100,7 @@ CHROMEOS_NEED_FOREGROUND_UPDATE_TARGETS="ec"
 
 # List of those targets requiring to reboot immediately after updates
 # (eg, Embedded Controller, because it will freeze keyboard)
+# Note: does not apply to factory, as factory install is noninteractive.
 CHROMEOS_NEED_DIRECT_REBOOT_UPDATE_TARGETS="ec"
 
 # Set this to 1 for more messages
@@ -857,7 +858,9 @@ function chromeos_post_update() {
   check_param "chromeos_post_update(target)" "$@"
 
   # check if we need to reboot directly (usually keyboard hang)
-  if in_list "$1" "$CHROMEOS_NEED_DIRECT_REBOOT_UPDATE_TARGETS"; then
+  # We never need to reboot in factory mode.
+  if [ "$is_factory" = "0" ] && \
+     in_list "$1" "$CHROMEOS_NEED_DIRECT_REBOOT_UPDATE_TARGETS"; then
     echo "  ** this update needs to reboot system immediately. **"
     debug_msg "going to reboot NOW"
     sync
