@@ -14,44 +14,46 @@
 # If you want to customize any of these parameters, make a script and name it
 # as the constant string in CUSTOM_SCRIPT_FILENAME.
 
-# The script to be loaded for customization. You cannot change this value.
+# The script to be loaded for customization;
+# please put all your own settings in this file.
 CUSTOM_SCRIPT_FILENAME="install_firmware_custom.sh"
 
-# File names of carried (target) image files
+# Default file names of carried (target) image files
 BIOS_IMAGE_FILENAME='bios.bin'
 EC_IMAGE_FILENAME='ec.bin'
 
 # flashrom(8) tool path, can be changed to use system default flashrom
 FLASHROM_TOOLPATH='./flashrom'
 
-# Chrome OS ACPI folder. Usually you will only change this for debug purpose.
+# Default Chrome OS ACPI folder. You should only change this for debug/test
 CHROMEOS_ACPI_ROOT='/sys/devices/platform/chromeos_acpi'
 
-# Command to initialize ACPI driver
+# Default command to initialize ACPI driver
 CHROMEOS_ACPI_INIT_CMD='modprobe chromeos_acpi'
 
-# Command to reboot immediately
+# Default command to reboot immediately
 CHROMEOS_REBOOT_CMD="reboot"
 
-# Chrome OS control tag file to request firmware update after reboot
+# Default Chrome OS control tag file to request firmware update after reboot
 CHROMEOS_NEED_REBOOT_TAG='/mnt/stateful_partition/.need_firmware_update'
 
-# Chrome OS factory mode control tag files (see chromeos_startup)
+# Default Chrome OS factory mode control tag files (see chromeos_startup)
 CHROMEOS_FACTORY_TEST_TAG='/root/.factory_test'
 CHROMEOS_FACTORY_INSTALLER_TAG='/root/.factory_installer'
 
-# Command to change boot index
+# Default command to change boot index.
 CHROMEOS_CHANGE_BOOT_INDEX_CMD='/usr/sbin/reboot_mode --try_firmware_b=1'
 
-# Command to select BIOS as flashrom target
+# Default command to select BIOS as flashrom target
 CHROMEOS_SELECT_BIOS_CMD='
 iotools mmio_write32 0xfed1f410 `iotools mmio_read32 0xfed1f410 |head -c 6`0460'
 
-# Command to select EC (Embedded Controller) as flashrom target
+# Default command to select EC (Embedded Controller) as flashrom target
 CHROMEOS_SELECT_EC_CMD='
 iotools mmio_write32 0xfed1f410 `iotools mmio_read32 0xfed1f410 |head -c 6`0c60'
 
-# Chrome OS BIOS firmware memory layout
+# Default Chrome OS BIOS firmware memory layout,
+# overwrite this if you plan to support different layout
 CHROMEOS_BIOS_LAYOUT_DESC="
   FV_LOG          = 0x20000,
   NV_COMMON_STORE = 0x10000,
@@ -68,7 +70,7 @@ CHROMEOS_BIOS_LAYOUT_DESC="
   FV_BSTUB        = 0x40000,
 "
 
-# Chrome OS BIOS Firmware RO/RW list
+# Default Chrome OS BIOS Firmware RO/RW list
 CHROMEOS_BIOS_RO_LIST="FV_BSTUB FVDEV"
 CHROMEOS_BIOS_RW_A_LIST="VBOOTA FVMAIN"
 CHROMEOS_BIOS_RW_B_LIST="VBOOTB FVMAINB"
@@ -76,32 +78,36 @@ CHROMEOS_BIOS_RW_B_LIST="VBOOTB FVMAINB"
 # we only check/update GBB in factory mode.
 CHROMEOS_BIOS_FACTORY_RO_LIST="FV_BSTUB FV_GBB FVDEV"
 
-# Chrome OS Embedded Controller firmware memory layout
+# Default Chrome OS Embedded Controller firmware memory layout,
+# overwrite this if you plan to support different layout
 CHROMEOS_EC_LAYOUT_DESC="
   EC_RO
   |
   EC_RW
 "
 
-# Chrome OS EC Firmware RO/RW list
+# Default Chrome OS EC Firmware RO/RW list
 CHROMEOS_EC_RO_LIST="EC_RO"
 CHROMEOS_EC_RW_LIST="EC_RW"
 
-# Chrome OS Firmware verification skip List
+# Default Chrome OS Firmware verification skip List
 # Syntax: list of string tuples (separated by ':'): PARTNAME:OFFSET:SIZE
 # Use this when flashrom chip will be automatically changed data during rewrite
 # (eg, time stamp, checksum)
 CHROMEOS_BIOS_SKIP_VERIFY_LIST=""
 CHROMEOS_EC_SKIP_VERIFY_LIST="EC_RO:0x48:4"
 
-# List of those targets requiring foreground execution for updates
+# Default list of those targets requiring foreground execution for updates
 # (eg, Embedded Controller, because it will freeze keyboard)
 CHROMEOS_NEED_FOREGROUND_UPDATE_TARGETS="ec"
 
-# List of those targets requiring to reboot immediately after updates
+# Default list of those targets requiring to reboot immediately after updates
 # (eg, Embedded Controller, because it will freeze keyboard)
 # Note: does not apply to factory, as factory install is noninteractive.
 CHROMEOS_NEED_DIRECT_REBOOT_UPDATE_TARGETS="ec"
+
+# ----------------------------------------------------------------------------
+# Global variables
 
 # Set this to 1 for more messages
 is_verbose=0
@@ -120,9 +126,6 @@ is_rw_only=0
 
 # Set this to 1 to provide debug messages
 is_debug=0
-
-# ----------------------------------------------------------------------------
-# Global variables
 
 # (internal) File name of current flashrom data
 CURRENT_IMAGE='_current.bin'
@@ -361,7 +364,8 @@ function has_command() {
   # Test if some command is available in this system.
   check_param "has_command(cmd)" "$@"
 
-  type "$1" >/dev/null 2>/dev/null || return $?
+  # XXX 'type' in dash does not have '-P' option
+  type "$1" >/dev/null 2>&1 || return $?
 }
 
 function compare_file() {
@@ -481,10 +485,94 @@ function flashrom_select_target() {
   esac
 }
 
-function flashrom_detect_layout() {
-  # Detects flashrom layout by $CURRENT_IMAGE and creates $CURRENT_LAYOUT
-  check_param "flashrom_detect_layout(target)" "$@"
+function flashrom_build_layout_file() {
+  # Creates $CURRENT_LAYOUT file according to current layout information
+  check_param "flashrom_build_layout_file()" "$@"
 
+  # write layout file
+  rm -f $CURRENT_LAYOUT
+  local i=0 name size offset off_beg off_end off_size
+  for name in $LAYOUT_LIST ; do
+    size=$(nth $i $LAYOUT_SIZE)
+    offset=$(nth $i $LAYOUT_OFFSET)
+    off_beg=$(printf '0x%06x' $offset)
+    off_end=$(printf '0x%06x' $(($offset + $size - 1)))
+    off_size=$(printf '0x%06x' $size)
+    echo "$off_beg:$off_end $name" >> $CURRENT_LAYOUT
+    debug_msg "LAYOUT: off=$off_beg size=$off_size $name -> $offset $size"
+    i=$((i + 1))
+  done
+
+  test i != 0 || err_die "empty layout information."
+}
+
+function flashrom_detect_layout_by_fmap_decode() {
+  # Detects flashrom layout by given image file and creates $CURRENT_LAYOUT
+  check_param "flashrom_detect_layout_by_fmap_decode(image_file)" "$@"
+
+  debug_msg "flashrom_detect_layout: by_fmap_decode"
+  local voff vsize vnames pre_parse
+  pre_parse=$(fmap_decode $1) || err_die "failed to decode fmap from file $1"
+  debug_msg "detect_layout_by_fmap_decode"
+  voff=$(echo "$pre_parse" | grep 'area_offset="' | \
+         sed 's/.*area_offset="\([^"]*\)".*/\1/' );
+  vsize=$(echo "$pre_parse" | grep 'area_size="' | \
+         sed 's/.*area_size="\([^"]*\)".*/\1/' );
+  # debug_msg "offsets: $voff"
+  # debug_msg "sizes: $vsize"
+
+  # convert and build name array. Note shell script does not allow spaces in
+  # list, so we convert spaces to '%20' temporary.
+  vnames=$(echo "$pre_parse" | sed 's/" area_/"\tarea_/g' | awk -F '\t' '
+  BEGIN {
+    n="Log Volume"; map[n]="FV_LOG";
+    n="Firmware A Key"; map[n]="VBOOTA";
+    n="Firmware A Data"; map[n]="FVMAIN";
+    n="Firmware B Key"; map[n]="VBOOTB";
+    n="Firmware B Data"; map[n]="FVMAINB";
+    n="Recovery Firmware"; map[n]="FVDEV";
+    n="GBB Area"; map[n]="FV_GBB";
+    n="Boot Stub"; map[n]="FV_BSTUB";
+  }
+  /area_/ {
+    gsub( /.*area_name="/, "" );
+    gsub( /".*/, "" );
+    if ($1 in map)
+      print map[$1];
+    else {
+      gsub( / /, "%20" );
+      print $1;
+    }
+  }
+  ')
+
+  # verify collected information
+  set $voff;    num_voff=$#
+  set $vsize;   num_vsize=$#
+  set $vnames;  num_vnames=$#
+  test $num_voff -eq $num_vsize \
+    || err_die "number of offsets ($num_voff) must match sizes ($num_size)"
+  test $num_voff -eq $num_vnames \
+    || err_die "number of offsets ($num_voff) must match names ($num_names)"
+
+  # rebuild layout information
+  LAYOUT_LIST=$vnames
+  local i=0
+  local name
+  for name in $LAYOUT_LIST; do
+    LAYOUT_SIZE="$LAYOUT_SIZE $(($(nth $i $vsize)))"
+    LAYOUT_OFFSET="$LAYOUT_OFFSET $(($(nth $i $voff)))"
+    i=$(($i + 1))
+  done
+
+  flashrom_build_layout_file
+}
+
+function flashrom_detect_layout_by_default_map() {
+  # Detects flashrom layout by $CURRENT_IMAGE and creates $CURRENT_LAYOUT
+  check_param "flashrom_detect_layout_by_default_map(target)" "$@"
+
+  debug_msg "flashrom_detect_layout: by_default_map"
   if [ ! -s $CURRENT_IMAGE ]; then
     err_die "invalid flashrom image in $CURRENT_IMAGE"
   fi
@@ -501,11 +589,6 @@ function flashrom_detect_layout() {
     * )
       err_die "unknown target for layout detection: $1"
   esac
-
-  # destroy previous layout list
-  LAYOUT_LIST=""
-  LAYOUT_SIZE=""
-  LAYOUT_OFFSET=""
 
   # calculate block size
   local blocks=$(($(echo $layout_desc | sed 's/[^|]//g' | wc -c)))
@@ -556,19 +639,23 @@ function flashrom_detect_layout() {
     offset=$(($offset + $esize))
   done
 
-  # write layout file
-  rm -f $CURRENT_LAYOUT
-  local i=0 off_beg off_end off_size
-  for ename in $LAYOUT_LIST ; do
-    esize=$(nth $i $LAYOUT_SIZE)
-    offset=$(nth $i $LAYOUT_OFFSET)
-    off_beg=$(printf '0x%06x' $offset)
-    off_end=$(printf '0x%06x' $(($offset + $esize - 1)))
-    off_size=$(printf '0x%06x' $esize)
-    echo "$off_beg:$off_end $ename" >> $CURRENT_LAYOUT
-    debug_msg "LAYOUT: off=$off_beg size=$off_size $ename -> $offset $esize"
-    i=$((i + 1))
-  done
+  flashrom_build_layout_file
+}
+
+function flashrom_detect_layout() {
+  # Detects flashrom layout by target code or image file name.
+  check_param "flashrom_detect_layout(target, image_filename)" "$@"
+
+  # destroy previous layout list
+  LAYOUT_LIST=""
+  LAYOUT_SIZE=""
+  LAYOUT_OFFSET=""
+
+  if has_command fmap_decode ; then
+    flashrom_detect_layout_by_fmap_decode $2
+  else
+    flashrom_detect_layout_by_default_map $1
+  fi
 }
 
 function flashrom_section_filename() {
@@ -991,11 +1078,11 @@ function update_firmware() {
   # Check if target image size is same as current flashrom chip.
   # TODO(hungte) In the future we may allow expanding image to real flashrom
   # chips, but let's assume they must be the same now.
-  test "$(echo_file_size $current_fname)" = "$(echo_file_size $image_fname)" \
+  test "$(echo_file_size $current_fname)" -eq "$(echo_file_size $image_fname)" \
     || err_die "Target image size=$(echo_file_size $image_fname) is" \
                "different from real flashrom=$(echo_file_size $current_fname)"
 
-  flashrom_detect_layout $code
+  flashrom_detect_layout $code $image_fname
   flashrom_set_skip_verify_list "$7"
 
   # It is possible to check write protection status via $ACPI_ROOT/BINF.3
