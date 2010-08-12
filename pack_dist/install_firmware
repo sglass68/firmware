@@ -65,6 +65,7 @@ CHROMEOS_BIOS_LAYOUT_DESC="
   FV_RW_RESERVED  = *,
   |
   FV_RO_RESERVED  = *,
+  RO_VPD          = 0x10000,
   FVDEV           = 0xB0000,
   FV_GBB          = 0x20000,
   FV_BSTUB        = 0x40000,
@@ -90,12 +91,17 @@ CHROMEOS_EC_LAYOUT_DESC="
 CHROMEOS_EC_RO_LIST="EC_RO"
 CHROMEOS_EC_RW_LIST="EC_RW"
 
-# Default Chrome OS Firmware verification skip List
+# Default Chrome OS Firmware verification skip list
 # Syntax: list of string tuples (separated by ':'): PARTNAME:OFFSET:SIZE
 # Use this when flashrom chip will be automatically changed data during rewrite
 # (eg, time stamp, checksum)
 CHROMEOS_BIOS_SKIP_VERIFY_LIST=""
 CHROMEOS_EC_SKIP_VERIFY_LIST="EC_RO:0x48:4"
+
+# A list (separated by space) of sections that you want to always preserve, even
+# in factory whole image rewrite. Example: "RO_VPD FV_GBB"
+CHROMEOS_BIOS_PRESERVE_LIST=""
+CHROMEOS_EC_PRESERVE_LIST=""
 
 # Default list of those targets requiring foreground execution for updates
 # (eg, Embedded Controller, because it will freeze keyboard)
@@ -115,17 +121,22 @@ is_verbose=0
 # Set this to 1 to enable background update process
 is_background=0
 
-# Set this to 1 to enable factory test/installer mode
+# Set this to 1 to enable factory test / installer mode
 is_factory=0
+
+# Set this to 1 to check/update only RW parts (skip RO),
+#   0 for RW (A/B at the same time) plus RO code (boot stub / recovery image)
+#   and keep VPD/GBB.
+is_rw_only=1
 
 # Set this to 1 to enable double confirm of each write to flashrom
 is_always_verify=0
 
-# Set this to 1 to check/update only RW parts (skip RO)
-is_rw_only=0
-
 # Set this to 1 to provide debug messages
 is_debug=0
+
+# Set to 0 if you don't want to use fmap_decode for layout
+allow_fmap_decode_layout=1
 
 # (internal) File name of current flashrom data
 CURRENT_IMAGE='_current.bin'
@@ -533,6 +544,7 @@ function flashrom_detect_layout_by_fmap_decode() {
     n="Recovery Firmware"; map[n]="FVDEV";
     n="GBB Area"; map[n]="FV_GBB";
     n="Boot Stub"; map[n]="FV_BSTUB";
+    n="RO VPD"; map[n]="RO_VPD";
   }
   /area_/ {
     gsub( /.*area_name="/, "" );
@@ -651,7 +663,8 @@ function flashrom_detect_layout() {
   LAYOUT_SIZE=""
   LAYOUT_OFFSET=""
 
-  if has_command fmap_decode ; then
+  assert_str $allow_fmap_decode_layout
+  if is_positive $allow_fmap_decode_layout && has_command fmap_decode ; then
     flashrom_detect_layout_by_fmap_decode $2
   else
     flashrom_detect_layout_by_default_map $1
@@ -726,6 +739,22 @@ function flashrom_set_skip_verify_list() {
     fi
   done
   CURRENT_SKIP_VERIFY="$1"
+}
+
+function flashrom_preserve_sections() {
+  # Preserves assigned sections from current flashrom to target image
+  check_param "flashrom_preserve_sections(opt_list,current,image)" "$@"
+  local new_image_name=$3
+
+  if [ -n "$1" ]; then
+    debug_msg "preserve sections: $opt_list"
+    new_image_name=$(env TMPDIR=. mktemp _psvXXXXXXXX) || \
+      err_die "cannot create temporary file for preserving sections"
+    cp -f $3 $new_image_name
+    flashrom_copy_image "$1" "$1" $2 $new_image_name
+  fi
+  echo $new_image_name
+  # TODO we need some way to clear the preserve images.
 }
 
 function flashrom_apply_skip_verify() {
@@ -944,14 +973,17 @@ function chromeos_post_update() {
   # changed some data on flashrom).
   check_param "chromeos_post_update(target)" "$@"
 
-  # check if we need to reboot directly (usually keyboard hang)
-  # We never need to reboot in factory mode.
-  if [ "$is_factory" = "0" ] && \
-     in_list "$1" "$CHROMEOS_NEED_DIRECT_REBOOT_UPDATE_TARGETS"; then
+  # check if we need to reboot directly (usually keyboard hang).
+  if in_list "$1" "$CHROMEOS_NEED_DIRECT_REBOOT_UPDATE_TARGETS"; then
     echo "  ** this update needs to reboot system immediately. **"
-    debug_msg "going to reboot NOW"
-    sync
-    execute_command "$CHROMEOS_REBOOT_CMD" || err_die "cannot reboot"
+    # NOTE: We never need to reboot in factory (non-interative) mode.
+    if is_positive "$is_factory"; then
+      debug_msg "bypass reboot due to factory mode."
+    else
+      debug_msg "going to reboot NOW"
+      sync
+      execute_command "$CHROMEOS_REBOOT_CMD" || err_die "cannot reboot"
+    fi
   fi
 }
 
@@ -1064,10 +1096,12 @@ function chromeos_firmware_AB_update() {
 
 function update_firmware() {
   # Firmware update procedure.
-  check_param "update_firmware(code,name,image,ro,rw_a,opt_rw_b,opt_skip)" "$@"
+  check_param \
+  "update_firmware(code,name,image,ro,rw_a,opt_rw_b,opt_skip,opt_preserve)" "$@"
 
   local code=$1
   local image_fname=$3 current_fname=$CURRENT_IMAGE
+  local orig_image_fname=$image_fname
   local ro_list="$4" rw_list_a="$5" rw_list_b="$6"
   local rw_list="$rw_list_a $rw_list_b"
   echo " * Updating $2..."
@@ -1085,6 +1119,12 @@ function update_firmware() {
   flashrom_detect_layout $code $image_fname
   flashrom_set_skip_verify_list "$7"
 
+  # build a preserved image if required
+  if [ -n "$8" ]; then
+    image_fname=$(flashrom_preserve_sections "$8" $current_fname $image_fname) \
+      || err_die "cannot create temporary file for preserving sections"
+  fi
+
   # It is possible to check write protection status via $ACPI_ROOT/BINF.3
   # (Boot GPIO States) or use factory mode tags to decide if we can update
   # RO. However a different RO (with write protected) usually means we're
@@ -1093,15 +1133,33 @@ function update_firmware() {
 
   if ! is_positive $is_rw_only; then
     echo "  - checking RO data: $ro_list"
+    local verify_list="*"
     if ! flashrom_verify_sections \
       "$ro_list" "$ro_list" $current_fname $image_fname ; then
-      echo "  - start factory (first-time) setup"
-      flashrom_write_whole $image_fname
+      # for factory, rewrite everything. otherwise (with-ro-code),
+      # update only the sections we want.
+      if is_positive $is_factory; then
+        echo "  - start factory (first-time) setup"
+        echo "  * action: rewrite whole image"
+        flashrom_write_whole $image_fname
+      else
+        echo "  - start RW (AB at once) + RO code (bootstub/recovery) update"
+        local update_list="$ro_list"
+        flashrom_verify_sections \
+          "$rw_list" "$rw_list" $current_fname $image_fname \
+          || update_list="$update_list $rw_list"
+        echo "  * action: update $update_list"
+        start_firmware_section_update \
+          "$update_list" "$update_list" $image_fname
+        verify_list="$update_list"
+      fi
+
       if is_positive $is_always_verify ; then
         echo "  - verify written image"
         flashrom_read_whole
-        flashrom_verify_sections "*" "*" $current_fname $image_fname \
-        || err_die " ! image verification failed..."
+        flashrom_verify_sections \
+          "$verify_list" "$verify_list" $current_fname $image_fname \
+          || err_die " ! image verification failed..."
       fi
       chromeos_post_update "$code"
       echo "  - success and complete."
@@ -1135,6 +1193,7 @@ function update_firmware() {
   fi
 
   # some part is different, determine what task to do here.
+  # NOTE: when in factory mode (is_factory), is_background won't be positive.
   if is_positive $is_background && chromeos_need_foreground $code; then
     echo "  - running in background update mode, postpone to next boot."
     chromeos_need_reboot || err_die "cannot set update tag for next reboot."
@@ -1161,7 +1220,13 @@ function update_firmware() {
 # ----------------------------------------------------------------------------
 # Main Entry
 
+# if a mode is assigned by parameter, we won't do any further mode detection.
+# if multiple modes were listed as parameter, the last one takes effect.
+is_mode_assigned=0
+
 # parse command line
+# TODO we can add '--check-list' and '--update-list' to allow arbitrary updating
+# TODO add '--target bios' to only update certain targets
 for arg in "$@"; do
   case $arg in
     -h | --help )
@@ -1170,8 +1235,9 @@ for arg in "$@"; do
 options:
     --background-update  Skip update that may freeze keyboard/reboot (eg, EC)
     --always-verify      Force verifying each write to flashrom
-    --factory            Force using factory mode
-    --rw-only            Update only R/W firmware, skip RO
+    --factory            Force using factory mode (RO+RW+GBB/VPD)
+    --with-ro-code       Update RW(AB at once) and RO(BSTUB/FVDEV), keep GBB/VPD
+    --rw-only            (default) Update only R/W firmware, skip entire RO
     --verbose            Print verbose messages
     --debug              Print debug messages
     --help               This help message"
@@ -1187,10 +1253,20 @@ options:
       ;;
     --factory )
       is_factory=1
+      is_rw_only=0
+      is_mode_assigned=1
       verbose_msg " * Enable factory mode"
       ;;
+    --with-ro-code )
+      is_factory=0
+      is_rw_only=0
+      is_mode_assigned=1
+      verbose_msg " * Enable RW+RO Code (bootstub/recovery) mode"
+      ;;
     --rw-only )
+      is_factory=0
       is_rw_only=1
+      is_mode_assigned=1
       verbose_msg " * Update only R/W firmware"
       ;;
     --verbose )
@@ -1205,18 +1281,28 @@ options:
 done
 
 # detect and adjust factory/background modes
+assert_str $is_mode_assigned
 assert_str $is_factory
-is_positive $is_factory || chromeos_detect_factory_mode
-# chromeos_detect_factory_mode may change is_factory, so test again.
-if is_positive $is_factory; then
-  is_background=0
-fi
+is_positive $is_mode_assigned || is_positive $is_factory \
+  || chromeos_detect_factory_mode
 
 # load customized information
 if [ -r $CUSTOM_SCRIPT_FILENAME ]; then
   echo " * Loading custom script '$CUSTOM_SCRIPT_FILENAME'..."
   . $CUSTOM_SCRIPT_FILENAME
 fi
+
+# report and adjust working mode
+if is_positive $is_factory; then
+  echo " % Firmware Update Mode: Factory (RO+RW+Everything)"
+  is_rw_only=0
+  is_background=0
+elif is_positive $is_rw_only; then
+  echo " % Firmware Update Mode: RW Only (A/B trial-update)"
+else
+  echo " % Firmware Update Mode: RO(code) + RW(A/B at once)"
+fi
+
 if is_positive $is_debug; then
   is_verbose=1
   debug_msg "(mode) is_background: $is_background"
@@ -1235,7 +1321,8 @@ if [ -f $BIOS_IMAGE_FILENAME ]; then
     $BIOS_IMAGE_FILENAME \
     "$bios_ro_list" \
     "$CHROMEOS_BIOS_RW_A_LIST" "$CHROMEOS_BIOS_RW_B_LIST" \
-    "$CHROMEOS_BIOS_SKIP_VERIFY_LIST"
+    "$CHROMEOS_BIOS_SKIP_VERIFY_LIST" \
+    "$CHROMEOS_BIOS_PRESERVE_LIST"
 fi
 
 # update EC firmware
@@ -1244,7 +1331,8 @@ if [ -f $EC_IMAGE_FILENAME ]; then
     $EC_IMAGE_FILENAME \
     "$CHROMEOS_EC_RO_LIST" \
     "$CHROMEOS_EC_RW_LIST" "" \
-    "$CHROMEOS_EC_SKIP_VERIFY_LIST"
+    "$CHROMEOS_EC_SKIP_VERIFY_LIST" \
+    "$CHROMEOS_EC_PRESERVE_LIST"
 fi
 
 echo " *** Firmware update complete. ***"
