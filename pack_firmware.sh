@@ -12,38 +12,40 @@
 #  - pack_stub as the template/stub script for output
 #  - any other additional files used by install_firmware in pack_dist folder
 
-# Load common constants.  This should be the first executable line.
-# The path to common.sh should be relative to your script's location.
 script_base="$(dirname "$0")"
-. "$script_base/../../scripts/common.sh"
-
-# Script must be run inside the chroot
-restart_in_chroot_if_needed $*
-
-get_default_board
+. "$script_base/lib/shflags/shflags"
 
 # DEFINE_string name default_value description flag
 DEFINE_string bios_image "" "Path of input BIOS firmware image" "b"
 DEFINE_string ec_image "" "Path of input EC firmware image" "e"
 DEFINE_string output "-" "Path of output filename; '-' for stdout." "o"
-DEFINE_string board "$DEFAULT_BOARD" "The board to build packages for."
 DEFINE_string extra "" "Directory of extra files to be put in firmware package."
 
+# tools
 DEFINE_string flashrom "" \
-  "Path of flashrom(8), using /build/[board]/usr/sbin/flashrom if not assigned"
+  "Path of flashrom(8), using tool_base/flashrom if not assigned"
 DEFINE_string iotools "" \
-  "Path of iotools, using /build/[board]/usr/sbin/iotools if not assigned"
+  "Path of iotools, using tool_base/iotools if not assigned"
+
+# default tool location
+DEFINE_string tool_base "" "Default location for tools (flashrom/iotools)"
+DEFINE_string board "" "(deprecated) Alternative to tool_base param."
 
 # Parse command line
 FLAGS "$@" || exit 1
 eval set -- "${FLAGS_ARGV}"
 
+# backward-compatible
+if [ -n "${FLAGS_board}" -a -z "${FLAGS_tool_base}" ]; then
+  FLAGS_tool_base=/build/${FLAGS_board}/usr/sbin
+fi
+
 # provide default location of flashrom location
 if [ "${FLAGS_flashrom}" == "" ]; then
-  FLAGS_flashrom="/build/${FLAGS_board}/usr/sbin/flashrom"
+  FLAGS_flashrom="${FLAGS_tool_base}/flashrom"
 fi
 if [ "${FLAGS_iotools}" == "" ]; then
-  FLAGS_iotools="/build/${FLAGS_board}/usr/sbin/iotools"
+  FLAGS_iotools="${FLAGS_tool_base}/iotools"
 fi
 
 # we need following tools to be inside a package:
@@ -73,7 +75,7 @@ function err_die {
 }
 
 # check tool: we need uuencode to create the shell ball.
-which uuencode >/dev/null || err_die "ERROR: You need uuencode(sharutils)"
+type -P uuencode >/dev/null || err_die "ERROR: You need uuencode(sharutils)"
 
 # check required basic files
 for X in "$flashrom_bin" "$iotools_bin" \
@@ -99,7 +101,6 @@ tmpbase="$tmpfolder"
 version_file="$tmpbase/VERSION"
 echo "Package create date: `date +'%c'`
 
-Board:       ${FLAGS_board}
 iotools:     $(md5sum -b "$iotools_bin")
              $(file -b "$iotools_bin")
 flashrom(8): $(md5sum -b "$flashrom_bin")
