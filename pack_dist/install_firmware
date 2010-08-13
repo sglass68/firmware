@@ -112,6 +112,9 @@ CHROMEOS_NEED_FOREGROUND_UPDATE_TARGETS="ec"
 # Note: does not apply to factory, as factory install is noninteractive.
 CHROMEOS_NEED_DIRECT_REBOOT_UPDATE_TARGETS="ec"
 
+# Default list of targets to be updated. Can be changed by --targets='xxx'.
+CHROMEOS_UPDATE_TARGETS="bios ec"
+
 # ----------------------------------------------------------------------------
 # Global variables
 
@@ -128,6 +131,10 @@ is_factory=0
 #   0 for RW (A/B at the same time) plus RO code (boot stub / recovery image)
 #   and keep VPD/GBB.
 is_rw_only=1
+
+# Set this to 0 to disable Chrome OS A/B style 2 stage update
+# (can be changed by --rw-ab-together)
+allow_2stage_update=1
 
 # Set this to 1 to enable double confirm of each write to flashrom
 is_always_verify=0
@@ -1143,7 +1150,7 @@ function update_firmware() {
         echo "  * action: rewrite whole image"
         flashrom_write_whole $image_fname
       else
-        echo "  - start RW (AB at once) + RO code (bootstub/recovery) update"
+        echo "  - start RW (AB together) + RO code (bootstub/recovery) update"
         local update_list="$ro_list"
         flashrom_verify_sections \
           "$rw_list" "$rw_list" $current_fname $image_fname \
@@ -1200,7 +1207,7 @@ function update_firmware() {
     return
   fi
 
-  if [ -n "$rw_list_b" ]; then
+  if is_positive $allow_2stage_update && [ -n "$rw_list_b" ]; then
     # A/B
     debug_msg "invoke firmware_AB_update"
     chromeos_firmware_AB_update "$rw_list_a" "$rw_list_b" $image_fname || \
@@ -1226,24 +1233,58 @@ is_mode_assigned=0
 
 # parse command line
 # TODO we can add '--check-list' and '--update-list' to allow arbitrary updating
-# TODO add '--target bios' to only update certain targets
 for arg in "$@"; do
   case $arg in
     -h | --help )
       # usage_help
-      echo "$0  [options]
-options:
+      echo "$0 [options]
+
+mode selection (only the last one assigned mode will take effect):
+    --factory            Force using factory mode (write RO+RW+GBB/VPD together)
+    --with-ro-code       Update RW(A/B together) & RO(BSTUB/FVDEV), keep GBB/VPD
+    --rw-ab-together     Update R/W firmware, and update A/B parts together
+    --rw-only            (default) Update R/W firmware in 2 stage, skip whole RO
+
+special options:
     --background-update  Skip update that may freeze keyboard/reboot (eg, EC)
     --always-verify      Force verifying each write to flashrom
-    --factory            Force using factory mode (RO+RW+GBB/VPD)
-    --with-ro-code       Update RW(AB at once) and RO(BSTUB/FVDEV), keep GBB/VPD
-    --rw-only            (default) Update only R/W firmware, skip entire RO
+    --targets='list'     Targets to be updated (def: '$CHROMEOS_UPDATE_TARGETS')
+
+general options:
     --verbose            Print verbose messages
-    --debug              Print debug messages
+    --debug              Provide debug information
     --help               This help message"
       exit 0
       ;;
-    --background-update )
+    --factory )
+      allow_2stage_update=0
+      is_factory=1
+      is_rw_only=0
+      is_mode_assigned=1
+      verbose_msg " * Enable factory mode"
+      ;;
+    --with-ro* )
+      allow_2stage_update=0
+      is_factory=0
+      is_rw_only=0
+      is_mode_assigned=1
+      verbose_msg " * Enable RW+RO Code (bootstub/recovery) mode"
+      ;;
+    --rw-ab* )
+      allow_2stage_update=0
+      is_factory=0
+      is_rw_only=1
+      is_mode_assigned=1
+      verbose_msg " * Update R/W firmware (A/B at once)"
+      ;;
+    --rw-only )
+      allow_2stage_update=1
+      is_factory=0
+      is_rw_only=1
+      is_mode_assigned=1
+      verbose_msg " * Update only R/W firmware (try A/B 2 stage)"
+      ;;
+    --background* )
       is_background=1
       verbose_msg " * Enable background update mode"
       ;;
@@ -1251,23 +1292,9 @@ options:
       is_always_verify=1
       verbose_msg " * Force verification to every write"
       ;;
-    --factory )
-      is_factory=1
-      is_rw_only=0
-      is_mode_assigned=1
-      verbose_msg " * Enable factory mode"
-      ;;
-    --with-ro-code )
-      is_factory=0
-      is_rw_only=0
-      is_mode_assigned=1
-      verbose_msg " * Enable RW+RO Code (bootstub/recovery) mode"
-      ;;
-    --rw-only )
-      is_factory=0
-      is_rw_only=1
-      is_mode_assigned=1
-      verbose_msg " * Update only R/W firmware"
+    --target*=* )
+      CHROMEOS_UPDATE_TARGETS="${arg#--target*=}"
+      verbose_msg " * Target(s) changed to: $CHROMEOS_UPDATE_TARGETS"
       ;;
     --verbose )
       is_verbose=1
@@ -1278,6 +1305,7 @@ options:
     * )
       echo " ! Warning: unknown parameter: $arg"
   esac
+  shift
 done
 
 # detect and adjust factory/background modes
@@ -1298,41 +1326,59 @@ if is_positive $is_factory; then
   is_rw_only=0
   is_background=0
 elif is_positive $is_rw_only; then
-  echo " % Firmware Update Mode: RW Only (A/B trial-update)"
+  is_positive $allow_2stage_update \
+    && echo " % Firmware Update Mode: RW Only (2 stage update for A/B)" \
+    || echo " % Firmware Update Mode: RW Only (A/B together)"
 else
-  echo " % Firmware Update Mode: RO(code) + RW(A/B at once)"
+  echo " % Firmware Update Mode: RO(code) + RW(A/B together)"
 fi
 
 if is_positive $is_debug; then
   is_verbose=1
-  debug_msg "(mode) is_background: $is_background"
   debug_msg "(mode) is_factory: $is_factory"
-  debug_msg "(mode) is_always_verify: $is_always_verify"
   debug_msg "(mode) is_rw_only: $is_rw_only"
-  debug_msg "(mode) is_verbose: $is_verbose"
-  debug_msg "(mode) is_debug: $is_debug"
+  debug_msg "(mode) allow_2stage_update: $allow_2stage_update"
+  debug_msg "(opt) is_background: $is_background"
+  debug_msg "(opt) is_always_verify: $is_always_verify"
+  debug_msg "(opt) allow_fmap_decode_layout: $allow_fmap_decode_layout"
+  debug_msg "(opt) update targets: $CHROMEOS_UPDATE_TARGETS"
+  debug_msg "(msg) is_verbose: $is_verbose"
+  debug_msg "(msg) is_debug: $is_debug"
 fi
 
-# update BIOS firmware
-if [ -f $BIOS_IMAGE_FILENAME ]; then
-  bios_ro_list="$CHROMEOS_BIOS_FACTORY_RO_LIST"
-  is_positive $is_factory || bios_ro_list="$CHROMEOS_BIOS_RO_LIST"
-  update_firmware "bios" "BIOS" \
-    $BIOS_IMAGE_FILENAME \
-    "$bios_ro_list" \
-    "$CHROMEOS_BIOS_RW_A_LIST" "$CHROMEOS_BIOS_RW_B_LIST" \
-    "$CHROMEOS_BIOS_SKIP_VERIFY_LIST" \
-    "$CHROMEOS_BIOS_PRESERVE_LIST"
-fi
-
-# update EC firmware
-if [ -f $EC_IMAGE_FILENAME ]; then
-  update_firmware "ec" "Embedded Controller (EC)" \
-    $EC_IMAGE_FILENAME \
-    "$CHROMEOS_EC_RO_LIST" \
-    "$CHROMEOS_EC_RW_LIST" "" \
-    "$CHROMEOS_EC_SKIP_VERIFY_LIST" \
-    "$CHROMEOS_EC_PRESERVE_LIST"
-fi
+for target in $CHROMEOS_UPDATE_TARGETS; do
+  case $target in
+    bios )
+      debug_msg "checking target=bios"
+      # update BIOS firmware
+      if [ -f $BIOS_IMAGE_FILENAME ]; then
+        bios_ro_list="$CHROMEOS_BIOS_FACTORY_RO_LIST"
+        is_positive $is_factory || bios_ro_list="$CHROMEOS_BIOS_RO_LIST"
+        update_firmware "bios" "BIOS" \
+          $BIOS_IMAGE_FILENAME \
+          "$bios_ro_list" \
+          "$CHROMEOS_BIOS_RW_A_LIST" "$CHROMEOS_BIOS_RW_B_LIST" \
+          "$CHROMEOS_BIOS_SKIP_VERIFY_LIST" \
+          "$CHROMEOS_BIOS_PRESERVE_LIST"
+      fi
+      ;;
+    ec )
+      debug_msg "checking target=ec"
+      # update BIOS firmware
+      # update EC firmware
+      if [ -f $EC_IMAGE_FILENAME ]; then
+        update_firmware "ec" "Embedded Controller (EC)" \
+          $EC_IMAGE_FILENAME \
+          "$CHROMEOS_EC_RO_LIST" \
+          "$CHROMEOS_EC_RW_LIST" "" \
+          "$CHROMEOS_EC_SKIP_VERIFY_LIST" \
+          "$CHROMEOS_EC_PRESERVE_LIST"
+      fi
+      ;;
+    * )
+      err_die "Unknown target: $target"
+      ;;
+  esac
+done
 
 echo " *** Firmware update complete. ***"
