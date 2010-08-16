@@ -311,16 +311,7 @@ class FirmwareTest(object):
                 % expected_vector)
             sys.exit(1)
         if this_step == (len(self.test_state_sequence) - 1):
-            # We are almost there, no more steps to take.
-            if not self._verify_fw_id(FWID_BACKUP_FILE):
-                self.chros_if.log(
-                    'Error: Failed to restore to original firmware')
-                sys.exit(1)
-            self.chros_if.log('Removing upstart scripts')
-            self._handle_upstart_script(False)
-            self.chros_if.log('we are done!')
-            sys.exit(0)
-
+            self.finish_saft()
         if action and not self._verify_fw_id(FWID_NEW_FILE):
             self.chros_if.log('Error: Wrong FWID value')
             sys.exit(1)
@@ -334,6 +325,28 @@ class FirmwareTest(object):
                 self.chros_if.log('calling %s' % str(action))
                 action()
         self._set_step(this_step + 1)
+        self.chros_if.run_shell_command('reboot')
+
+    def finish_saft(self):
+        '''SAFT is done, restore the environment and expose the results.
+
+        Restore to the original firmware, delete the startup scripts from all
+        drives, copy the log to the stateful partition on the flash drive and
+        restart the machine.
+        '''
+        if not self._verify_fw_id(FWID_BACKUP_FILE):
+            self.chros_if.log(
+                'Error: Failed to restore to original firmware')
+            sys.exit(1)
+        self.chros_if.log('Removing upstart scripts')
+        self._handle_upstart_script(False)
+        self.chros_if.log('we are done!')
+
+        # Shut_down will delete the SAFT state directory, let's have the log
+        # copied one level up.
+        dummy = self.chros_if.state_dir_file('dummy')
+        log_dst_dir = os.path.realpath(os.path.join(os.path.dirname(dummy), '..'))
+        self.chros_if.shut_down(os.path.join(log_dst_dir, LOG_FILE))
         self.chros_if.run_shell_command('reboot')
 
 
@@ -466,9 +479,8 @@ def main(argv):
     if missing_execs:
         usage('Program(s) %s not found in PATH' % ' '.join(missing_execs), 1)
 
-    for req_param in 'image_file pub_key'.split(' '):
-        if req_param not in opt_dictionary:
-            usage(rv=1)
+    if 'image_file' not in opt_dictionary:
+        usage(retv=1)
 
     FST.init_fw_test(opt_dictionary, CHROS_IF)
     CHROS_IF.log('program the new image')

@@ -11,6 +11,7 @@ flashrom chip and to parse the flash rom image.
 See docstring for FlashromHandler class below.
 '''
 
+import struct
 
 class FvImage(object):
     '''An object to hold names of matching signature and firmware sections.'''
@@ -32,6 +33,9 @@ class FlashromHandler(object):
 
     DELTA = 1  # value to add to a byte to corrupt a section contents
 
+    # File in the state directory to store public root key.
+    PUB_KEY_FILE_NAME = 'root.pubkey'
+
     def __init__(self):
     # make sure it does not accidentally overwrite the image.
         self.fum = None
@@ -44,7 +48,7 @@ class FlashromHandler(object):
             'b': FvImage('VBOOTB', 'FVMAINB'),
             }
 
-    def init(self, flashrom_util_module, chros_if, pub_key_file):
+    def init(self, flashrom_util_module, chros_if, pub_key_file=None):
         '''Flashrom handler initializer.
 
         Args:
@@ -86,6 +90,49 @@ class FlashromHandler(object):
                 f.write(self.fum.get_section(self.image,
                                              self.bios_layout, subsection_name))
                 f.close()
+
+        if not self.pub_key_file:
+            self._retrieve_pub_key()
+
+    def _retrieve_pub_key(self):
+        '''Retrieve root public key from the firmware GBB section.'''
+
+        gbb_header_format = '<4s20s2I'
+        pubk_header_format = '<2Q'
+
+        gbb_section = self.fum.get_section(
+            self.image, self.bios_layout, 'FV_GBB')
+
+        # do some sanity checks
+        try:
+            sig, _, rootk_offs, rootk_size = struct.unpack_from(
+                gbb_header_format, gbb_section)
+        except struct.error, e:
+            raise FlashromHandlerError(e)
+
+        if sig != '$GBB' or (rootk_offs + rootk_size) > len(gbb_section):
+            raise FlashromHandlerError('Bad gbb header')
+
+        key_body_offset, key_body_size = struct.unpack_from(
+            pubk_header_format, gbb_section, rootk_offs)
+
+        # Generally speaking the offset field can be anything, but in case of
+        # GBB section the key is stored as a standalone entity, so the offset
+        # of the key body is expected to be equal to the key header size of
+        # 0x20.
+        # Should this convention change, the check below would fail, which
+        # would be a good prompt for revisiting this test's behavior and
+        # algorithms.
+        if key_body_offset != 0x20 or key_body_size > rootk_size:
+            raise FlashromHandlerError('Bad public key format')
+
+        # All checks passed, let's store the key in a file.
+        self.pub_key_file = self.chros_if.state_dir_file(self.PUB_KEY_FILE_NAME)
+        keyf = open(self.pub_key_file, 'w')
+        key = gbb_section[
+            rootk_offs:rootk_offs + key_body_offset + key_body_size]
+        keyf.write(key)
+        keyf.close()
 
     def verify_image(self):
         '''Confirm the image's validity.
