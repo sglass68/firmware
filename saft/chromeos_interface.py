@@ -11,9 +11,10 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 
 # Source of ACPI information on ChromeOS machines.
-ACPI_DIR = '/sys/bus/platform/devices/chromeos_acpi'
+ACPI_DIR = '/sys/devices/platform/chromeos_acpi'
 
 class ChromeOSInterfaceError(Exception):
     '''ChromeOS interface specific exception.'''
@@ -203,6 +204,19 @@ class ChromeOSInterface(object):
         state = []
         for index in range(3):
             fname = os.path.join(self.acpi_dir, binf_fname_template % index)
+            max_wait = 30
+            cycles = 0
+            # In some cases (for instance when running off the flash file
+            # system) the ACPI files go not get created right away. Let's give
+            # it some time to settle.
+            while not os.path.exists(fname):
+                if cycles == max_wait:
+                    self.log('%s is not present' % fname)
+                    raise AssertionError
+                time.sleep(1)
+                cycles += 1
+            if cycles:
+                self.log('ACPI took %d cycles' % cycles)
             state.append(open(fname, 'r').read())
         root_dev = self.get_root_dev()
         state.append('%d' % int(self.is_removable_device(root_dev)))

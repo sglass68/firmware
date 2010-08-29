@@ -12,6 +12,7 @@
 rm -rf /tmp/tmp*/var/.fw_test 2> /dev/null
 umount -d /tmp/tmp* 2> /dev/null
 
+DEFAULT_FLASH_DEVICE="${FLASH_DEVICE:=sdb}"
 set -e
 this_prog=$(realpath $0)
 if [ -n "$1" ]; then
@@ -36,7 +37,7 @@ move_to_removable_device() {
     # Move ourselves to the removable device and run off it.
 
     # For simplicity, hardcode the removable device to be /dev/sdb
-    flash_device='sdb'
+    flash_device="${DEFAULT_FLASH_DEVICE}"
     fname="/sys/block/${flash_device}/removable"
 
     # Confirm SDB exists and is indeed removable.
