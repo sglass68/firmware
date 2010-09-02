@@ -92,7 +92,8 @@ class ChromeOSInterface(object):
 
     def shut_down(self, new_log='/var/saft_log.txt'):
         '''Destroy temporary environment so that the test can be restarted.'''
-        shutil.copyfile(self.log_file, new_log)
+        if os.path.exists(self.log_file):
+            shutil.copyfile(self.log_file, new_log)
         shutil.rmtree(self.state_dir)
 
     def log(self, text):
@@ -241,7 +242,7 @@ class ChromeOSInterface(object):
             dev = '/dev/root'
 
         for line in self.run_shell_command_get_output('mount'):
-            if not line.startswith(dev):
+            if not line.startswith('%s ' % dev):
                 continue
             mount_options = options_filter.match(line).groups(0)[0]
         # found mounted

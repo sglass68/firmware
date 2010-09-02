@@ -49,6 +49,10 @@ move_to_removable_device() {
     # Determine userland partition on the removable device.
     dev_num=$(cgpt show /dev/"${flash_device}" | \
         grep '"ROOT-A"' | awk '{ print $3 }')
+    if [ -z "${dev_num}" ]; then
+        echo "/dev/${flash_device} does not contain a valid file system"
+        exit 1
+    fi
     flash_root_partition="/dev/${flash_device}${dev_num}"
 
     # Find its mountpoint, or mount it if not yet mounted.
