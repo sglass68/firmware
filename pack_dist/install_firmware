@@ -23,7 +23,7 @@ BIOS_IMAGE_FILENAME='bios.bin'
 EC_IMAGE_FILENAME='ec.bin'
 
 # flashrom(8) tool path, can be changed to use system default flashrom
-FLASHROM_TOOLPATH='./flashrom'
+FLASHROM_TOOLPATH='flashrom'
 
 # Default Chrome OS ACPI folder. You should only change this for debug/test
 CHROMEOS_ACPI_ROOT='/sys/devices/platform/chromeos_acpi'
@@ -33,6 +33,10 @@ CHROMEOS_ACPI_INIT_CMD='modprobe chromeos_acpi'
 
 # Default command to reboot immediately
 CHROMEOS_REBOOT_CMD="reboot"
+
+# Default command to decode fmap
+CHROMEOS_FMAP_DECODE_CMD="mosys -k eeprom map "
+# note: an alternative is "fmap_decode"
 
 # Default Chrome OS control tag file to request firmware update after reboot
 CHROMEOS_NEED_REBOOT_TAG='/mnt/stateful_partition/.need_firmware_update'
@@ -161,8 +165,8 @@ LAYOUT_OFFSET=""
 
 # Script should exit on any unexpected error
 set -e
-# Always use bundled tool binaries, required for iotools
-PATH=".:$PATH"; export PATH
+# Always use bundled tool binaries, required for flashrom,iotools,mosys
+PATH=".:/usr/sbin:$PATH"; export PATH
 # To make non-bash compatible
 alias function=
 
@@ -528,9 +532,10 @@ function flashrom_detect_layout_by_fmap_decode() {
   # Detects flashrom layout by given image file and creates $CURRENT_LAYOUT
   check_param "flashrom_detect_layout_by_fmap_decode(image_file)" "$@"
 
-  debug_msg "flashrom_detect_layout: by_fmap_decode"
+  debug_msg "trying flashrom_detect_layout_by_fmap_decode"
   local voff vsize vnames pre_parse
-  pre_parse=$(fmap_decode $1) || err_die "failed to decode fmap from file $1"
+  pre_parse=$($CHROMEOS_FMAP_DECODE_CMD $1 2>/dev/null) || \
+    return 1  # shell-style failure
   debug_msg "detect_layout_by_fmap_decode"
   voff=$(echo "$pre_parse" | grep 'area_offset="' | \
          sed 's/.*area_offset="\([^"]*\)".*/\1/' );
@@ -585,6 +590,7 @@ function flashrom_detect_layout_by_fmap_decode() {
   done
 
   flashrom_build_layout_file
+  return 0  # shell-style success
 }
 
 function flashrom_detect_layout_by_default_map() {
@@ -671,8 +677,9 @@ function flashrom_detect_layout() {
   LAYOUT_OFFSET=""
 
   assert_str $allow_fmap_decode_layout
-  if is_positive $allow_fmap_decode_layout && has_command fmap_decode ; then
-    flashrom_detect_layout_by_fmap_decode $2
+  if is_positive $allow_fmap_decode_layout && \
+     flashrom_detect_layout_by_fmap_decode $2; then
+    debug_msg "using decoded fmap and ignore default map"
   else
     flashrom_detect_layout_by_default_map $1
   fi
