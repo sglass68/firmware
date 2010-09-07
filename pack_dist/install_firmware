@@ -83,6 +83,14 @@ CHROMEOS_BIOS_RW_B_LIST="VBOOTB FVMAINB"
 # we only check/update GBB in factory mode.
 CHROMEOS_BIOS_FACTORY_RO_LIST="FV_BSTUB FV_GBB FVDEV"
 
+# Default VBOOT section content (for checking layout correctness)
+CHROMEOS_VBOOT_LIST="VBOOTA VBOOTB"
+CHROMEOS_VBOOT_SIGNATURE="CHROMEOS"
+CHROMEOS_VBOOT_SIGNATURE_LENGTH=8
+
+# Default (GBB) section which contains rootkey
+CHROMEOS_ROOTKEY_SECTION_NAME="FV_GBB"
+
 # Default Chrome OS Embedded Controller firmware memory layout,
 # overwrite this if you plan to support different layout
 CHROMEOS_EC_LAYOUT_DESC="
@@ -136,6 +144,15 @@ is_factory=0
 #   and keep VPD/GBB.
 is_rw_only=1
 
+# Set this to 1 to enable checking flash memory layout compatibility
+is_check_layout=1
+
+# Set this to 1 to enable checking ChromeOS rootkey compatibility
+is_check_rootkey=1
+
+# Set this to 1 to enable checking ChromeOS firmware signature (VBOOT)
+is_check_vboot=1
+
 # Set this to 0 to disable Chrome OS A/B style 2 stage update
 # (can be changed by --rw-ab-together)
 allow_2stage_update=1
@@ -166,7 +183,7 @@ LAYOUT_OFFSET=""
 # Script should exit on any unexpected error
 set -e
 # Always use bundled tool binaries, required for flashrom,iotools,mosys
-PATH=".:/usr/sbin:$PATH"; export PATH
+PATH=".:/usr/sbin:/sbin:$PATH"; export PATH
 # To make non-bash compatible
 alias function=
 
@@ -534,8 +551,11 @@ function flashrom_detect_layout_by_fmap_decode() {
 
   debug_msg "trying flashrom_detect_layout_by_fmap_decode"
   local voff vsize vnames pre_parse
-  pre_parse=$($CHROMEOS_FMAP_DECODE_CMD $1 2>/dev/null) || \
+  pre_parse="$($CHROMEOS_FMAP_DECODE_CMD $1 2>/dev/null)" || \
     return 1  # shell-style failure
+  if [ -z "$pre_parse" ]; then
+    return 1  # shell-style failure
+  fi
   debug_msg "detect_layout_by_fmap_decode"
   voff=$(echo "$pre_parse" | grep 'area_offset="' | \
          sed 's/.*area_offset="\([^"]*\)".*/\1/' );
@@ -631,12 +651,12 @@ function flashrom_detect_layout_by_default_map() {
   local awk_cmd='gawk --posix'
   has_command gawk || awk_cmd='awk'
   debug_msg "selected awk command: $awk_cmd"
-  parsed=$(echo -n "$parsed" | $awk_cmd -v bs=$bs '
+  parsed="$(echo -n "$parsed" | $awk_cmd -v bs=$bs '
     BEGIN    { FS = "="; RS="," }
     /^[^\|]/ { v=$2+0; print $1"="v; sum+=v; if(v==0) zero=$1 }
     /^\|/    { print "|"zero"="bs-sum; sum=0 }
     END      { print "|"zero"="bs-sum; sum=0 }
-  ') || err_die "flashrom_detect_layout: failed to process with awk."
+  ')" || err_die "flashrom_detect_layout: failed to process with awk."
 
   # build list and size of each section
   local entry ename esize
@@ -932,7 +952,7 @@ function chromeos_get_last_boot_index() {
   # "BINF (Chrome OS boot information)" for more detail.
   execute_command "$CHROMEOS_ACPI_INIT_CMD" || \
     alert "Warning: ACPI initialization failure ($?) - ignored."
-  local binf_val=$(cat "$CHROMEOS_ACPI_ROOT/BINF.1")
+  local binf_val="$(cat "$CHROMEOS_ACPI_ROOT/BINF.1")"
 
   # ACPI value: 0=recovery, 1=firmwareA, 2=firmwareB
   # get_index return values requires 0=A, 1=B
@@ -1001,6 +1021,40 @@ function chromeos_post_update() {
   fi
 }
 
+function chromeos_check_same_root_keys() {
+  # Checks if the root keys (from Google Binary Block) are the same
+  # Returns 0 for same, 1 for different, 2 for missing in current image
+  check_param "chromeos_check_same_root_keys(current, target)" "$@"
+
+  # if we can't find gbb_utility, ignore it.
+  if ! has_command "gbb_utility"; then
+    debug_msg "cannot find gbb_utility."
+    return 0  # shell-style true
+  fi
+
+  # try to retrieve the keys
+  local ret=0
+  local keyfile1 keyfile2
+  keyfile1=$(env TMPDIR=. mktemp _gk1XXXXXXXX) || \
+    err_die "canot create temporary file for root key retrieval"
+  keyfile2=$(env TMPDIR=. mktemp _gk2XXXXXXXX) || \
+    err_die "canot create temporary file for root key retrieval"
+  # current may not contain root key, but target MUST have a root key
+  if execute_command "gbb_utility -g --rootkey=$keyfile1 $1" 2>/dev/null; then
+    execute_command "gbb_utility -g --rootkey=$keyfile2 $2" || \
+      err_die "cannot get rootkey from $2"
+    compare_file "$keyfile1" "$keyfile2" || ret=1
+  else
+    debug_msg "warning: cannot get rootkey from $1"
+    ret=2
+  fi
+
+  # clean up if not debug mode
+  is_positive $is_debug || rm -f $keyfile1 $keyfile2
+  debug_msg "chromeos_check_same_root_keys: result(shell-style)=$ret"
+  return $ret
+}
+
 
 # ----------------------------------------------------------------------------
 # Updater
@@ -1012,6 +1066,7 @@ function start_firmware_section_update() {
 
   # create image for flashrom
   debug_msg "creating temporary image file"
+  local tmp_image
   tmp_image=$(env TMPDIR=. mktemp _imgXXXXXXXX) || \
     err_die "cannot create temporary file for building image"
   cp -f $CURRENT_IMAGE $tmp_image
@@ -1108,10 +1163,44 @@ function chromeos_firmware_AB_update() {
   fi
 }
 
+function check_chromeos_vboot_section() {
+  # Checks if the layout has proper VBOOT record
+  check_param "check_chromeos_vboot_section(vboot_list, image_file)" "$@"
+
+  local vboot_section_name offset value
+  for vboot_section_name in $1; do
+    offset=$(flashrom_echo_section_offset $vboot_section_name)
+    value="$(dd if=$2 bs=1 skip=$offset \
+      count=$CHROMEOS_VBOOT_SIGNATURE_LENGTH 2>/dev/null)"
+    debug_msg "check_chromeos_vboot_section: $vboot_section_name@$offset:$value"
+    if [ "$value" != "$CHROMEOS_VBOOT_SIGNATURE" ]; then
+      return 1  # fail as shell-style
+    fi
+  done
+  return 0  # shell-style success
+}
+
+function build_layout_signature() {
+  # Builds a signature of given layout sections.
+  check_param "build_layout_signature(section_list)" "$@"
+
+  local signature="LAYOUT_SIG"
+  local name="" offset="" size=""
+  for name in $1; do
+    offset=$(flashrom_echo_section_offset $name)
+    size=$(flashrom_echo_section_size $name)
+    signature="$signature,($name,$offset,$size)"
+  done
+  echo $signature
+}
+
 function update_firmware() {
   # Firmware update procedure.
   check_param \
-  "update_firmware(code,name,image,ro,rw_a,opt_rw_b,opt_skip,opt_preserve)" "$@"
+  "update_firmware(
+      code, name, image, ro, rw_a, opt_rw_b, opt_skip, opt_preserve,
+      opt_vboot, opt_rootkey)" \
+  "$@"
 
   local code=$1
   local image_fname=$3 current_fname=$CURRENT_IMAGE
@@ -1130,13 +1219,56 @@ function update_firmware() {
     || err_die "Target image size=$(echo_file_size $image_fname) is" \
                "different from real flashrom=$(echo_file_size $current_fname)"
 
+  # process layout
+  flashrom_detect_layout $code $current_fname
+  local current_layout_signature="$(build_layout_signature "$ro_list $rw_list")"
+  debug_msg "current layout signature: $current_layout_signature"
   flashrom_detect_layout $code $image_fname
+  local target_layout_signature="$(build_layout_signature "$ro_list $rw_list")"
+  debug_msg "target layout signature: $target_layout_signature"
   flashrom_set_skip_verify_list "$7"
 
   # build a preserved image if required
   if [ -n "$8" ]; then
     image_fname=$(flashrom_preserve_sections "$8" $current_fname $image_fname) \
       || err_die "cannot create temporary file for preserving sections"
+  fi
+
+  # if the layout is different, we only allow factory setup
+  assert_str $is_check_layout
+  if is_positive $is_check_layout && \
+    [ "$current_layout_signature" != "$target_layout_signature" ]; then
+    if ! is_positive $is_factory; then
+      err_die "Image memory layout is incompatible to current system." \
+              "You may need to perform a factory install by --factory."
+    fi
+  fi
+
+  # verify if this seems like a valid layout
+  assert_str $is_check_vboot
+  if is_positive $is_check_vboot && [ -n "$9" ] && \
+    ! check_chromeos_vboot_section "$9" $image_fname; then
+    err_die "Invalid memory layout or corrupted ChromeOS firmware image."
+  fi
+
+  # check rootkey to see if they are compatible
+  local compare_rootkey_result=0
+  assert_str $is_check_rootkey
+  if is_positive $is_check_rootkey && [ -n "${10}" ]; then
+    chromeos_check_same_root_keys $current_fname $image_fname \
+      || compare_rootkey_result=$?
+  fi
+
+  # if the rootkey seems different, we only allow factory setup
+  debug_msg "result: $compare_rootkey_result"
+  if [ "$compare_rootkey_result" -ne "0" ] && ! is_positive $is_factory; then
+    if [ "$compare_rootkey_result" -eq "1" ]; then
+      err_die "Incompatible firmware image (Root key is different). " \
+              "You may need to perform a factory install by --factory."
+    else
+      err_die "Cannot find root key in current system. " \
+              "You may need to perform a factory install by --factory."
+    fi
   fi
 
   # It is possible to check write protection status via $ACPI_ROOT/BINF.3
@@ -1239,8 +1371,21 @@ function update_firmware() {
 is_mode_assigned=0
 
 # parse command line
-# TODO we can add '--check-list' and '--update-list' to allow arbitrary updating
 for arg in "$@"; do
+
+  # pre-process argument
+  arg_name="${arg%%=*}"
+  arg_value=""
+  arg_check_value=1
+  if [ "$arg_name" != "$arg" ]; then
+    arg_value="=${arg#*=}"
+  fi
+  arg_name="$(echo "$arg_name" | sed 's/_/-/g' | sed 's/^--no-/--no/')"
+  if [ "${arg_name%%check*}" = "--no" ]; then
+    arg_check_value=0
+  fi
+  arg="${arg_name}${arg_value}"
+
   case $arg in
     -h | --help )
       # usage_help
@@ -1252,10 +1397,21 @@ mode selection (only the last one assigned mode will take effect):
     --rw-ab-together     Update R/W firmware, and update A/B parts together
     --rw-only            (default) Update R/W firmware in 2 stage, skip whole RO
 
+mode aliases:
+    --factory-mode       Factory Install Mode, alias for --factory
+    --recovery-mode      Recovery Install Mode, alias for --with-ab-together
+    --os-install-mode    OS Install Mode, alias for --with-ab-together
+    --background-mode    Background Update Mode, alias for --background-update
+
 special options:
     --background-update  Skip update that may freeze keyboard/reboot (eg, EC)
-    --always-verify      Force verifying each write to flashrom
     --targets='list'     Targets to be updated (def: '$CHROMEOS_UPDATE_TARGETS')
+
+checking and verification:
+    --always-verify      Force verifying each write to flashrom
+    --[no]check-layout   Check if the flash memory layout is compatible
+    --[no]check-rootkey  Check if the rootkey is compatible for updating
+    --[no]check-vboot    Check if the carried image has proper VBOOT signature
 
 general options:
     --verbose            Print verbose messages
@@ -1263,7 +1419,7 @@ general options:
     --help               This help message"
       exit 0
       ;;
-    --factory )
+    --factory* )
       allow_2stage_update=0
       is_factory=1
       is_rw_only=0
@@ -1277,7 +1433,7 @@ general options:
       is_mode_assigned=1
       verbose_msg " * Enable RW+RO Code (bootstub/recovery) mode"
       ;;
-    --rw-ab* )
+    --rw-ab* | --recovery* | --os-install* )
       allow_2stage_update=0
       is_factory=0
       is_rw_only=1
@@ -1295,13 +1451,22 @@ general options:
       is_background=1
       verbose_msg " * Enable background update mode"
       ;;
+    --target*=* )
+      CHROMEOS_UPDATE_TARGETS="${arg#--target*=}"
+      verbose_msg " * Target(s) changed to: $CHROMEOS_UPDATE_TARGETS"
+      ;;
     --always-verify )
       is_always_verify=1
       verbose_msg " * Force verification to every write"
       ;;
-    --target*=* )
-      CHROMEOS_UPDATE_TARGETS="${arg#--target*=}"
-      verbose_msg " * Target(s) changed to: $CHROMEOS_UPDATE_TARGETS"
+    --check-layout | --nocheck-layout )
+      is_check_layout=$arg_check_value
+      ;;
+    --check-rootkey | --nocheck-rootkey )
+      is_check_rootkey=$arg_check_value
+      ;;
+    --check-vboot | --nocheck-vboot )
+      is_check_vboot=$arg_check_value
       ;;
     --verbose )
       is_verbose=1
@@ -1310,7 +1475,9 @@ general options:
       is_debug=1
       ;;
     * )
-      echo " ! Warning: unknown parameter: $arg"
+      echo " ! ERROR: unknown parameter: $arg"
+      echo " ! Please invoke with --help for full syntax."
+      exit 1
   esac
   shift
 done
@@ -1349,6 +1516,9 @@ if is_positive $is_debug; then
   debug_msg "(opt) is_always_verify: $is_always_verify"
   debug_msg "(opt) allow_fmap_decode_layout: $allow_fmap_decode_layout"
   debug_msg "(opt) update targets: $CHROMEOS_UPDATE_TARGETS"
+  debug_msg "(chk) is_check_layout: $is_check_layout"
+  debug_msg "(chk) is_check_rootkey : $is_check_rootkey"
+  debug_msg "(chk) is_check_vboot: $is_check_vboot"
   debug_msg "(msg) is_verbose: $is_verbose"
   debug_msg "(msg) is_debug: $is_debug"
 fi
@@ -1366,7 +1536,9 @@ for target in $CHROMEOS_UPDATE_TARGETS; do
           "$bios_ro_list" \
           "$CHROMEOS_BIOS_RW_A_LIST" "$CHROMEOS_BIOS_RW_B_LIST" \
           "$CHROMEOS_BIOS_SKIP_VERIFY_LIST" \
-          "$CHROMEOS_BIOS_PRESERVE_LIST"
+          "$CHROMEOS_BIOS_PRESERVE_LIST" \
+          "$CHROMEOS_VBOOT_LIST" \
+          "$CHROMEOS_ROOTKEY_SECTION_NAME"
       fi
       ;;
     ec )
@@ -1379,7 +1551,9 @@ for target in $CHROMEOS_UPDATE_TARGETS; do
           "$CHROMEOS_EC_RO_LIST" \
           "$CHROMEOS_EC_RW_LIST" "" \
           "$CHROMEOS_EC_SKIP_VERIFY_LIST" \
-          "$CHROMEOS_EC_PRESERVE_LIST"
+          "$CHROMEOS_EC_PRESERVE_LIST" \
+          "" \
+          ""
       fi
       ;;
     * )
