@@ -82,6 +82,7 @@ FWID_NEW_FILE = 'fwid.new'  # FWID reported by the firmware being tested.
 # The list of shell executables necessary for this program to work.
 REQUIRED_PROGRAMS = '''
 cgpt blkid flashrom reboot_mode realpath rootdev vbutil_firmware vbutil_kernel
+mosys
 '''
 
 FLASHROM_HANDLER = flashrom_handler.FlashromHandler()

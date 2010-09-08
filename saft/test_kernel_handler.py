@@ -37,9 +37,8 @@ def get_kernel_key(section, pubkey_file):
     '''
     fum = flashrom_util.flashrom_util()
     image = fum.read_whole()
-    layout = fum.detect_chromeos_layout('bios', len(image))
     # get the block header
-    kblock = fum.get_section(image, layout, 'VBOOT' + section)
+    kblock = fum.get_section(image, 'VBOOT' + section)
     kbsize = struct.unpack_from(KEYBLOCK_SIZE_ACCESS_FORMAT, kblock)[1]
 
     pk_base_offset = kbsize + FW_PREAMBLE_PUBKEY_OFFSET

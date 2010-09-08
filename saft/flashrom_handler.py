@@ -39,7 +39,6 @@ class FlashromHandler(object):
     def __init__(self):
     # make sure it does not accidentally overwrite the image.
         self.fum = None
-        self.bios_layout = None
         self.chros_if = None
         self.image = ''
         self.pub_key_file = ''
@@ -77,18 +76,14 @@ class FlashromHandler(object):
 
         if image_file:
             self.image = open(image_file, 'rb').read()
+            self.fum.set_bios_layout(image_file)
         else:
             self.image = self.fum.read_whole()
-        self.bios_layout = self.fum.detect_chromeos_layout('bios',
-                len(self.image))
-        self.whole_flash_layout = self.fum.detect_layout('all',
-                len(self.image))
 
         for section in self.fv_sections.itervalues():
             for subsection_name in section.names():
                 f = open(self.chros_if.state_dir_file(subsection_name), 'wb')
-                f.write(self.fum.get_section(self.image,
-                                             self.bios_layout, subsection_name))
+                f.write(self.fum.get_section(self.image, subsection_name))
                 f.close()
 
         if not self.pub_key_file:
@@ -100,8 +95,7 @@ class FlashromHandler(object):
         gbb_header_format = '<4s20s2I'
         pubk_header_format = '<2Q'
 
-        gbb_section = self.fum.get_section(
-            self.image, self.bios_layout, 'FV_GBB')
+        gbb_section = self.fum.get_section(self.image, 'FV_GBB')
 
         # do some sanity checks
         try:
@@ -171,14 +165,13 @@ class FlashromHandler(object):
 
         # Get the appropriate section of the image.
         subsection_name = self.fv_sections[section].body_name
-        body = self.fum.get_section(self.image, self.bios_layout,
-                                    subsection_name)
+        body = self.fum.get_section(self.image, subsection_name)
 
         # Modify the byte in it within 5% of the section body.
         index = len(body) / 20
         body_list = list(body)
         body_list[index] = '%c' % ((ord(body[index]) + delta) % 0x100)
-        self.image = self.fum.put_section(self.image, self.bios_layout,
+        self.image = self.fum.put_section(self.image,
                                           subsection_name, ''.join(body_list))
         return subsection_name
 
@@ -196,15 +189,13 @@ class FlashromHandler(object):
         '''Corrupt a section in the FLASHROM!!!'''
 
         subsection_name = self.corrupt_section(section)
-        self.fum.write_partial(self.image, self.bios_layout,
-                               (subsection_name, ))
+        self.fum.write_partial(self.image, (subsection_name, ))
 
     def restore_firmware(self, section):
         '''Restore the previously corrupted section in the FLASHROM!!!'''
 
         subsection_name = self.restore_section(section)
-        self.fum.write_partial(self.image, self.bios_layout,
-                               (subsection_name, ))
+        self.fum.write_partial(self.image, (subsection_name, ))
 
     def write_whole(self):
         '''Write the whole image into the flashrom.'''
@@ -212,7 +203,7 @@ class FlashromHandler(object):
         if not self.image:
             raise FlashromHandlerError(
                 'Attempt at using an uninitialized object')
-        self.fum.write_partial(self.image, self.whole_flash_layout, ('all', ))
+        self.fum.write_whole(self.image)
 
     def dump_whole(self, filename):
         '''Write the whole image into a file.'''

@@ -24,95 +24,133 @@ For more information, see help(flashrom_util.flashrom_util).
 
 import os
 import re
+import stat
 import subprocess
 import sys
 import tempfile
 import types
 
+import chromeos_interface
 
-# simple layout description language compiler
-def compile_layout(desc, size):
-    """ compile_layout(desc, size) -> layout
+class TestError(Exception):
+    pass
 
-    Compiles a flashrom layout by simple description language.
-    Returns the result as a map. Empty map for any error.
 
-    syntax:       <desc> ::= <partitions>
-            <partitions> ::= <partition>
-                           | <partitions> '|' <partition>
-             <partition> ::= <spare_section>
-                           | <partition> ',' <section>
-                           | <section> ',' <partition>
-               <section> ::= <name> '=' <size>
-         <spare_section> ::= '*'
-                           | <name>
-                           | <name> '=' '*'
+class LayoutScraper(object):
+    '''Object of this class is used to retrieve layout from a BIOS file.'''
 
-     * Example: 'ro|rw', 'ro=0x1000,*|*,rw=0x1000'
-     * Each partition share same space from total size of flashrom.
-     * Sections are fix sized, or "spare" which consumes all remaining
-       space from a partition.
-     * You can use any non-zero decimal or heximal (0xXXXX) in <size>.
-       (size as zero is reserved now)
-     * You can use '*' as <name> for "unamed" items which will be ignored in
-       final layout output.
-     * You can use "<name>=*" or simply "<name>" (including '*', the
-       'unamed section') to define spare section.
-     * There must be always one (no more, no less) spare section in
-       each partition.
-    """
-    # create an empty layout first
-    layout = {}
-    err_ret = {}
+    # The default conversion table for mosys.
+    DEFAULT_CHROMEOS_FMAP_CONVERSION = {
+        "Boot Stub": "FV_BSTUB",
+        "GBB Area": "FV_GBB",
+        "Recovery Firmware": "FVDEV",
+        "RO VPD": "RO_VPD",
+        "Firmware A Key": "VBOOTA",
+        "Firmware A Data": "FVMAIN",
+        "Firmware B Key": "VBOOTB",
+        "Firmware B Data": "FVMAINB",
+        "Log Volume": "FV_LOG",
+        }
 
-    # prepare: remove all spaces (literal from string.whitespace)
-    desc = ''.join([c for c in desc if c not in '\t\n\x0b\x0c\r '])
-    # find equally-sized partitions
-    parts = desc.split('|')
-    block_size = size / len(parts)
-    offset = 0
+    def __init__(self, os_if):
+        self.image = None
+        self.os_if = os_if
 
-    for part in parts:
-        sections = part.split(',')
-        sizes = []
-        names = []
-        spares = 0
+    def _get_text_layout(self, file_name):
+        '''Retrieve text layout from a firmware image file.
 
-        for section in sections:
-            # skip empty section to allow final ','
-            if section == '':
+        This function uses the 'mosys' utility to scan the firmware image and
+        retrieve the section layout information.
+
+        The layout is reported as a set of lines with multiple
+        "<name>"="value" pairs, all this output is passed to the caller.
+        '''
+
+        mosys_cmd = 'mosys -k eeprom map %s' % file_name
+        return self.os_if.run_shell_command_get_output(mosys_cmd)
+
+    def _line_to_dictionary(self, line):
+        '''Convert a text layout line into a dictionary.
+
+        Get a string consisting of single space separated "<name>"="value>"
+        pairs and convert it into a dictionary where keys are the <name>
+        fields, and values are the corresponding <value> fields.
+
+        Return the dictionary to the caller.
+        '''
+
+        rv = {}
+
+        items = line.replace('" ', '"^').split('^')
+        for item in items:
+            pieces = item.split('=')
+            if len(pieces) != 2:
                 continue
-            # format name=v or name ?
-            if section.find('=') >= 0:
-                k, v = section.split('=')
-                if v == '*':
-                    v = 0            # spare section
-                else:
-                    v = int(v, 0)
-                    if v == 0:
-                        raise TestError('Using size as 0 is prohibited now.')
-            else:
-                k, v = (section, 0)  # spare, should appear for only one.
-            if v == 0:
-                spares = spares + 1
-            names.append(k)
-            sizes.append(v)
+            rv[pieces[0]] = pieces[1].strip('"')
+        return rv
 
-        if spares != 1:
-            # each partition should have exactly one spare field
-            return err_ret
+    def check_layout(self, layout, file_size):
+        '''Verify the layout to be consistent.
 
-        spare_size = block_size - sum(sizes)
-        sizes[sizes.index(0)] = spare_size
-        # fill sections
-        for i in range(len(names)):
-            # ignore unamed sections
-            if names[i] != '*':
-                layout[names[i]] = (offset, offset + sizes[i] - 1)
-            offset = offset + sizes[i]
+        The layout is consistent if there is no overlapping sections and the
+        section boundaries do not exceed the file size.
 
-    return layout
+        Inputs:
+          layout: a dictionary keyed by a string (the section name) with
+                  values being two integers tuples, the first and the last
+                  bites' offset in the file.
+          file_size: and integer, the size of the file the layout describes
+                     the sections in.
 
+        Raises:
+          TestError in case the layout is not consistent.
+        '''
+
+        # Generate a list of section range tuples.
+        ost = sorted([layout[section] for section in layout])
+        base = 0
+        for section_base, section_end in ost:
+            if section_base < base or section_end < section_base:
+                raise TestError('bad section at 0x%x..0x%x' % (
+                        section_base, section_end))
+            base = section_end
+        if base > file_size:
+            raise TestError('Section end 0x%x exceeds file size %x' % (
+                    base, file_size))
+
+    def get_layout(self, file_name):
+        '''Generate layout for a firmware file.
+
+        First retrieve the text layout as reported by 'mosys' and then convert
+        it into a dictionary, replacing section names reported by mosys into
+        matching names from DEFAULT_CHROMEOS_FMAP_CONVERSION dictionary above,
+        using the names as keys in the layout dictionary. The elements of the
+        layout dictionary are the offsets of the first ans last bytes of the
+        section in the firmware file.
+
+        Then verify the generated layout's consistency and return it to the
+        caller.
+        '''
+
+        layout_data = {} # keyed by the section name, elements - tuples of
+                         # (<section start addr>, <section end addr>)
+
+        for line in self._get_text_layout(file_name):
+            d = self._line_to_dictionary(line)
+            try:
+                name = self.DEFAULT_CHROMEOS_FMAP_CONVERSION[d['area_name']]
+            except KeyError:
+                continue  # This line does not contain an area of interest.
+
+            if name in layout_data:
+                raise TestError('%s duplicated in the layout' % area_name)
+
+            offset = int(d['area_offset'], 0)
+            size = int(d['area_size'], 0)
+            layout_data[name] = (offset, offset + size - 1)
+
+        self.check_layout(layout_data, os.stat(file_name)[stat.ST_SIZE])
+        return layout_data
 
 # flashrom utility wrapper
 class flashrom_util(object):
@@ -129,110 +167,61 @@ class flashrom_util(object):
     To perform a read, you need to:
      1. Prepare a flashrom_util object
         ex: flashrom = flashrom_util.flashrom_util()
-     2. Decide target (BIOS/EC)
-        ex: flashrom.select_bios_flashrom()
-     3. Perform read operation
+     2. Perform read operation
         ex: image = flashrom.read_whole()
 
-    To perform a (partial) write, you need to:
-     1. Select target (BIOS/EC)
-        ex: flashrom.select_ec_flashrom()
-     2. Create or load a layout map (see explain of layout below)
-        ex: layout_map = { 'all': (0, rom_size - 1) }
+        When the contents of the flashrom is read off the target, it's map
+        gets created automatically (read from the flashrom image using
+        'mosys'). If the user wants this object to operate on some other file,
+        he could either have the map for the file created explicitly by
+        invoking flashrom.set_bios_layout(filename), or supply his own map
+        (which is a dictionary where keys are section names, and values are
+        tuples of integers, base address of the section and the last address
+        of the section).
+
+    By default this object operates on the map retrieved from the image and
+    stored locally, this map can be overwritten by an explicitly passed user
+    map.
+
+   To perform a (partial) write:
+
+     1. Prepare a buffer storing an image to be written into the flashrom.
+     2. Have the map generated automatically or prepare your own, for instance:
+        ex: layout_map_all = { 'all': (0, rom_size - 1) }
         ex: layout_map = { 'ro': (0, 0xFFF), 'rw': (0x1000, rom_size-1) }
-        You can also use built-in layout like detect_chromeos_bios_layout(),
-        detect_chromeos_layout(), or detect_layout() to build the layout maps.
-     3. Prepare a full base image
-        ex: image = flashrom.read_whole()
-        ex: image = chr(0xFF) * rom_size
-     4. (optional) Modify data in base image
-        ex: new_image = flashrom.put_section(image, layout_map, 'all', mydata)
-     5. Perform write operation
-        ex: flashrom.write_partial(new_image, layout_map, ('all',))
+     4. Perform write operation
 
-     P.S: you can also create the new_image in your own way, for example:
-        rom_size = flashrom_util.get_size()
-        erase_image = chr(0xFF) * rom_size
-        flashrom.write_partial(erase_image, layout_map, ('all',))
-
-    The layout is a dictionary of { 'name': (address_begin, addres_end) }.
-    Note that address_end IS included in the range.
-    See help(detect_layout) for easier way to generate layout maps.
+        ex using default map:
+          flashrom.write_partial(new_image, (<section_name>, ...))
+        ex using explicitly provided map:
+          flashrom.write_partial(new_image, layout_map_all, ('all',))
 
     Attributes:
-        tool_path:  file path to the tool 'flashrom'
-        cmd_prefix: prefix of every shell cmd, ex: "PATH=.:$PATH;export PATH;"
-        tmp_root:   a folder name for mkstemp (for temp of layout and images)
         verbose:    print debug and helpful messages
         keep_temp_files: boolean flag to control cleaning of temporary files
-        target_map: map of what commands should be invoked to switch targets.
-                    if you don't need any commands, use empty dict {}.
-                    if you want default detection, use None (default param).
     """
 
-    # default target selection commands, by machine architecture
-    # syntax: { 'arch_regex': exec_script, ... }
-    default_arch_target_map = {
-        '^x86|^i\d86': {
-            # The magic numbers here are register indexes and values that apply
-            # to all current known x86 based ChromeOS devices.
-            # Detail information is defined in section #"10.1.50 GCS-General
-            # Control and Status Register" of document "Intel NM10 Express
-            # Chipsets".
-            "bios": 'iotools mmio_write32 0xfed1f410 ' +
-                    '`iotools mmio_read32 0xfed1f410 |head -c 6`0460',
-            "ec":   'iotools mmio_write32 0xfed1f410 ' +
-                    '`iotools mmio_read32 0xfed1f410 |head -c 6`0c60',
-        },
-    }
-
-    default_chromeos_layout_desc = {
-        "bios": """
-                FV_LOG          = 0x20000,
-                NV_COMMON_STORE = 0x10000,
-                VBOOTA          = 0x02000,
-                FVMAIN          = 0xB0000,
-                VBOOTB          = 0x02000,
-                FVMAINB         = 0xB0000,
-                NVSTORAGE       = 0x10000,
-                FV_RW_RESERVED  = *,
-                |
-                FV_RO_RESERVED  = *,
-                FVDEV           = 0xB0000,
-                FV_GBB          = 0x20000,
-                FV_BSTUB        = 0x40000,
-                """,
-        "ec": """
-                EC_RO
-                |
-                EC_RW
-              """,
-    }
-
-    def __init__(self,
-                 tool_path='/usr/sbin/flashrom',
-                 cmd_prefix='',
-                 tmp_root=None,
-                 verbose=False,
-                 keep_temp_files=False,
-                 target_map=None):
+    def __init__(self, verbose=False, keep_temp_files=False):
         """ constructor of flashrom_util. help(flashrom_util) for more info """
-        self.tool_path = tool_path
-        self.cmd_prefix = cmd_prefix
-        self.tmp_root = tmp_root
         self.verbose = verbose
         self.keep_temp_files = keep_temp_files
-        self.target_map = target_map
-        # detect bbs map if target_map is None.
-        # NOTE when target_map == {}, that means "do not execute commands",
-        # different to default value.
-        if isinstance(target_map, types.NoneType):
-            # generate default target map
-            self.target_map = self.detect_target_map()
+        self.bios_layout = {}
+        self.os_if = chromeos_interface.ChromeOSInterface(True)
+        self.os_if.init(tempfile.gettempdir())
+        self._enable_bios_access()
+
+    def _enable_bios_access(self):
+        if not self.os_if.target_hosted():
+            return
+        value = int(self.os_if.run_shell_command_get_output(
+            'iotools mmio_read32 0xfed1f410')[0], 0)
+        value = (value & 0xffff0000) + 0x460
+        self.os_if.run_shell_command(
+            'iotools mmio_write32 0xfed1f410 0x%x' % value)
 
     def get_temp_filename(self, prefix):
         ''' (internal) Returns name of a temporary file in self.tmp_root '''
-        (fd, name) = tempfile.mkstemp(prefix=prefix, dir=self.tmp_root)
+        (fd, name) = tempfile.mkstemp(prefix=prefix)
         os.close(fd)
         return name
 
@@ -255,24 +244,24 @@ class flashrom_util(object):
         open(tmpfn, 'wb').write('\n'.join(layout_text) + '\n')
         return tmpfn
 
-    def get_section(self, base_image, layout_map, section_name):
+    def get_section(self, base_image, section_name):
         '''
         Retrieves a section of data based on section_name in layout_map.
         Raises error if unknown section or invalid layout_map.
         '''
-        pos = layout_map[section_name]
+        pos = self.bios_layout[section_name]
         if pos[0] >= pos[1] or pos[1] >= len(base_image):
             raise TestError('INTERNAL ERROR: invalid layout map: %s.' %
                             section_name)
         return base_image[pos[0] : pos[1] + 1]
 
-    def put_section(self, base_image, layout_map, section_name, data):
+    def put_section(self, base_image, section_name, data):
         '''
-        Updates a section of data based on section_name in layout_map.
-        Raises error if unknown section or invalid layout_map.
+        Updates a section of data based on section_name in bios_layout.
+        Raises error if unknown section.
         Returns the full updated image data.
         '''
-        pos = layout_map[section_name]
+        pos = self.bios_layout[section_name]
         if pos[0] >= pos[1] or pos[1] >= len(base_image):
             raise TestError('INTERNAL ERROR: invalid layout map.')
         if len(data) != pos[1] - pos[0] + 1:
@@ -287,52 +276,11 @@ class flashrom_util(object):
         image = self.read_whole()
         return len(image)
 
-    def detect_target_map(self):
-        """
-        Detects the target selection map.
-        Use machine architecture in current implementation.
-        """
-        arch = utils.get_arch()
-        for regex, target_map in self.default_arch_target_map.items():
-            if re.match(regex, arch):
-                return target_map
-        raise TestError('INTERNAL ERROR: unknown architecture, need target_map')
+    def set_bios_layout(self, file_name):
+        """get layout read from the BIOS """
 
-    def detect_layout(self, layout_desciption, size=None):
-        """
-        Detects and builds layout according to current flash ROM size
-        and a simple layout description language.
-        If parameter 'size' is omitted, self.get_size() will be called.
-
-        See help(flashrom_util.compile_layout) for the syntax of description.
-
-        Returns the layout map (empty if any error).
-        """
-        if not size:
-            size = self.get_size()
-        return compile_layout(layout_desciption, size)
-
-    def detect_chromeos_layout(self, target, size=None):
-        """
-        Detects and builds ChromeOS firmware layout according to current flash
-        ROM size.  If parameter 'size' is None, self.get_size() will be called.
-
-        Currently supported targets are: 'bios' or 'ec'.
-
-        Returns the layout map (empty if any error).
-        """
-        if target not in self.default_chromeos_layout_desc:
-            raise TestError('INTERNAL ERROR: unknown layout target: %s' % test)
-        chromeos_target = self.default_chromeos_layout_desc[target]
-        return self.detect_layout(chromeos_target, size)
-
-    def detect_chromeos_bios_layout(self, size=None):
-        """ Detects standard ChromeOS BIOS layout """
-        return self.detect_chromeos_layout('bios', size)
-
-    def detect_chromeos_ec_layout(self, size=None):
-        """ Detects standard ChromeOS Embedded Controller layout """
-        return self.detect_chromeos_layout('ec', size)
+        scraper = LayoutScraper(self.os_if)
+        self.bios_layout = scraper.get_layout(file_name)
 
     def read_whole(self):
         '''
@@ -340,114 +288,45 @@ class flashrom_util(object):
         Returns the data read from flash ROM, or empty string for other error.
         '''
         tmpfn = self.get_temp_filename('rd_')
-        cmd = '%s"%s" -r "%s"' % (self.cmd_prefix, self.tool_path, tmpfn)
+        cmd = 'flashrom -r "%s"' % (tmpfn)
         if self.verbose:
             print 'flashrom_util.read_whole(): ', cmd
-        result = ''
 
-        if utils.system(cmd, ignore_status=True) == 0:  # failure for non-zero
-            try:
-                result = open(tmpfn, 'rb').read()
-            except IOError:
-                result = ''
+        self.os_if.run_shell_command(cmd)
+        result = open(tmpfn, 'rb').read()
+        self.set_bios_layout(tmpfn)
 
         # clean temporary resources
         self.remove_temp_file(tmpfn)
         return result
 
-    def write_partial(self, base_image, layout_map, write_list):
+    def write_partial(self, base_image, write_list, write_layout_map=None):
         '''
         Writes data in sections of write_list to flash ROM.
-        Returns True on success, otherwise False.
+        An exception is raised if write operation fails.
         '''
+
+        if write_layout_map:
+            layout_map = write_layout_map
+        else:
+            layout_map = self.bios_layout
+
         tmpfn = self.get_temp_filename('wr_')
         open(tmpfn, 'wb').write(base_image)
         layout_fn = self.create_layout_file(layout_map)
 
-        cmd = '%s"%s" -l "%s" -i %s -w "%s"' % (
-                self.cmd_prefix, self.tool_path,
+        cmd = 'flashrom -l "%s" -i %s -w "%s"' % (
                 layout_fn, ' -i '.join(write_list), tmpfn)
         if self.verbose:
             print 'flashrom.write_partial(): ', cmd
-        result = False
 
-        if utils.system(cmd, ignore_status=True) == 0:  # failure for non-zero
-            result = True
+        self.os_if.run_shell_command(cmd)
 
         # clean temporary resources
         self.remove_temp_file(tmpfn)
         self.remove_temp_file(layout_fn)
-        return result
 
-    def select_target(self, target):
-        '''
-        Selects (usually by setting BBS register) a target defined in target_map
-        and then directs all further firmware access to certain region.
-        '''
-        if target not in self.target_map:
-            return True
-        if self.verbose:
-            print 'flashrom.select_target("%s"): %s' % (target,
-                                                        self.target_map[target])
-        if utils.system(self.cmd_prefix + self.target_map[target],
-                        ignore_status=True) == 0:
-            return True
-        return False
-
-    def select_bios_flashrom(self):
-        ''' Directs all further accesses to BIOS flash ROM. '''
-        return self.select_target('bios')
-
-    def select_ec_flashrom(self):
-        ''' Directs all further accesses to Embedded Controller flash ROM. '''
-        return self.select_target('ec')
-
-
-# ---------------------------------------------------------------------------
-# The flashrom_util supports both running inside and outside 'autotest'
-# framework, so we need to provide some mocks and dynamically load
-# autotest components here.
-
-
-class mock_TestError(object):
-    """ a mock for error.TestError """
-    def __init__(self, msg):
-        print msg
-        sys.exit(1)
-
-
-class mock_utils(object):
-    """ a mock for autotest_li.client.bin.utils """
-    def get_arch(self):
-        arch = os.popen('uname -m').read().rstrip()
-        arch = re.sub(r"i\d86", r"i386", arch, 1)
-        return arch
-
-    def system(self, cmd, ignore_status=False):
-        p = subprocess.Popen(cmd, shell=True,
-                             stdout=subprocess.PIPE,
-                             stderr=subprocess.PIPE)
-        p.wait()
-        if p.returncode:
-            print p.stdout.read()
-            if not ignore_status:
-                raise TestError("failed to execute: %s\nError messages: %s" % (
-                    cmd, p.stderr.read()))
-        return p.returncode
-
-
-# import autotest or mock utilities
-try:
-    # print 'using autotest'
-    from autotest_lib.client.bin import test, utils
-    from autotest_lib.client.common_lib.error import TestError
-except ImportError:
-    # print 'using mocks'
-    utils = mock_utils()
-    TestError = mock_TestError
-
-
-# main stub
-if __name__ == "__main__":
-    # TODO(hungte) provide unit tests or command line usage
-    pass
+    def write_whole(self, base_image):
+        '''Write the whole base image. '''
+        layout_map = { 'all': (0, len(base_image) - 1) }
+        self.write_partial(base_image, ('all',), layout_map)
