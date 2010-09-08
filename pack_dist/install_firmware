@@ -46,7 +46,10 @@ CHROMEOS_FACTORY_TEST_TAG='/root/.factory_test'
 CHROMEOS_FACTORY_INSTALLER_TAG='/root/.factory_installer'
 
 # Default command to change boot index.
-CHROMEOS_CHANGE_BOOT_INDEX_CMD='/usr/sbin/reboot_mode --try_firmware_b=1'
+CHROMEOS_CHANGE_BOOT_INDEX_CMD='reboot_mode --try_firmware_b=1'
+
+# Default command to query next (planned) boot index
+CHROMEOS_QUERY_TRIAL_BOOT_CMD='reboot_mode| grep try_firmware_b| sed "s/.*: //"'
 
 # Default command to select BIOS as flashrom target
 CHROMEOS_SELECT_BIOS_CMD='
@@ -971,6 +974,20 @@ function chromeos_get_last_boot_index() {
   esac
 }
 
+function chromeos_check_scheduled_trial_reboot() {
+  # Utility to check if a reboot with try_firmware_b is scheduled.
+  # Returns shell-style true/false (0/1).
+  check_param "chromeos_check_scheduled_trial_reboot()" "$@"
+
+  local bootinfo=$(eval $CHROMEOS_QUERY_TRIAL_BOOT_CMD 2>/dev/null)
+  if [ "$bootinfo" = "1" ]; then
+    debug_msg "chromeos_check_scheduled_trial_reboot: TRUE"
+    return 0  # shell-style true
+  fi
+  debug_msg "chromeos_check_scheduled_trial_reboot: FALSE"
+  return 1  # shell-style false
+}
+
 function chromeos_change_boot_index() {
   # Utility to change firmware boot index.
   check_param "chromeos_change_boot_index()" "$@"
@@ -1140,6 +1157,15 @@ function chromeos_firmware_AB_update() {
       last_boot_index=$index_A
       T_equals_A=$T_equals_B
     fi
+  fi
+
+  if is_positive $T_equals_B &&
+    chromeos_check_scheduled_trial_reboot; then
+    # A very special case: if boot with B was already scheduled, that means
+    # an update has not been verified yet while update program was invoked
+    # again. Treat T_equals_B as FALSE to prevent a rollback.
+    echo "  * action: skip (same update already scheduled and need a reboot)"
+    return
   fi
 
   if is_positive $T_equals_B ; then
