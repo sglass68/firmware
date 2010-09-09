@@ -185,10 +185,17 @@ LAYOUT_OFFSET=""
 
 # Script should exit on any unexpected error
 set -e
-# Always use bundled tool binaries, required for flashrom,iotools,mosys
-PATH=".:/usr/sbin:/sbin:$PATH"; export PATH
 # To make non-bash compatible
 alias function=
+
+# Tool program (flashrom, iotools, mosys, ...) search path:
+# 1. bundled (.) 2. $INSTALL_ROOT/* 3. defaults (/usr/sbin,/sbin) and $PATH
+PATH="/usr/sbin:/sbin:$PATH"
+if [ -n "${INSTALL_ROOT}" -a "${INSTALL_ROOT}" != "/" ]; then
+  PATH="${INSTALL_ROOT}/usr/bin:${INSTALL_ROOT}/bin:$PATH"
+  PATH="${INSTALL_ROOT}/usr/sbin:${INSTALL_ROOT}/sbin:$PATH"
+fi
+PATH=".:$PATH"; export PATH
 
 # ----------------------------------------------------------------------------
 # Firmware Update Procedure

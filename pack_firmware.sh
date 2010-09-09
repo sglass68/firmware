@@ -18,18 +18,15 @@ script_base="$(dirname "$0")"
 # DEFINE_string name default_value description flag
 DEFINE_string bios_image "" "Path of input BIOS firmware image" "b"
 DEFINE_string ec_image "" "Path of input EC firmware image" "e"
-DEFINE_string output "-" "Path of output filename; '-' for stdout." "o"
-DEFINE_string extra "" "Directory of extra files to be put in firmware package."
+DEFINE_string output "-" "Path of output filename; '-' for stdout" "o"
+DEFINE_string extra "" "Directory of extra files to be put in firmware package"
 
 # tools
 DEFINE_string flashrom "" \
   "Path of flashrom(8), using tool_base/flashrom if not assigned"
-DEFINE_string iotools "" \
-  "Path of iotools, using tool_base/iotools if not assigned"
-
-# default tool location
-DEFINE_string tool_base "" "Default location for tools (flashrom/iotools)"
-DEFINE_string board "" "(deprecated) Alternative to tool_base param."
+DEFINE_string tools "iotools mosys" \
+  "List of tool programs to be bundled into updater"
+DEFINE_string tool_base "" "Default source location for tools programs"
 
 # Parse command line
 FLAGS "$@" || exit 1
@@ -44,19 +41,15 @@ fi
 if [ "${FLAGS_flashrom}" == "" ]; then
   FLAGS_flashrom="${FLAGS_tool_base}/flashrom"
 fi
-if [ "${FLAGS_iotools}" == "" ]; then
-  FLAGS_iotools="${FLAGS_tool_base}/iotools"
-fi
 
 # we need following tools to be inside a package:
 #  - flashrom(8): native binary tool
-#  - iotools: native binary tool
+#  - $FLAGS_tools: native binary tools
 #  - pack_dist/install_firmware
 #  - all files in pack_dist (usually used by install_firmware like selectors)
 
 pack_dist="$script_base/pack_dist"
 flashrom_bin="${FLAGS_flashrom}"
-iotools_bin="${FLAGS_iotools}"
 install_firmware_script="$pack_dist/install_firmware"
 stub_file="$script_base/pack_stub"
 
@@ -78,10 +71,16 @@ function err_die {
 type -P uuencode >/dev/null || err_die "ERROR: You need uuencode(sharutils)"
 
 # check required basic files
-for X in "$flashrom_bin" "$iotools_bin" \
-         "$install_firmware_script" "$stub_file"; do
+for X in "$flashrom_bin" "$install_firmware_script" "$stub_file"; do
   if [ ! -r "$X" ]; then
     err_die "ERROR: Cannot find required file: $X"
+  fi
+done
+
+# check tool programs
+for X in $FLAGS_tools; do
+  if [ ! -r "${FLAGS_tool_base}/$X" ]; then
+    err_die "ERROR: Cannot find tool program: ${FLAGS_tool_base}/$X"
   fi
 done
 
@@ -101,8 +100,6 @@ tmpbase="$tmpfolder"
 version_file="$tmpbase/VERSION"
 echo "Package create date: `date +'%c'`
 
-iotools:     $(md5sum -b "$iotools_bin")
-             $(file -b "$iotools_bin")
 flashrom(8): $(md5sum -b "$flashrom_bin")
              $(file -b "$flashrom_bin")" >> \
   "$version_file"
@@ -120,9 +117,12 @@ fi
 # copy other resources files from pack_dist
 # XXX do not put any files with dot in prefix ( eg: .blah )
 cp -p "$flashrom_bin" "$tmpbase"/flashrom || err_die "cannot copy tool flashrom"
-cp -p "$iotools_bin" "$tmpbase"/iotools || err_die "cannot copy tool iotools"
+for X in $FLAGS_tools; do
+  src="${FLAGS_tool_base}/$X"
+  cp -p "$src" "$tmpbase"/. || err_die "cannot copy tools: $src"
+done
 cp -rp "$pack_dist"/* "$tmpbase" || err_die "cannot copy pack_dist folder"
-chmod a+rx "$tmpbase"/flashrom "$tmpbase"/iotools "$tmpbase"/install_firmware
+chmod a+rx "$tmpbase"/flashrom "$tmpbase"/install_firmware
 
 # copy extra files. if $FLAGS_extra is a folder, copy all content inside.
 if [ -d "${FLAGS_extra}" ]; then
