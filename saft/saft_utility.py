@@ -15,7 +15,7 @@ import tempfile
 
 import chromeos_interface
 import flashrom_handler
-import flashrom_util
+import saft_flashrom_util
 import kernel_handler
 
 from functools import wraps
@@ -53,7 +53,7 @@ SAFT_SCRIPT_TEMPLATE = '''
 # TODO(vbendeb): instead of using the hardcoded device name look for block
 #                labeled  C-KEYFOB
 saft_dev="/dev/${1}3"
-root_dev=$(rootdev)
+root_dev=$(rootdev -s)
 
 if [ "${saft_dev}" = "${root_dev}" ]; then
     mount_point=""
@@ -64,7 +64,7 @@ else
 fi
 
 cd "${mount_point}%s"
-PYTHONPATH=$(realpath ../x86-generic) ./%s --next_step
+./%s --next_step
 '''
 
 # Subdirectory to keep the state of this test over reboots. Created in the
@@ -367,7 +367,7 @@ class FirmwareTest(object):
           # we expected FWID to change, but it did not - have the firmware
           # been even replaced?
                 self.chros_if.log('New firmware - old FWID')
-                sys.exit(1)
+                self.finish_saft(False)
         test_state_tuple = self.test_state_sequence[this_step]
         expected_vector = test_state_tuple[0]
         action = test_state_tuple[1]
@@ -386,12 +386,12 @@ class FirmwareTest(object):
         if boot_vector != expected_vector:
             self.chros_if.log('Error: Wrong boot vector, %s was expected'
                 % expected_vector)
-            sys.exit(1)
+            self.finish_saft(False)
         if this_step == (len(self.test_state_sequence) - 1):
-            self.finish_saft()
+            self.finish_saft(True)
         if action and not self._verify_fw_id(FWID_NEW_FILE):
             self.chros_if.log('Error: Wrong FWID value')
-            sys.exit(1)
+            self.finish_saft(False)
 
         if action:
             if len(test_state_tuple) > 2:
@@ -404,28 +404,30 @@ class FirmwareTest(object):
         self._set_step(this_step + 1)
         self.chros_if.run_shell_command('reboot')
 
-    def finish_saft(self):
-        '''SAFT is done, restore the environment and expose the results.
+    def finish_saft(self, success):
+        '''SAFT completed, restore the environment and expose the results.
 
-        Restore to the original firmware, delete the startup scripts from all
-        drives, copy the log to the stateful partition on the flash drive and
-        restart the machine.
+        Delete the startup script from the removable device, copy the log to
+        '/var' directory on the current drive and exit.
+
+        Input:
+          success - a Boolean set to True if the test has passed through all
+            steps. Affects placing of the last line 'we are done' in the log.
         '''
-        if not self._verify_fw_id(FWID_BACKUP_FILE):
+
+        if success and not self._verify_fw_id(FWID_BACKUP_FILE):
             self.chros_if.log(
                 'Error: Failed to restore to original firmware')
-            sys.exit(1)
+            success = False
         self.chros_if.log('Removing upstart scripts')
         self._handle_saft_script(False)
-        self.chros_if.log('we are done!')
+        if success:
+            self.chros_if.log('we are done!')
 
-        # Shut_down will delete the SAFT state directory, let's have the log
-        # copied one level up.
-        dummy = self.chros_if.state_dir_file('dummy')
-        log_dst_dir = os.path.realpath(os.path.join(os.path.dirname(dummy), '..'))
-        self.chros_if.shut_down(os.path.join(log_dst_dir, LOG_FILE))
-        self.chros_if.run_shell_command('reboot')
-
+        # Have chros_if.shutdown move the log into the '/var' directory to
+        # make it easier to see SAFT results.
+        self.chros_if.shut_down(os.path.join('/var', LOG_FILE))
+        sys.exit(0)
 
 # Firmware self test instance controlling this module.
 FST = FirmwareTest()
@@ -540,7 +542,7 @@ def main(argv):
     FST.init(argv[0], CHROS_IF,
              kernel_handler.KernelHandler(), TEST_STATE_SEQUENCE)
 
-    FLASHROM_HANDLER.init(flashrom_util, CHROS_IF,
+    FLASHROM_HANDLER.init(saft_flashrom_util, CHROS_IF,
                          opt_dictionary.get('pub_key'))
     if 'next_step' in opt_dictionary:
         if len(opt_dictionary) != 1:

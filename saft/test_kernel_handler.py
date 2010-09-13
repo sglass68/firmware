@@ -15,7 +15,7 @@ import unittest
 
 import chromeos_interface
 import kernel_handler
-import flashrom_util
+import saft_flashrom_util
 
 # Base offset where public key data starts in the VbKeyBlockHeader structure.
 KEYBLOCK_SIZE_ACCESS_FORMAT = '<16sQ'
@@ -35,7 +35,7 @@ def get_kernel_key(section, pubkey_file):
     public key is and extract it into a separate file, adjusting the header's
     'offset' value.
     '''
-    fum = flashrom_util.flashrom_util()
+    fum = saft_flashrom_util.flashrom_util()
     image = fum.read_whole()
     # get the block header
     kblock = fum.get_section(image, 'VBOOT' + section)

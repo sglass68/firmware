@@ -5,7 +5,7 @@
 
 '''A module to support automated testing of ChromeOS formware.
 
-Utilizes services provided by <board arch>/flashrom_util.py read/write the
+Utilizes services provided by saft_flashrom_util.py read/write the
 flashrom chip and to parse the flash rom image.
 
 See docstring for FlashromHandler class below.

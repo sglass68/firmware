@@ -5,7 +5,7 @@
 
 """ This module provides convenience routines to access Flash ROM (EEPROM)
 
-flashrom_util is based on utility 'flashrom'.
+saft_flashrom_util is based on utility 'flashrom'.
 
 Original tool syntax:
     (read ) flashrom -r <file>
@@ -18,8 +18,8 @@ The layout_fn is in format of
 
 Currently the tool supports multiple partial write but not partial read.
 
-In the flashrom_util, we provide read and partial write abilities.
-For more information, see help(flashrom_util.flashrom_util).
+In the saft_flashrom_util, we provide read and partial write abilities.
+For more information, see help(saft_flashrom_util.flashrom_util).
 """
 
 import os

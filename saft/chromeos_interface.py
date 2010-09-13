@@ -177,7 +177,7 @@ class ChromeOSInterface(object):
 
     def get_root_dev(self):
         '''Return a string, the name of the root device'''
-        return self.run_shell_command_get_output('rootdev')[0]
+        return self.run_shell_command_get_output('rootdev -s')[0]
 
     def run_shell_command_get_output(self, cmd):
         '''Run shell command and return its console output to the caller.
@@ -237,7 +237,7 @@ class ChromeOSInterface(object):
       # The device root file system is mounted on is represented as /dev/root
       # otherwise.
         options_filter = re.compile('.*\((.+)\).*')
-        root_dev = self.run_shell_command_get_output('rootdev')[0]
+        root_dev = self.get_root_dev()
         if dev == root_dev:
             dev = '/dev/root'
 

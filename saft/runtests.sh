@@ -26,7 +26,7 @@ on_removable_device() {
     # Print '1' or '0' respectively on the console.
     rootd=$(df "${this_prog}" | grep '^/dev' | awk '{ print $1 }')
     if [ "${rootd}" == '/dev/root' ]; then
-        rootd=$(rootdev)
+        rootd=$(rootdev -s)
     fi
     blockd=$(echo "${rootd}"  | sed 's|.*/\([^/0-9]\+\)[0-9]\+|\1|')
     removable=$(cat /sys/block/"${blockd}"/removable)
@@ -64,20 +64,16 @@ move_to_removable_device() {
 
     # Copy the two directories SAFT test requires to the removable device to
     # the same path we are in on the root device now.
-    my_root=$(realpath ..)
-    dest_root="${mp}${my_root}"
-    for d in saft x86-generic; do
-        dest="${dest_root}/$d"
-        if [ ! -d "${dest}" ]; then
-            mkdir -p "${dest}"
-        fi
-        cp -rp "${my_root}/${d}"/* "${dest}"
-    done
+    my_root=$(realpath .)
+    dest="${mp}${my_root}"
+    if [ ! -d "${dest}" ]; then
+        mkdir -p "${dest}"
+    fi
+    cp -rp "${my_root}"/* "${dest}"
 
     # Start it running off the removable device. We don't expect to come back
     # from this invocation in case this is a full mode SAFT. If this is a
-    # unittest run, we some post processing can be added after unit tests
-    # return.
+    # unittest run, some post processing can be added after unit tests return.
     echo "starting as ${mp}${this_prog}  ${new_firmware}"
     "${mp}${this_prog}" "${new_firmware}"
 }
@@ -89,7 +85,6 @@ configure_gpt_settings() {
 }
 
 run_tests() {
-    export PYTHONPATH=$(realpath ../x86-generic)
     ./test_chromeos_interface.py
     ./test_flashrom_handler.py "${new_firmware}"
     ./test_saft_utility.py
@@ -101,8 +96,49 @@ run_tests() {
     fi
 }
 
+check_and_set_saft_environment() {
+    # Does the other side contain a valid kernel?
+    tmpd=$(mktemp -d)
+    this_root=$(rootdev -s)
+    this_kern=$(echo "${this_root}" | tr '35' '24')
+    other_kern=$(echo "${this_kern}" | tr '24' '42')
+    other_kern_file="${tmpd}/kernel"
+    dd if="${other_kern}" of="${other_kern_file}"
+
+    if ! vbutil_kernel --verify "${other_kern_file}" > /dev/null 2>&1
+    then
+        # The "other side" is not valid, let's set it up
+        echo "setting up kernel in ${other_kern}"
+        dd if="${this_kern}" of="${other_kern}" bs=4M
+        other_root=$(echo "${this_root}" | tr '35' '53')
+        echo "setting up root fs in ${other_root}"
+        dd if="${this_root}" of="${other_root}" bs=4M
+    fi
+
+    # Is flash device kernel configured to run with verified root fs?
+    flash_kernel_dev="/dev/${DEFAULT_FLASH_DEVICE}2"
+    dd if="${flash_kernel_dev}" of="${other_kern_file}"
+    cmd_line=$(vbutil_kernel --verify "${other_kern_file}" --verbose | tail -1)
+
+    if echo $cmd_line | grep -q 'root=/dev/dm'; then
+        echo 'Disabling rootfs verification on the flash device kernel'
+        new_cmd_line_file="${tmpd}/cmdline"
+        echo {$cmd_line} | sed '
+s/dm_verity[^ ]\+//g
+s|verity /dev/sd%D%P /dev/sd%D%P ||
+s| root=/dev/dm-0 | root=/dev/sd%D%P |
+s/dm="[^"]\+" //' > "${new_cmd_line_file}"
+        vbutil_kernel --repack "${other_kern_file}.new" \
+            --config "${new_cmd_line_file}" \
+            --signprivate recovery_kernel_data_key.vbprivk \
+            --oldblob "${other_kern_file}"
+        dd if="${other_kern_file}.new" of="${flash_kernel_dev}" bs=4M
+    fi
+}
+
 cd $(dirname ${this_prog})
 if [ "$(on_removable_device)" == "0" ]; then
+    check_and_set_saft_environment
     move_to_removable_device
     exit 0
 fi
