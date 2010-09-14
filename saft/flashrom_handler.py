@@ -3,7 +3,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-'''A module to support automated testing of ChromeOS formware.
+'''A module to support automated testing of ChromeOS firmware.
 
 Utilizes services provided by saft_flashrom_util.py read/write the
 flashrom chip and to parse the flash rom image.
