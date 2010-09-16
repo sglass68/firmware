@@ -89,6 +89,7 @@ run_tests() {
     ./test_flashrom_handler.py "${new_firmware}"
     ./test_saft_utility.py
     ./test_kernel_handler.py
+    ./test_cgpt_handler.py
 
     if [ -n "${new_firmware}" ]; then
         configure_gpt_settings

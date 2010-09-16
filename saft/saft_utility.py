@@ -6,6 +6,7 @@
 '''Test utility for verifying ChromeOS firmware.'''
 
 import datetime
+import functools
 import getopt
 import os
 import re
@@ -13,12 +14,11 @@ import shutil
 import sys
 import tempfile
 
+import cgpt_handler
 import chromeos_interface
 import flashrom_handler
-import saft_flashrom_util
 import kernel_handler
-
-from functools import wraps
+import saft_flashrom_util
 
 #
 # We need to know the names of two files:
@@ -73,11 +73,13 @@ STATE_SUBDIR = '.fw_test'
 
 # Files storing SAFT state over reboots, located in state_dir defined below.
 LOG_FILE = 'fw_test_log.txt'  # Test log.
-STEP_FILE = 'fw_test_state'  # Test the step number.
+STEP_FILE = 'fw_test_step'  # The next test step number.
 FW_BACKUP_FILE = 'flashrom.bak'  # Preserved original flashrom contents.
 FW_COPY_FILE = 'flashrom.new'  # A copy of the flashrom contents being tested.
 FWID_BACKUP_FILE = 'fwid.bak'  # FWID reported by the original firmware.
 FWID_NEW_FILE = 'fwid.new'  # FWID reported by the firmware being tested.
+
+BASE_STORAGE_DEVICE = '/dev/sda'
 
 # The list of shell executables necessary for this program to work.
 REQUIRED_PROGRAMS = '''
@@ -89,7 +91,7 @@ FLASHROM_HANDLER = flashrom_handler.FlashromHandler()
 CHROS_IF = chromeos_interface.ChromeOSInterface(__name__ != '__main__')
 
 def allow_multiple_section_input(image_operator):
-    @wraps(image_operator)
+    @functools.wraps(image_operator)
     def wrapper(self, section):
         if type(section) is not tuple:
             image_operator(self, section)
@@ -146,6 +148,7 @@ class FirmwareTest(object):
         self.progname = None
         self.test_state_sequence = None
         self.kern_handler = None
+        self.step_failed = False
 
     def _verify_fw_id(self, compare_to_file):
         '''Verify if the current firmware ID matches the contents a file.
@@ -314,6 +317,38 @@ class FirmwareTest(object):
         self.chros_if.log('restoring kernel %s' % section)
         self.kern_handler.restore_kernel(section)
 
+    def cgpt_test_start(self):
+        cgpth = cgpt_handler.CgptHandler(self.chros_if)
+        cgpth.read_device_info(BASE_STORAGE_DEVICE)
+
+        # Set gpt attributes for kernels A and B such that after reset it comes
+        # back up using kernel A, with tries A set to 14 (decremented) and
+        # other A and B attributes unchanged.
+        properties = {'successful': 0,
+                      'tries': 15,
+                      'priority': 10,
+                      }
+        cgpth.set_partition(BASE_STORAGE_DEVICE, 'KERN-A', properties)
+        properties['priority'] = 9
+        cgpth.set_partition(BASE_STORAGE_DEVICE, 'KERN-B', properties)
+
+    def cgpt_test_1(self):
+        expected_cgpt = {
+            'KERN-A' : {'priority': 10, 'tries': 14, 'successful': 0},
+            'KERN-B' : {'priority': 9, 'tries': 15, 'successful': 0}
+            }
+        cgpth = cgpt_handler.CgptHandler(self.chros_if)
+        cgpth.read_device_info(BASE_STORAGE_DEVICE)
+        for part, state in expected_cgpt.iteritems():
+            props = cgpth.get_partition(BASE_STORAGE_DEVICE, part)
+            for property, value in state.iteritems():
+                if value != props[property]:
+                    self.shros_if.log('wrong partition %s value' % part)
+                    self.shros_if.log(sgpth.dump_partition(BASE_STORAGE_DEVICE,
+                                                           part))
+                    self.step_failed = True
+                    break
+
     def revert_firmware(self):
         '''Restore firmware to the image backed up when SAFT started.'''
         self.chros_if.log('restoring original firmware image')
@@ -401,6 +436,9 @@ class FirmwareTest(object):
             else:
                 self.chros_if.log('calling %s' % str(action))
                 action()
+            if self.step_failed:
+                self.finish_saft(False)
+
         self._set_step(this_step + 1)
         self.chros_if.run_shell_command('reboot')
 
@@ -423,10 +461,10 @@ class FirmwareTest(object):
         self._handle_saft_script(False)
         if success:
             self.chros_if.log('we are done!')
+            # Have chros_if.shutdown move the log into the '/var' directory to
+            # make it easier to see SAFT results.
+            self.chros_if.shut_down(os.path.join('/var', LOG_FILE))
 
-        # Have chros_if.shutdown move the log into the '/var' directory to
-        # make it easier to see SAFT results.
-        self.chros_if.shut_down(os.path.join('/var', LOG_FILE))
         sys.exit(0)
 
 # Firmware self test instance controlling this module.
@@ -457,7 +495,10 @@ TEST_STATE_SEQUENCE = (
     ('1:1:0:0:3', FST.corrupt_firmware, ('a', 'b')),
     ('5:0:0:1:3', FST.restore_firmware, ('a', 'b')),
     ('1:1:0:0:3', FST.corrupt_kernel, 'a'),
-    ('1:1:0:0:5', FST.restore_kernel, 'a'),
+    ('1:1:0:0:5', FST.corrupt_kernel, 'b'),
+    ('6:0:0:1:3', FST.restore_kernel, ('a', 'b')),
+    ('1:1:0:0:3', FST.cgpt_test_start),
+    ('1:1:0:0:3', FST.cgpt_test_1),
     ('1:1:0:0:3', FST.revert_firmware),
     ('1:1:0:0:3', None),
     )
