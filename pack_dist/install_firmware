@@ -59,6 +59,9 @@ iotools mmio_write32 0xfed1f410 `iotools mmio_read32 0xfed1f410 |head -c 6`0460'
 CHROMEOS_SELECT_EC_CMD='
 iotools mmio_write32 0xfed1f410 `iotools mmio_read32 0xfed1f410 |head -c 6`0c60'
 
+# Default command to reset flashrom target. Default is BIOS.
+CHROMEOS_SELECT_RESET_CMD="$CHROMEOS_SELECT_BIOS_CMD"
+
 # Default Chrome OS BIOS firmware memory layout,
 # overwrite this if you plan to support different layout
 CHROMEOS_BIOS_LAYOUT_DESC="
@@ -528,6 +531,9 @@ function flashrom_select_target() {
       ;;
     ec )
       execute_command "$CHROMEOS_SELECT_EC_CMD" || err_die "cannot select EC"
+      ;;
+    reset )
+      execute_command "$CHROMEOS_SELECT_RESET_CMD" || err_die "reset failed"
       ;;
     * )
       err_die "unknown target for flashrom selection: $1"
@@ -1507,6 +1513,15 @@ general options:
     --debug )
       is_debug=1
       ;;
+    --debug-only-select-* )
+      dbg_target="${arg#--debug-only-select-}"
+      flashrom_select_target "$dbg_target"
+      exit 0
+      ;;
+    --debug-trace )
+      is_debug=1
+      set -x
+      ;;
     * )
       echo " ! ERROR: unknown parameter: $arg"
       echo " ! Please invoke with --help for full syntax."
@@ -1572,6 +1587,7 @@ for target in $CHROMEOS_UPDATE_TARGETS; do
           "$CHROMEOS_BIOS_PRESERVE_LIST" \
           "$CHROMEOS_VBOOT_LIST" \
           "$CHROMEOS_ROOTKEY_SECTION_NAME"
+        flashrom_select_target "reset"
       fi
       ;;
     ec )
@@ -1587,6 +1603,7 @@ for target in $CHROMEOS_UPDATE_TARGETS; do
           "$CHROMEOS_EC_PRESERVE_LIST" \
           "" \
           ""
+        flashrom_select_target "reset"
       fi
       ;;
     * )
