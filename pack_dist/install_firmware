@@ -81,6 +81,13 @@ CHROMEOS_BIOS_LAYOUT_DESC="
   FV_BSTUB        = 0x40000,
 "
 
+# Default Chrome OS BIOS firmware write-protection memory layout.
+CHROMEOS_BIOS_WP_LAYOUT_DESC="
+  RW,
+  |
+  RO,
+"
+
 # Default Chrome OS BIOS Firmware RO/RW list
 CHROMEOS_BIOS_RO_LIST="FV_BSTUB FVDEV"
 CHROMEOS_BIOS_RW_A_LIST="VBOOTA FVMAIN"
@@ -103,6 +110,13 @@ CHROMEOS_EC_LAYOUT_DESC="
   EC_RO
   |
   EC_RW
+"
+
+# Default Chrome OS Embedded Controller firmware write-protection memory layout.
+CHROMEOS_EC_WP_LAYOUT_DESC="
+  RO,
+  |
+  RW,
 "
 
 # Default Chrome OS EC Firmware RO/RW list
@@ -162,6 +176,9 @@ is_check_vboot=1
 # Set this to 0 to disable Chrome OS A/B style 2 stage update
 # (can be changed by --rw-ab-together)
 allow_2stage_update=1
+
+# Set this to 1 to enable write protection after update complete
+is_enable_write_protect=0
 
 # Set this to 1 to enable double confirm of each write to flashrom
 is_always_verify=0
@@ -540,6 +557,22 @@ function flashrom_select_target() {
   esac
 }
 
+function flashrom_enable_write_protect() {
+  # Enables the "write protection" for specified section on flashrom.
+  check_param "flashrom_enable_write_protect(section)" "$@"
+
+  flashrom_check_valid_section_name $1 \
+    || err_die "flashrom_enable_write_protect: invalid target section: $1"
+  local offset=$(flashrom_echo_section_offset $1)
+  local size=$(flashrom_echo_section_size $1)
+
+  debug_msg "flashrom_enable_write_protect(section=$1, off=$offset, sz=$size)"
+  execute_command "$FLASHROM_TOOLPATH --wp-range $offset $size" \
+    || err_die "flashrom_enable_write_protect failed (wp-range $offset $size)"
+  execute_command "$FLASHROM_TOOLPATH --wp-enable" \
+    || err_die "flashrom_enable_write_protect failed (wp-enable $offset $size)"
+}
+
 function flashrom_build_layout_file() {
   # Creates $CURRENT_LAYOUT file according to current layout information
   check_param "flashrom_build_layout_file()" "$@"
@@ -647,6 +680,12 @@ function flashrom_detect_layout_by_default_map() {
     ec )
       layout_desc="$CHROMEOS_EC_LAYOUT_DESC"
       ;;
+    bios_wp )
+      layout_desc="$CHROMEOS_BIOS_WP_LAYOUT_DESC"
+      ;;
+    ec_wp )
+      layout_desc="$CHROMEOS_EC_WP_LAYOUT_DESC"
+      ;;
     * )
       err_die "unknown target for layout detection: $1"
   esac
@@ -703,15 +742,19 @@ function flashrom_detect_layout_by_default_map() {
   flashrom_build_layout_file
 }
 
+function flashrom_reset_layout() {
+  # Resets all previous detected layout information
+
+  LAYOUT_LIST=""
+  LAYOUT_SIZE=""
+  LAYOUT_OFFSET=""
+}
+
 function flashrom_detect_layout() {
   # Detects flashrom layout by target code or image file name.
   check_param "flashrom_detect_layout(target, image_filename)" "$@"
 
-  # destroy previous layout list
-  LAYOUT_LIST=""
-  LAYOUT_SIZE=""
-  LAYOUT_OFFSET=""
-
+  flashrom_reset_layout
   assert_str $allow_fmap_decode_layout
   if is_positive $allow_fmap_decode_layout && \
      flashrom_detect_layout_by_fmap_decode $2; then
@@ -1402,6 +1445,24 @@ function update_firmware() {
   echo " - success and complete."
 }
 
+function end_update_firmware() {
+  # Any procedure / check to perform after an update trial (no matter
+  # if any data is really changed. See also chromeos_post_update).
+  check_param "end_update_firmware(code)" "$@"
+
+  # enable write-protection if required
+  assert_str $is_enable_write_protect
+  if is_positive $is_enable_write_protect; then
+    echo "  - enable write protection..."
+    flashrom_reset_layout
+    flashrom_detect_layout_by_default_map "$1_wp" || err_die "invalid map info."
+    flashrom_enable_write_protect "RO" || err_die "write protection failed."
+  fi
+
+  # reset flashrom target
+  flashrom_select_target "reset" || alert "Cannot reset flashrom target."
+}
+
 # ----------------------------------------------------------------------------
 # Main Entry
 
@@ -1444,6 +1505,7 @@ mode aliases:
 
 special options:
     --background-update  Skip update that may freeze keyboard/reboot (eg, EC)
+    --write-protect      Enable write protection after update complete
     --targets='list'     Targets to be updated (def: '$CHROMEOS_UPDATE_TARGETS')
 
 checking and verification:
@@ -1489,6 +1551,10 @@ general options:
     --background* )
       is_background=1
       verbose_msg " * Enable background update mode"
+      ;;
+    --write-protect* | --enable-write-protect* )
+      is_enable_write_protect=1
+      verbose_msg " * Enable write protection"
       ;;
     --target*=* )
       CHROMEOS_UPDATE_TARGETS="${arg#--target*=}"
@@ -1562,6 +1628,7 @@ if is_positive $is_debug; then
   debug_msg "(mode) allow_2stage_update: $allow_2stage_update"
   debug_msg "(opt) is_background: $is_background"
   debug_msg "(opt) is_always_verify: $is_always_verify"
+  debug_msg "(opt) is_enable_write_protect: $is_enable_write_protect"
   debug_msg "(opt) allow_fmap_decode_layout: $allow_fmap_decode_layout"
   debug_msg "(opt) update targets: $CHROMEOS_UPDATE_TARGETS"
   debug_msg "(chk) is_check_layout: $is_check_layout"
@@ -1587,7 +1654,7 @@ for target in $CHROMEOS_UPDATE_TARGETS; do
           "$CHROMEOS_BIOS_PRESERVE_LIST" \
           "$CHROMEOS_VBOOT_LIST" \
           "$CHROMEOS_ROOTKEY_SECTION_NAME"
-        flashrom_select_target "reset"
+        end_update_firmware "bios"
       fi
       ;;
     ec )
@@ -1603,7 +1670,7 @@ for target in $CHROMEOS_UPDATE_TARGETS; do
           "$CHROMEOS_EC_PRESERVE_LIST" \
           "" \
           ""
-        flashrom_select_target "reset"
+        end_update_firmware "ec"
       fi
       ;;
     * )
