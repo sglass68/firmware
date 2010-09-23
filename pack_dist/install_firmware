@@ -65,20 +65,21 @@ CHROMEOS_SELECT_RESET_CMD="$CHROMEOS_SELECT_BIOS_CMD"
 # Default Chrome OS BIOS firmware memory layout,
 # overwrite this if you plan to support different layout
 CHROMEOS_BIOS_LAYOUT_DESC="
-  FV_LOG          = 0x20000,
-  NV_COMMON_STORE = 0x10000,
-  VBOOTA          = 0x02000,
-  FVMAIN          = 0xB0000,
-  VBOOTB          = 0x02000,
-  FVMAINB         = 0xB0000,
-  NVSTORAGE       = 0x10000,
+  FV_LOG          = 0x020000,
+  NV_COMMON_STORE = 0x010000,
+  VBOOTA          = 0x010000,
+  FVMAIN          = 0x0D0000,
+  VBOOTB          = 0x010000,
+  FVMAINB         = 0x0D0000,
+  NVSTORAGE       = 0x010000,
   FV_RW_RESERVED  = *,
   |
   FV_RO_RESERVED  = *,
-  RO_VPD          = 0x10000,
-  FVDEV           = 0xB0000,
-  FV_GBB          = 0x20000,
-  FV_BSTUB        = 0x40000,
+  RO_VPD          = 0x020000,
+  FVDEV           = 0x100000,
+  FV_RO_DATA      = 0x020000,
+  FV_GBB          = 0x040000,
+  FV_BSTUB        = 0x040000,
 "
 
 # Default Chrome OS BIOS firmware write-protection memory layout.
