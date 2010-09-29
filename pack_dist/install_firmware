@@ -1108,23 +1108,29 @@ function chromeos_check_same_root_keys() {
 
   # try to retrieve the keys
   local ret=0
-  local keyfile1 keyfile2
+  local keyfile1 keyfile2 keyfile1_strip keyfile2_strip keyfiles
   keyfile1=$(env TMPDIR=. mktemp _gk1XXXXXXXX) || \
     err_die "canot create temporary file for root key retrieval"
   keyfile2=$(env TMPDIR=. mktemp _gk2XXXXXXXX) || \
     err_die "canot create temporary file for root key retrieval"
+  keyfile1_strip=${keyfile1}_strip
+  keyfile2_strip=${keyfile2}_strip
+  keyfiles="$keyfile1 $keyfile2 $keyfile1_strip $keyfile2_strip"
   # current may not contain root key, but target MUST have a root key
   if execute_command "gbb_utility -g --rootkey=$keyfile1 $1" 2>/dev/null; then
     execute_command "gbb_utility -g --rootkey=$keyfile2 $2" || \
       err_die "cannot get rootkey from $2"
-    compare_file "$keyfile1" "$keyfile2" || ret=1
+    # to workaround key paddings...
+    cat $keyfile1 | sed 's/\xff*$//g; s/\x00*$//g;' > $keyfile1_strip
+    cat $keyfile2 | sed 's/\xff*$//g; s/\x00*$//g;' > $keyfile2_strip
+    compare_file "$keyfile1_strip" "$keyfile2_strip" || ret=1
   else
     debug_msg "warning: cannot get rootkey from $1"
     ret=2
   fi
 
   # clean up if not debug mode
-  is_positive $is_debug || rm -f $keyfile1 $keyfile2
+  is_positive $is_debug || rm -f $keyfiles
   debug_msg "chromeos_check_same_root_keys: result(shell-style)=$ret"
   return $ret
 }
