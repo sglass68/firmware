@@ -29,7 +29,7 @@ FLASHROM_TOOLPATH='flashrom'
 CHROMEOS_ACPI_ROOT='/sys/devices/platform/chromeos_acpi'
 
 # Default command to initialize ACPI driver
-CHROMEOS_ACPI_INIT_CMD='modprobe chromeos_acpi'
+CHROMEOS_ACPI_INIT_CMD='modprobe chromeos_acpi 2>/dev/null'
 
 # Default command to reboot immediately
 CHROMEOS_REBOOT_CMD="reboot"
@@ -1010,8 +1010,8 @@ function chromeos_get_last_boot_index() {
 
   # See "Google Chrome OS Firmware - High Level Specification" section
   # "BINF (Chrome OS boot information)" for more detail.
-  execute_command "$CHROMEOS_ACPI_INIT_CMD" || \
-    alert "Warning: ACPI initialization failure ($?) - ignored."
+  $CHROMEOS_ACPI_INIT_CMD || debug_msg \
+    "Warning: ACPI initialization failure ($?) - ignored."
   local binf_val="$(cat "$CHROMEOS_ACPI_ROOT/BINF.1")"
 
   # ACPI value: 0=recovery, 1=firmwareA, 2=firmwareB
