@@ -1524,7 +1524,16 @@ checking and verification:
 general options:
     --verbose            Print verbose messages
     --debug              Provide debug information
+    --debug-help         Detail help message on debug commands
     --help               This help message"
+      exit 0
+      ;;
+    --debug-help )
+      echo "Extra parameters by for debugging:
+
+    --debug-only-select-ec    Select target to EC and exit
+    --debug-only-select-bios  Select target to BIOS and exit
+    --debug-trace             Print executed shell commands line-by-line"
       exit 0
       ;;
     --factory* )
