@@ -29,7 +29,7 @@ FLASHROM_TOOLPATH='flashrom'
 CHROMEOS_ACPI_ROOT='/sys/devices/platform/chromeos_acpi'
 
 # Default command to initialize ACPI driver
-CHROMEOS_ACPI_INIT_CMD='modprobe chromeos_acpi 2>/dev/null'
+CHROMEOS_ACPI_INIT_CMD='modprobe chromeos_acpi'
 
 # Default command to reboot immediately
 CHROMEOS_REBOOT_CMD="reboot"
@@ -1016,8 +1016,6 @@ function chromeos_get_last_boot_index() {
 
   # See "Google Chrome OS Firmware - High Level Specification" section
   # "BINF (Chrome OS boot information)" for more detail.
-  $CHROMEOS_ACPI_INIT_CMD || debug_msg \
-    "Warning: ACPI initialization failure ($?) - ignored."
   local binf_val="$(cat "$CHROMEOS_ACPI_ROOT/BINF.1")"
 
   # ACPI value: 0=recovery, 1=firmwareA, 2=firmwareB
@@ -1617,6 +1615,12 @@ general options:
   esac
   shift
 done
+
+# initialization of kernel modules
+# TODO(hungte) the chromeos_acpi may be a built-in component in default kernel,
+# and at that time we don't need this anymore.
+$CHROMEOS_ACPI_INIT_CMD >/dev/null 2>&1 \
+  || debug_msg "Warning: ACPI initialization failure ($?) - ignored."
 
 # detect and adjust factory/background modes
 assert_str $is_mode_assigned
