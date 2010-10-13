@@ -16,7 +16,7 @@
 
 # The script to be loaded for customization;
 # please put all your own settings in this file.
-CUSTOM_SCRIPT_FILENAME="install_firmware_custom.sh"
+CUSTOM_SCRIPT_FILENAME='install_firmware_custom.sh'
 
 # Default file names of carried (target) image files
 BIOS_IMAGE_FILENAME='bios.bin'
@@ -35,7 +35,7 @@ CHROMEOS_ACPI_INIT_CMD='modprobe chromeos_acpi'
 CHROMEOS_REBOOT_CMD="reboot"
 
 # Default command to decode fmap
-CHROMEOS_FMAP_DECODE_CMD="mosys -k eeprom map "
+CHROMEOS_FMAP_DECODE_CMD='mosys -k eeprom map'
 # note: an alternative is "fmap_decode"
 
 # Default Chrome OS control tag file to request firmware update after reboot
@@ -53,11 +53,11 @@ CHROMEOS_QUERY_TRIAL_BOOT_CMD='reboot_mode| grep try_firmware_b| sed "s/.*: //"'
 
 # Default command to select BIOS as flashrom target
 CHROMEOS_SELECT_BIOS_CMD='
-iotools mmio_write32 0xfed1f410 `iotools mmio_read32 0xfed1f410 |head -c 6`0460'
+iotools mmio_write32 0xfed1f410 $(iotools mmio_read32 0xfed1f410|head -c 6)0460'
 
 # Default command to select EC (Embedded Controller) as flashrom target
 CHROMEOS_SELECT_EC_CMD='
-iotools mmio_write32 0xfed1f410 `iotools mmio_read32 0xfed1f410 |head -c 6`0c60'
+iotools mmio_write32 0xfed1f410 $(iotools mmio_read32 0xfed1f410|head -c 6)0c60'
 
 # Default command to reset flashrom target. Default is BIOS.
 CHROMEOS_SELECT_RESET_CMD="$CHROMEOS_SELECT_BIOS_CMD"
@@ -209,10 +209,13 @@ LAYOUT_LIST=""
 LAYOUT_SIZE=""
 LAYOUT_OFFSET=""
 
+# Shell style return value (compatible to shflags)
+FLAGS_TRUE=0
+FLAGS_FALSE=1
+FLAGS_ERROR=2
+
 # Script should exit on any unexpected error
 set -e
-# To make non-bash compatible
-alias function=
 
 # Tool program (flashrom, iotools, mosys, ...) search path:
 # 1. bundled (.) 2. $INSTALL_ROOT/* 3. defaults (/usr/sbin,/sbin) and $PATH
@@ -272,13 +275,13 @@ PATH=".:$PATH"; export PATH
 
 # Utilities
 
-function alert() {
+alert() {
   # Reports some critical message in stderr
   # NOTE: this function CANNOT invoke check_param.
   echo "$*" 1>&2
 }
 
-function err_die() {
+err_die() {
   # Reports error message and exit(1)
   # NOTE: this function CANNOT invoke check_param.
   alert "ERROR: $*"
@@ -286,33 +289,39 @@ function err_die() {
   exit 1
 }
 
-function cleanup() {
+cleanup() {
   # Cleans every temporary files
   # NOTE: this function CANNOT invoke check_param.
   # TODO (hungte) use TRAP ERR instead?
   is_positive "$is_debug" || rm -f _*
 }
 
-function is_positive() {
-  # Returns shell-style true/false (0/1) for compare result of $1 > 0
+is_positive() {
+  # Returns $FLAGS_TRUE or $FLAGS_FALSE for compare result of $1 > 0
   # NOTE: this function CANNOT invoke check_param.
-  test $1 -gt 0
+  [ $1 -gt 0 ]
 }
 
-function list_car() {
+list_car() {
   # (lisp-style) Prints the first parameter (to ease parsing)
   # NOTE: this function CANNOT invoke check_param.
   echo $1
 }
 
-function list_cdr() {
-  # (lisp-style) Discard the first parameter and prints the remainings
+list_cdr() {
+  # (lisp-style) Discards the first parameter and prints the remainings
   # NOTE: this function CANNOT invoke check_param.
   shift
   echo $@
 }
 
-function nth() {
+list_length() {
+  # (lisp-style) Prints the length of param.
+  # NOTE: this function CANNOT invoke check_param.
+  echo $#
+}
+
+nth() {
   # (lisp-style) Prints the (zero-based) nth parameter
   # NOTE: this function CANNOT invoke check_param.
   # Syntax: nth(n, ...)
@@ -320,7 +329,7 @@ function nth() {
   echo $1
 }
 
-function assert_str() {
+assert_str() {
   # Checks if $1 is non-empty string, and print message provided in $2
   # NOTE: this function CANNOT invoke check_param.
   if [ -z "$1" ]; then
@@ -333,7 +342,7 @@ function assert_str() {
 }
 
 _is_param_reentrant=0
-function check_param() {
+check_param() {
   # Checks if provided parameters are in correct form.
   # Syntax: check_pram format "$@"
   local format="$1"
@@ -361,9 +370,9 @@ function check_param() {
   # now i holds number of program + required parameters
   # $# has format + provided parameter
   if [ $has_wild_arg = 1 ]; then
-    test $# -ge $i || err_die "$original_format: need $i+ parameters (got $#)"
+    [ $# -ge $i ] || err_die "$original_format: need $i+ parameters (got $#)"
   else
-    test $# -eq $i || err_die "$original_format: need $i parameters (got $#)"
+    [ $# -eq $i ] || err_die "$original_format: need $i parameters (got $#)"
   fi
 
   i=0
@@ -375,14 +384,14 @@ function check_param() {
       err_die "check_param: $original_format: " \
               "param '$param_name' is empty (original: '$@')"
     fi
-    i=$(($i+1))
+    i=$(($i + 1))
   done
 
   # clear re-entrant flag
   _is_param_reentrant=0
 }
 
-function verbose_msg() {
+verbose_msg() {
   # Prints a message if in verbose mode
   check_param "verbose_msg(...)" "$@"
 
@@ -390,7 +399,7 @@ function verbose_msg() {
   is_positive $is_verbose && echo "$*" || true
 }
 
-function debug_msg() {
+debug_msg() {
   # Prints a message if in debug mode
   check_param "debug_msg(...)" "$@"
 
@@ -398,33 +407,33 @@ function debug_msg() {
   is_positive $is_debug && alert " (DEBUG) $*" || true
 }
 
-function in_list() {
+in_list() {
   # Determines if a given name is in shell-style list.
   check_param "in_list(name, list)" "$@"
 
   local name
   for name in $2; do
     if [ "$name" = "$1" ]; then
-      return 0  # shell-style success
+      return $FLAGS_TRUE
     fi
   done
-  return 1  # fail as shell-style
+  return $FLAGS_FALSE
 }
 
-function echo_file_size() {
+echo_file_size() {
   # Prints the size of file $1
   check_param "echo_file_size(filename)" "$@"
 
   list_car $(wc -c $1)
 }
 
-function execute_command() {
+execute_command() {
   # Executes a shell command (and provide message if required)
   check_param "execute_command(cmd)" "$@"
-  local ret=0
+  local ret=$FLAGS_TRUE
 
   # to interpret quotes correctly, use $* instead of $@
-  is_positive $is_verbose && alert "  * execute_command: $*"|| true
+  is_positive $is_verbose && alert "  * execute_command: $*" || true
   ( eval "$@" ) >_exec.stdout 2>_exec.stderr || ret=$?
   if [ "$ret" != "0" ]; then
     alert " !! Execution failed ($ret): $*"
@@ -435,7 +444,7 @@ function execute_command() {
   return $ret
 }
 
-function has_command() {
+has_command() {
   # Test if some command is available in this system.
   check_param "has_command(cmd)" "$@"
 
@@ -443,7 +452,7 @@ function has_command() {
   type "$1" >/dev/null 2>&1 || return $?
 }
 
-function compare_file() {
+compare_file() {
   # Compare two files (platform independent)
   check_param "compare_file(file1, file2)" "$@"
 
@@ -455,44 +464,44 @@ function compare_file() {
   elif has_command md5sum; then
     debug_msg "compare with: md5sum $1 $2"
     local md5_1 md5_2
-    md5_1=$(md5sum $1) || err_die "cannot md5sum $1" && md5_1=$(list_car $md5_1)
-    md5_2=$(md5sum $2) || err_die "cannot md5sum $2" && md5_2=$(list_car $md5_2)
+    md5_1=$(md5sum $1) && md5_1=$(list_car $md5_1) || err_die "cannot md5sum $1"
+    md5_2=$(md5sum $2) && md5_2=$(list_car $md5_2) || err_die "cannot md5sum $2"
     debug_msg "md5: $1=$md5_1, $2=$md5_2"
-    test "$md5_1" = "$md5_2" || return $?
-    test -n "$md5_1" || return $?
+    [ "$md5_1" = "$md5_2" ] || return $?
+    [ -n "$md5_1" ] || return $?
   elif has_command od; then
     debug_msg "compare with: od $1 $2"
     local od1 od2
     od1=$(od -t x1 $1) || err_die "cannot od $1"
     od2=$(od -t x1 $2) || err_die "cannot od $2"
-    test "$od1" = "$od2" || return $?
+    [ "$od1" = "$od2" ] || return $?
   else
-    #TODO we may even use hexdump, od, hd, uuencode...
+    # TODO(hungte) we may even use hexdump, od, hd, uuencode...
     err_die "sorry, cannot find any file compare tools."
   fi
-  return 0
+  return $FLAGS_TRUE
 }
 
 # ----------------------------------------------------------------------------
 # Flashrom Specific Utilities
 
-function flashrom_read_whole() {
+flashrom_read_whole() {
   # Reads entire flashrom into $CURRENT_IMAGE file.
   check_param "flashrom_read_whole()" "$@"
 
-  execute_command "$FLASHROM_TOOLPATH -r $CURRENT_IMAGE" \
-    || err_die "cannot read flashrom"
+  execute_command "$FLASHROM_TOOLPATH -r $CURRENT_IMAGE" ||
+    err_die "cannot read flashrom"
 }
 
-function flashrom_write_whole() {
+flashrom_write_whole() {
   # Writes entire flashrom image from given file.
   check_param "flashrom_read_whole(image_file)" "$@"
 
-  execute_command "$FLASHROM_TOOLPATH -w $1" \
-    || err_die "cannot write whole flashrom"
+  execute_command "$FLASHROM_TOOLPATH -w $1" ||
+    err_die "cannot write whole flashrom"
 }
 
-function flashrom_lookup_section_info() {
+flashrom_lookup_section_info() {
   # looks up section and return related nth data
   check_param "flashrom_lookup_section_info(name, info_list)" "$@"
 
@@ -507,30 +516,30 @@ function flashrom_lookup_section_info() {
   err_die "invalid section name: $1 [$2]"
 }
 
-function flashrom_echo_section_offset() {
+flashrom_echo_section_offset() {
   # Prints section offset from current layout
   check_param "flashrom_echo_section_offset(section_name)" "$@"
 
   flashrom_lookup_section_info $1 "$LAYOUT_OFFSET"
 }
 
-function flashrom_echo_section_size() {
+flashrom_echo_section_size() {
   # Prints section size from current layout
   check_param "flashrom_echo_section_size(section_name)" "$@"
 
   flashrom_lookup_section_info $1 "$LAYOUT_SIZE"
 }
 
-function flashrom_check_valid_section_name() {
+flashrom_check_valid_section_name() {
   # Checks if $1 is a valid section name.
   check_param "flashrom_check_valid_section_name(section_name)" "$@"
 
   # if anything goes wrong, flashrom_lookup_section_info should die
-  flashrom_echo_section_offset $1 > /dev/null
-  flashrom_echo_section_size $1 > /dev/null
+  flashrom_echo_section_offset $1 >/dev/null
+  flashrom_echo_section_size $1 >/dev/null
 }
 
-function flashrom_partial_write() {
+flashrom_partial_write() {
   # Writes (partially) given sections to flashrom
   check_param "flashrom_partial_write(list, image_file)" "$@"
 
@@ -540,11 +549,11 @@ function flashrom_partial_write() {
     flashrom_check_valid_section_name $i
     list="$list -i $i"
   done
-  execute_command "$FLASHROM_TOOLPATH -l $CURRENT_LAYOUT $list -w $2" \
-    || err_die "flashrom_partial_write failed"
+  execute_command "$FLASHROM_TOOLPATH -l $CURRENT_LAYOUT $list -w $2" ||
+    err_die "flashrom_partial_write failed"
 }
 
-function flashrom_select_target() {
+flashrom_select_target() {
   # Selects flashrom mapping target
   check_param "flashrom_select_target(target)" "$@"
 
@@ -563,23 +572,23 @@ function flashrom_select_target() {
   esac
 }
 
-function flashrom_enable_write_protect() {
+flashrom_enable_write_protect() {
   # Enables the "write protection" for specified section on flashrom.
   check_param "flashrom_enable_write_protect(section)" "$@"
 
-  flashrom_check_valid_section_name $1 \
-    || err_die "flashrom_enable_write_protect: invalid target section: $1"
+  flashrom_check_valid_section_name $1 ||
+    err_die "flashrom_enable_write_protect: invalid target section: $1"
   local offset=$(flashrom_echo_section_offset $1)
   local size=$(flashrom_echo_section_size $1)
 
   debug_msg "flashrom_enable_write_protect(section=$1, off=$offset, sz=$size)"
-  execute_command "$FLASHROM_TOOLPATH --wp-range $offset $size" \
-    || err_die "flashrom_enable_write_protect failed (wp-range $offset $size)"
-  execute_command "$FLASHROM_TOOLPATH --wp-enable" \
-    || err_die "flashrom_enable_write_protect failed (wp-enable $offset $size)"
+  execute_command "$FLASHROM_TOOLPATH --wp-range $offset $size" ||
+    err_die "flashrom_enable_write_protect failed (wp-range $offset $size)"
+  execute_command "$FLASHROM_TOOLPATH --wp-enable" ||
+    err_die "flashrom_enable_write_protect failed (wp-enable $offset $size)"
 }
 
-function flashrom_build_layout_file() {
+flashrom_build_layout_file() {
   # Creates $CURRENT_LAYOUT file according to current layout information
   check_param "flashrom_build_layout_file()" "$@"
 
@@ -592,30 +601,32 @@ function flashrom_build_layout_file() {
     off_beg=$(printf '0x%06x' $offset)
     off_end=$(printf '0x%06x' $(($offset + $size - 1)))
     off_size=$(printf '0x%06x' $size)
-    echo "$off_beg:$off_end $name" >> $CURRENT_LAYOUT
+    echo "$off_beg:$off_end $name" >>$CURRENT_LAYOUT
     debug_msg "LAYOUT: off=$off_beg size=$off_size $name -> $offset $size"
-    i=$((i + 1))
+    i=$(($i + 1))
   done
 
-  test i != 0 || err_die "empty layout information."
+  [ $i != 0 ] || err_die "Empty memory layout information."
 }
 
-function flashrom_detect_layout_by_fmap_decode() {
+flashrom_detect_layout_by_fmap_decode() {
   # Detects flashrom layout by given image file and creates $CURRENT_LAYOUT
   check_param "flashrom_detect_layout_by_fmap_decode(image_file)" "$@"
 
   debug_msg "trying flashrom_detect_layout_by_fmap_decode"
   local voff vsize vnames pre_parse
-  pre_parse="$($CHROMEOS_FMAP_DECODE_CMD $1 2>/dev/null)" || \
-    return 1  # shell-style failure
+  pre_parse="$($CHROMEOS_FMAP_DECODE_CMD $1 2>/dev/null)" ||
+    return $FLAGS_FALSE
   if [ -z "$pre_parse" ]; then
-    return 1  # shell-style failure
+    return $FLAGS_FALSE
   fi
   debug_msg "detect_layout_by_fmap_decode"
-  voff=$(echo "$pre_parse" | grep 'area_offset="' | \
+  voff=$(echo "$pre_parse" |
+         grep 'area_offset="' |
          sed 's/.*area_offset="\([^"]*\)".*/\1/' );
-  vsize=$(echo "$pre_parse" | grep 'area_size="' | \
-         sed 's/.*area_size="\([^"]*\)".*/\1/' );
+  vsize=$(echo "$pre_parse" |
+          grep 'area_size="' |
+          sed 's/.*area_size="\([^"]*\)".*/\1/' );
   # debug_msg "offsets: $voff"
   # debug_msg "sizes: $vsize"
 
@@ -647,16 +658,15 @@ function flashrom_detect_layout_by_fmap_decode() {
   ')
 
   # verify collected information
-  set $voff;    num_voff=$#
-  set $vsize;   num_vsize=$#
-  set $vnames;  num_vnames=$#
-  test $num_voff -eq $num_vsize \
-    || err_die "number of offsets ($num_voff) must match sizes ($num_size)"
-  test $num_voff -eq $num_vnames \
-    || err_die "number of offsets ($num_voff) must match names ($num_names)"
+  [ $(list_length $voff) -eq $(list_length $vsize) ] ||
+    err_die "number of offsets ($(list_length $voff))" \
+          " must match sizes ($(list_length $vsize))"
+  [ $(list_length $voff) -eq $(list_length $vnames) ] ||
+    err_die "number of offsets ($(list_length $voff))" \
+          " must match names ($(list_length $vnames))"
 
   # rebuild layout information
-  LAYOUT_LIST=$vnames
+  LAYOUT_LIST="$vnames"
   local i=0
   local name
   for name in $LAYOUT_LIST; do
@@ -666,10 +676,10 @@ function flashrom_detect_layout_by_fmap_decode() {
   done
 
   flashrom_build_layout_file
-  return 0  # shell-style success
+  return $FLAGS_TRUE
 }
 
-function flashrom_detect_layout_by_default_map() {
+flashrom_detect_layout_by_default_map() {
   # Detects flashrom layout by $CURRENT_IMAGE and creates $CURRENT_LAYOUT
   check_param "flashrom_detect_layout_by_default_map(target)" "$@"
 
@@ -733,7 +743,7 @@ function flashrom_detect_layout_by_default_map() {
       debug_msg "fix layout size [$ename] to $esize"
       LAYOUT_SIZE=$(echo $LAYOUT_SIZE | sed "s/FIXME/$esize/")
     else
-      test "$esize" -eq 0 && esize=FIXME || true
+      [ $esize -eq 0 ] && esize=FIXME || true
       LAYOUT_SIZE="$LAYOUT_SIZE $esize"
       LAYOUT_LIST="$LAYOUT_LIST $ename"
     fi
@@ -749,7 +759,7 @@ function flashrom_detect_layout_by_default_map() {
   flashrom_build_layout_file
 }
 
-function flashrom_reset_layout() {
+flashrom_reset_layout() {
   # Resets all previous detected layout information
 
   LAYOUT_LIST=""
@@ -757,28 +767,28 @@ function flashrom_reset_layout() {
   LAYOUT_OFFSET=""
 }
 
-function flashrom_detect_layout() {
+flashrom_detect_layout() {
   # Detects flashrom layout by target code or image file name.
   check_param "flashrom_detect_layout(target, image_filename)" "$@"
 
   flashrom_reset_layout
   assert_str $allow_fmap_decode_layout
-  if is_positive $allow_fmap_decode_layout && \
-     flashrom_detect_layout_by_fmap_decode $2; then
+  if is_positive $allow_fmap_decode_layout &&
+      flashrom_detect_layout_by_fmap_decode $2; then
     debug_msg "using decoded fmap and ignore default map"
   else
     flashrom_detect_layout_by_default_map $1
   fi
 }
 
-function flashrom_section_filename() {
+flashrom_section_filename() {
   # Prints temporary file name for given section name ($1)
   check_param "flashrom_section_filename(section)" "$@"
 
   echo _$1.blob
 }
 
-function flashrom_get_section() {
+flashrom_get_section() {
   # Extract a blob data from given section of a image file, and
   # prints the (generated) filename containing section data
   check_param "flashrom_get_section(section, image, ...)" "$@"
@@ -787,12 +797,12 @@ function flashrom_get_section() {
   local size=$(flashrom_echo_section_size $1)
   local fname=$3$(flashrom_section_filename $1)
 
-  execute_command "dd if=$2 of=$fname bs=1 skip=$offset count=$size" \
-    || err_die "flashrom_get_section($1, $2, $3)"
+  execute_command "dd if=$2 of=$fname bs=1 skip=$offset count=$size" ||
+    err_die "flashrom_get_section($1, $2, $3)"
   echo $fname
 }
 
-function flashrom_put_section() {
+flashrom_put_section() {
   # Overwrite a section in image file from given data blob file
   check_param "flashrom_put_section(section, image, data_file)" "$@"
 
@@ -800,14 +810,14 @@ function flashrom_put_section() {
   local size=$(flashrom_echo_section_size $1)
   local data_size=$(echo_file_size $3)
 
-  test "$data_size" -eq "$size" \
-    || err_die "flashrom_put_section: incompatible data($3) for section '$1'"
+  [ $data_size -eq $size ] ||
+    err_die "flashrom_put_section: incompatible data($3) for section '$1'"
 
-  execute_command "dd if=$3 of=$2 bs=1 seek=$offset count=$size conv=notrunc" \
-    || err_die "flashrom_put_section($1, $2, $3)"
+  execute_command "dd if=$3 of=$2 bs=1 seek=$offset count=$size conv=notrunc" ||
+    err_die "flashrom_put_section($1, $2, $3)"
 }
 
-function flashrom_cat_section() {
+flashrom_cat_section() {
   # Read a blob data (via od) from given section of a image file, and
   # print to stdout.
   check_param "flashrom_cat_section(section, image)" "$@"
@@ -817,11 +827,11 @@ function flashrom_cat_section() {
 
   # cannot use execute_command here because we need output
   debug_msg "(flashrom_cat_section) od -A n -t x1 -j $offset -N $size $2"
-  od -A n -t x1 -j $offset -N $size $2  \
-          || err_die "flashrom_cat_section($1, $2)"
+  od -A n -t x1 -j $offset -N $size $2 ||
+    err_die "flashrom_cat_section($1, $2)"
 }
 
-function flashrom_set_skip_verify_list() {
+flashrom_set_skip_verify_list() {
   # Enables and checks a 'skip verify' list
   check_param "flashrom_set_skip_verify_list(opt_list)" "$@"
 
@@ -841,14 +851,14 @@ function flashrom_set_skip_verify_list() {
   CURRENT_SKIP_VERIFY="$1"
 }
 
-function flashrom_preserve_sections() {
+flashrom_preserve_sections() {
   # Preserves assigned sections from current flashrom to target image
   check_param "flashrom_preserve_sections(opt_list,current,image)" "$@"
   local new_image_name=$3
 
   if [ -n "$1" ]; then
     debug_msg "preserve sections: $opt_list"
-    new_image_name=$(env TMPDIR=. mktemp _psvXXXXXXXX) || \
+    new_image_name=$(env TMPDIR=. mktemp _psvXXXXXXXX) ||
       err_die "cannot create temporary file for preserving sections"
     cp -f $3 $new_image_name
     flashrom_copy_image "$1" "$1" $2 $new_image_name
@@ -857,7 +867,7 @@ function flashrom_preserve_sections() {
   # TODO we need some way to clear the preserve images.
 }
 
-function flashrom_apply_skip_verify() {
+flashrom_apply_skip_verify() {
   # Applies 'skip verify' (fill with zero) to section blob
   check_param "flashrom_apply_skip_verify(section, blob_filename)" "$@"
 
@@ -884,13 +894,14 @@ function flashrom_apply_skip_verify() {
       zero_fn=$CURRENT_IMAGE
     fi
     debug_msg "apply skip verify: (sec=$1, blob=$2)[$ventry]"
-    execute_command "dd if=$zero_fn of=$2 bs=1 \
-      seek=$voff count=$vsize conv=notrunc " \
-      || err_die "flashrom_apply_skip_verify($1, $2)[$ventry]"
+
+    local dd_cmd="dd if=$zero_fn of=$2 seek=$voff count=$vsize conv=notrunc"
+    execute_command "$dd_cmd" ||
+      err_die "flashrom_apply_skip_verify($1, $2)[$ventry]"
   done
 }
 
-function flashrom_verify_sections() {
+flashrom_verify_sections() {
   # Verifies a list of sections in 2 images
   check_param "flashrom_verify_sections(list1, list2, image1, image2)" "$@"
 
@@ -923,37 +934,37 @@ function flashrom_verify_sections() {
       # to compare those fields not in skip_verify list.
       if has_command od && [ -z "$CURRENT_SKIP_VERIFY" ]; then
         # quick compare via od+shell
-        blob1=$(flashrom_cat_section $section1 $image1) && \
-        blob2=$(flashrom_cat_section $section2 $image2) || \
+        blob1=$(flashrom_cat_section $section1 $image1) &&
+          blob2=$(flashrom_cat_section $section2 $image2) ||
           err_die "invalid section in $section1 $section2"
         len1=${#blob1}
         len2=${#blob2}
         # XXX we can't check "$len1=$len2" because cat results may be very
         # different.
         debug_msg "(cat) section1[$section1]:$len1, section2[$section2]:$len2"
-        test $len1 -gt 0 || err_die "empty section!? check $section1"
-        test $len2 -gt 0 || err_die "empty section!? check $section2"
-        test "$blob1" = "$blob2" || result=$?
+        [ $len1 -gt 0 ] || err_die "empty section!? check $section1"
+        [ $len2 -gt 0 ] || err_die "empty section!? check $section2"
+        [ "$blob1" = "$blob2" ] || result=$?
         unset blob1 blob2  # hope this helps free memory
       else
         # extract blobs and compare
-        blob1=$(flashrom_get_section $section1 $image1 _fvs1) && \
-        blob2=$(flashrom_get_section $section2 $image2 _fvs2) || \
+        blob1=$(flashrom_get_section $section1 $image1 _fvs1) &&
+          blob2=$(flashrom_get_section $section2 $image2 _fvs2) ||
           err_die "invalid section in $section1 $section2"
         flashrom_apply_skip_verify $section1 $blob1
         flashrom_apply_skip_verify $section2 $blob2
-        len1="$len1,$(echo_file_size $blob1)" && \
-        len2="$len2,$(echo_file_size $blob2)" || \
+        len1="$len1,$(echo_file_size $blob1)" &&
+          len2="$len2,$(echo_file_size $blob2)" ||
           err_die "cannot get file size: $blob1 $blob2"
-        test "$len1" = "$len2" \
-          || err_die "flashrom_verify_sections: unmatched length: " \
-                     "$section1:$len1 $section2:$len2"
+        [ "$len1" = "$len2" ] ||
+          err_die "flashrom_verify_sections: unmatched length: " \
+                  "$section1:$len1 $section2:$len2"
         compare_file $blob1 $blob2 || result=$?
         # clean up if not debug mode
         is_positive $is_debug || rm -f $blob1 $blob2
       fi
       # quick abort
-      test "$result" = "0" || break
+      [ "$result" = "0" ] || break
     done
   fi
 
@@ -961,7 +972,7 @@ function flashrom_verify_sections() {
   return $result
 }
 
-function flashrom_copy_image() {
+flashrom_copy_image() {
   # Copies section data between two image files.
   check_param "flashrom_copy_image(list_src, list_dst, img_src, img_dst)" "$@"
 
@@ -981,16 +992,16 @@ function flashrom_copy_image() {
     if [ "$size_src" != "$size_dst" ]; then
       err_die "copy_image: incompatible section: $section_src,$section_dst"
     fi
-    execute_command "dd if=$image_src of=$image_dst bs=1 \
-      skip=$offset_src seek=$offset_dst count=$size_src conv=notrunc " \
-      || err_die "flashrom_copy_image() faild"
+    local dd_cmd="dd if=$image_src of=$image_dst bs=1 conv=notrunc"
+    dd_cmd="$dd_cmd skip=$offset_src seek=$offset_dst count=$size_src"
+    execute_command "$dd_cmd" || err_die "flashrom_copy_image() faild"
   done
 }
 
 # ----------------------------------------------------------------------------
 # Chrome OS Specific Utilities
 
-function chromeos_detect_factory_mode() {
+chromeos_detect_factory_mode() {
   # Detects if we are running under Chrome OS factory testing mode
   check_param "chromeos_detect_factory_mode()" "$@"
 
@@ -1000,7 +1011,7 @@ function chromeos_detect_factory_mode() {
   fi
 }
 
-function chromeos_need_reboot() {
+chromeos_need_reboot() {
   # Utility to schedule a system reboot.
   check_param "chromeos_need_reboot()" "$@"
 
@@ -1010,13 +1021,14 @@ function chromeos_need_reboot() {
   sync  # to make sure the tag is flushed to disk
 }
 
-function chromeos_get_last_boot_index() {
+chromeos_get_last_boot_index() {
   # Utility to get last boot BIOS firmware index
   check_param "chromeos_get_last_boot_index()" "$@"
 
   # See "Google Chrome OS Firmware - High Level Specification" section
   # "BINF (Chrome OS boot information)" for more detail.
   local binf_val="$(cat "$CHROMEOS_ACPI_ROOT/BINF.1")"
+  debug_msg "original binf_val=$binf_val"
 
   # ACPI value: 0=recovery, 1=firmwareA, 2=firmwareB
   # get_index return values requires 0=A, 1=B
@@ -1035,32 +1047,32 @@ function chromeos_get_last_boot_index() {
   esac
 }
 
-function chromeos_check_scheduled_trial_reboot() {
+chromeos_check_scheduled_trial_reboot() {
   # Utility to check if a reboot with try_firmware_b is scheduled.
-  # Returns shell-style true/false (0/1).
+  # Returns $FLAGS_TRUE or $FLAGS_FALSE
   check_param "chromeos_check_scheduled_trial_reboot()" "$@"
 
   local bootinfo=$(eval $CHROMEOS_QUERY_TRIAL_BOOT_CMD 2>/dev/null)
   if [ "$bootinfo" = "1" ]; then
     debug_msg "chromeos_check_scheduled_trial_reboot: TRUE"
-    return 0  # shell-style true
+    return $FLAGS_TRUE
   fi
   debug_msg "chromeos_check_scheduled_trial_reboot: FALSE"
-  return 1  # shell-style false
+  return $FLAGS_FALSE
 }
 
-function chromeos_change_boot_index() {
+chromeos_change_boot_index() {
   # Utility to change firmware boot index.
   check_param "chromeos_change_boot_index()" "$@"
 
   # In Chrome OS, we use the "try_firmware_b".
-  execute_command "$CHROMEOS_CHANGE_BOOT_INDEX_CMD" || \
+  execute_command "$CHROMEOS_CHANGE_BOOT_INDEX_CMD" ||
     err_die "chromeos_change_boot_index(): failed to set try_firmware_b"
 }
 
-function chromeos_need_foreground() {
+chromeos_need_foreground() {
   # Determines if given target needs foreground update.
-  # Returns shell-style true/false (0/1).
+  # Returns $FLAGS_TRUE or $FLAGS_FALSE
   check_param "chromeos_need_foreground(target)" "$@"
 
   case $1 in
@@ -1070,17 +1082,18 @@ function chromeos_need_foreground() {
     * )
       err_die "chromeos_need_foreground: invalid target ($1)"
   esac
+
   local target
   for target in $CHROMEOS_NEED_FOREGROUND_UPDATE_TARGETS ; do
     if [ "$target" = $1 ]; then
       debug_msg "chromeos_need_foreground: NEED ($target)"
-      return 0  # shell-style true
+      return $FLAGS_TRUE
     fi
   done
-  return 1  # shell-style false
+  return $FLAGS_FALSE
 }
 
-function chromeos_post_update() {
+chromeos_post_update() {
   # Any procedure / check to perform after an update (which really
   # changed some data on flashrom).
   check_param "chromeos_post_update(target)" "$@"
@@ -1099,38 +1112,39 @@ function chromeos_post_update() {
   fi
 }
 
-function chromeos_check_same_root_keys() {
+chromeos_check_same_root_keys() {
   # Checks if the root keys (from Google Binary Block) are the same
-  # Returns 0 for same, 1 for different, 2 for missing in current image
+  # Returns $FLAGS_TRUE for same, $FLAGS_FALSE for different,
+  # $FLAGS_ERROR for missing in current image
   check_param "chromeos_check_same_root_keys(current, target)" "$@"
 
   # if we can't find gbb_utility, ignore it.
   if ! has_command "gbb_utility"; then
     debug_msg "cannot find gbb_utility."
-    return 0  # shell-style true
+    return $FLAGS_TRUE
   fi
 
   # try to retrieve the keys
-  local ret=0
+  local ret=$FLAGS_TRUE
   local keyfile1 keyfile2 keyfile1_strip keyfile2_strip keyfiles
-  keyfile1=$(env TMPDIR=. mktemp _gk1XXXXXXXX) || \
+  keyfile1=$(env TMPDIR=. mktemp _gk1XXXXXXXX) ||
     err_die "canot create temporary file for root key retrieval"
-  keyfile2=$(env TMPDIR=. mktemp _gk2XXXXXXXX) || \
+  keyfile2=$(env TMPDIR=. mktemp _gk2XXXXXXXX) ||
     err_die "canot create temporary file for root key retrieval"
   keyfile1_strip=${keyfile1}_strip
   keyfile2_strip=${keyfile2}_strip
   keyfiles="$keyfile1 $keyfile2 $keyfile1_strip $keyfile2_strip"
   # current may not contain root key, but target MUST have a root key
   if execute_command "gbb_utility -g --rootkey=$keyfile1 $1" 2>/dev/null; then
-    execute_command "gbb_utility -g --rootkey=$keyfile2 $2" || \
+    execute_command "gbb_utility -g --rootkey=$keyfile2 $2" ||
       err_die "cannot get rootkey from $2"
     # to workaround key paddings...
-    cat $keyfile1 | sed 's/\xff*$//g; s/\x00*$//g;' > $keyfile1_strip
-    cat $keyfile2 | sed 's/\xff*$//g; s/\x00*$//g;' > $keyfile2_strip
-    compare_file "$keyfile1_strip" "$keyfile2_strip" || ret=1
+    cat $keyfile1 | sed 's/\xff*$//g; s/\x00*$//g;' >$keyfile1_strip
+    cat $keyfile2 | sed 's/\xff*$//g; s/\x00*$//g;' >$keyfile2_strip
+    compare_file "$keyfile1_strip" "$keyfile2_strip" || ret=$FLAGS_FALSE
   else
     debug_msg "warning: cannot get rootkey from $1"
-    ret=2
+    ret=$FLAGS_ERROR
   fi
 
   # clean up if not debug mode
@@ -1143,7 +1157,7 @@ function chromeos_check_same_root_keys() {
 # ----------------------------------------------------------------------------
 # Updater
 
-function start_firmware_section_update() {
+start_firmware_section_update() {
   # Updates some sections into system flashrom.
   check_param "start_firmware_section_update(src_list, dst_list, image) " "$@"
   debug_msg "start_firmware_section_update(src=$1,dest=$2,image=$3)"
@@ -1151,26 +1165,26 @@ function start_firmware_section_update() {
   # create image for flashrom
   debug_msg "creating temporary image file"
   local tmp_image
-  tmp_image=$(env TMPDIR=. mktemp _imgXXXXXXXX) || \
+  tmp_image=$(env TMPDIR=. mktemp _imgXXXXXXXX) ||
     err_die "cannot create temporary file for building image"
   cp -f $CURRENT_IMAGE $tmp_image
-  flashrom_copy_image "$1" "$2" $3 $tmp_image || \
+  flashrom_copy_image "$1" "$2" $3 $tmp_image ||
     err_die "failed to create temporary image for update"
 
   # write to flashrom
   debug_msg "writing partial ($2) image to flashrom"
-  flashrom_partial_write "$2" $tmp_image || \
+  flashrom_partial_write "$2" $tmp_image ||
     err_die "failed to partial write to flashrom"
 
   # verify image
   if is_positive $is_always_verify ; then
     debug_msg "verifying image from flashrom: read current image"
-    flashrom_read_whole || \
+    flashrom_read_whole ||
       err_die "cannot read flashrom for verification"
     # TODO(hungte) current implementation verifies only copy destination.
     # we may consider comparing whole image in the future.
     debug_msg "verifying image from flashrom: compare with target image"
-    flashrom_verify_sections "$1" "$2" $CURRENT_IMAGE $tmp_image || \
+    flashrom_verify_sections "$1" "$2" $CURRENT_IMAGE $tmp_image ||
       err_die "update result: flashrom image data verification failed."
   fi
 
@@ -1178,7 +1192,7 @@ function start_firmware_section_update() {
   is_positive $is_debug || rm -f $tmp_image
 }
 
-function chromeos_firmware_AB_update() {
+chromeos_firmware_AB_update() {
   # Performs Chrome OS "AB Main Firmware" Update Rules
   check_param "chromeos_firmware_AB_update(listA, listB, new_image)" "$@"
 
@@ -1201,7 +1215,7 @@ function chromeos_firmware_AB_update() {
   fi
 
   # A, B should be the same for target image.
-  flashrom_verify_sections "$listA" "$listB" $target $target || \
+  flashrom_verify_sections "$listA" "$listB" $target $target ||
     err_die "invalid image file (different A/B section): $target"
 
   # determine last boot index
@@ -1256,24 +1270,24 @@ function chromeos_firmware_AB_update() {
   fi
 }
 
-function check_chromeos_vboot_section() {
+check_chromeos_vboot_section() {
   # Checks if the layout has proper VBOOT record
   check_param "check_chromeos_vboot_section(vboot_list, image_file)" "$@"
 
-  local vboot_section_name offset value
+  local vboot_section_name offset length value
   for vboot_section_name in $1; do
-    offset=$(flashrom_echo_section_offset $vboot_section_name)
-    value="$(dd if=$2 bs=1 skip=$offset \
-      count=$CHROMEOS_VBOOT_SIGNATURE_LENGTH 2>/dev/null)"
+    offset="$(flashrom_echo_section_offset $vboot_section_name)"
+    length="$CHROMEOS_VBOOT_SIGNATURE_LENGTH"
+    value="$(dd if=$2 bs=1 skip=$offset count=$length 2>/dev/null)"
     debug_msg "check_chromeos_vboot_section: $vboot_section_name@$offset:$value"
     if [ "$value" != "$CHROMEOS_VBOOT_SIGNATURE" ]; then
-      return 1  # fail as shell-style
+      return $FLAGS_FALSE
     fi
   done
-  return 0  # shell-style success
+  return $FLAGS_TRUE
 }
 
-function build_layout_signature() {
+build_layout_signature() {
   # Builds a signature of given layout sections.
   check_param "build_layout_signature(section_list)" "$@"
 
@@ -1287,13 +1301,11 @@ function build_layout_signature() {
   echo $signature
 }
 
-function update_firmware() {
+update_firmware() {
   # Firmware update procedure.
-  check_param \
-  "update_firmware(
-      code, name, image, ro, rw_a, opt_rw_b, opt_skip, opt_preserve,
-      opt_vboot, opt_rootkey)" \
-  "$@"
+  check_param "update_firmware(
+    code, name, image, ro, rw_a,
+    opt_rw_b, opt_skip, opt_preserve, opt_vboot, opt_rootkey)" "$@"
 
   local code=$1
   local image_fname=$3 current_fname=$CURRENT_IMAGE
@@ -1308,9 +1320,9 @@ function update_firmware() {
   # Check if target image size is same as current flashrom chip.
   # TODO(hungte) In the future we may allow expanding image to real flashrom
   # chips, but let's assume they must be the same now.
-  test "$(echo_file_size $current_fname)" -eq "$(echo_file_size $image_fname)" \
-    || err_die "Target image size=$(echo_file_size $image_fname) is" \
-               "different from real flashrom=$(echo_file_size $current_fname)"
+  [ $(echo_file_size $current_fname) -eq $(echo_file_size $image_fname) ] ||
+    err_die "Target image size=$(echo_file_size $image_fname) is" \
+            "different from real flashrom=$(echo_file_size $current_fname)"
 
   # process layout
   flashrom_detect_layout $code $current_fname
@@ -1329,7 +1341,7 @@ function update_firmware() {
 
   # if the layout is different, we only allow factory setup
   assert_str $is_check_layout
-  if is_positive $is_check_layout && \
+  if is_positive $is_check_layout &&
     [ "$current_layout_signature" != "$target_layout_signature" ]; then
     if ! is_positive $is_factory; then
       err_die "Image memory layout is incompatible to current system." \
@@ -1339,7 +1351,7 @@ function update_firmware() {
 
   # verify if this seems like a valid layout
   assert_str $is_check_vboot
-  if is_positive $is_check_vboot && [ -n "$9" ] && \
+  if is_positive $is_check_vboot && [ -n "$9" ] &&
     ! check_chromeos_vboot_section "$9" $image_fname; then
     err_die "Invalid memory layout or corrupted ChromeOS firmware image."
   fi
@@ -1348,14 +1360,14 @@ function update_firmware() {
   local compare_rootkey_result=0
   assert_str $is_check_rootkey
   if is_positive $is_check_rootkey && [ -n "${10}" ]; then
-    chromeos_check_same_root_keys $current_fname $image_fname \
-      || compare_rootkey_result=$?
+    chromeos_check_same_root_keys $current_fname $image_fname ||
+      compare_rootkey_result=$?
   fi
 
   # if the rootkey seems different, we only allow factory setup
   debug_msg "result: $compare_rootkey_result"
-  if [ "$compare_rootkey_result" -ne "0" ] && ! is_positive $is_factory; then
-    if [ "$compare_rootkey_result" -eq "1" ]; then
+  if [ $compare_rootkey_result -ne 0 ] && ! is_positive $is_factory; then
+    if [ $compare_rootkey_result -eq 1 ]; then
       err_die "Incompatible firmware image (Root key is different). " \
               "You may need to perform a factory install by --factory."
     else
@@ -1385,8 +1397,8 @@ function update_firmware() {
         echo "  - start RW (AB together) + RO code (bootstub/recovery) update"
         local update_list="$ro_list"
         flashrom_verify_sections \
-          "$rw_list" "$rw_list" $current_fname $image_fname \
-          || update_list="$update_list $rw_list"
+          "$rw_list" "$rw_list" $current_fname $image_fname ||
+          update_list="$update_list $rw_list"
         echo "  * action: update $update_list"
         start_firmware_section_update \
           "$update_list" "$update_list" $image_fname
@@ -1397,8 +1409,8 @@ function update_firmware() {
         echo "  - verify written image"
         flashrom_read_whole
         flashrom_verify_sections \
-          "$verify_list" "$verify_list" $current_fname $image_fname \
-          || err_die " ! image verification failed..."
+          "$verify_list" "$verify_list" $current_fname $image_fname ||
+          err_die " ! image verification failed..."
       fi
       chromeos_post_update "$code"
       echo "  - success and complete."
@@ -1442,13 +1454,13 @@ function update_firmware() {
   if is_positive $allow_2stage_update && [ -n "$rw_list_b" ]; then
     # A/B
     debug_msg "invoke firmware_AB_update"
-    chromeos_firmware_AB_update "$rw_list_a" "$rw_list_b" $image_fname || \
+    chromeos_firmware_AB_update "$rw_list_a" "$rw_list_b" $image_fname ||
       err_die "AB firmware update failed"
   else
     # simple update
     debug_msg "invoke firmware_section_update"
     echo "  * action: update $rw_list"
-    start_firmware_section_update "$rw_list" "$rw_list" $image_fname || \
+    start_firmware_section_update "$rw_list" "$rw_list" $image_fname ||
       err_die "RW firmware update failed"
   fi
   chromeos_post_update "$code"
@@ -1456,7 +1468,7 @@ function update_firmware() {
   echo " - success and complete."
 }
 
-function end_update_firmware() {
+end_update_firmware() {
   # Any procedure / check to perform after an update trial (no matter
   # if any data is really changed. See also chromeos_post_update).
   check_param "end_update_firmware(code)" "$@"
@@ -1619,14 +1631,14 @@ done
 # initialization of kernel modules
 # TODO(hungte) the chromeos_acpi may be a built-in component in default kernel,
 # and at that time we don't need this anymore.
-$CHROMEOS_ACPI_INIT_CMD >/dev/null 2>&1 \
-  || debug_msg "Warning: ACPI initialization failure ($?) - ignored."
+$CHROMEOS_ACPI_INIT_CMD >/dev/null 2>&1 ||
+  debug_msg "Warning: ACPI initialization failure ($?) - ignored."
 
 # detect and adjust factory/background modes
 assert_str $is_mode_assigned
 assert_str $is_factory
-is_positive $is_mode_assigned || is_positive $is_factory \
-  || chromeos_detect_factory_mode
+is_positive $is_mode_assigned || is_positive $is_factory ||
+  chromeos_detect_factory_mode
 
 # load customized information
 if [ -r $CUSTOM_SCRIPT_FILENAME ]; then
@@ -1640,9 +1652,9 @@ if is_positive $is_factory; then
   is_rw_only=0
   is_background=0
 elif is_positive $is_rw_only; then
-  is_positive $allow_2stage_update \
-    && echo " % Firmware Update Mode: RW Only (2 stage update for A/B)" \
-    || echo " % Firmware Update Mode: RW Only (A/B together)"
+  is_positive $allow_2stage_update &&
+    echo " % Firmware Update Mode: RW Only (2 stage update for A/B)" ||
+    echo " % Firmware Update Mode: RW Only (A/B together)"
 else
   echo " % Firmware Update Mode: RO(code) + RW(A/B together)"
 fi
