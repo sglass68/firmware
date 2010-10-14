@@ -6,60 +6,88 @@
 # All scripts should die on error unless commands are specifically excepted
 # by prefixing with '!' or surrounded by 'set +e' / 'set -e'.
 set -e
+# Clean up on regular or error exits.
+trap clean_temp EXIT
 
-# Global variable
-TMP_DIR=  # will be set by make_temp() function.
+# Global variables
 
-IS_VERBOSE=  # decide if we need to print messages
+# Set by make_temp function and removed by clean_temp
+TMP_DIR=
+# Set by allow_temp_exec and will invoke unmount in clean_temp
+IS_NEED_UMOUNT=
+# Decides if we need to print verbose messages
+IS_VERBOSE=
+# The default script to be invoked from extracted resource
+SCRIPT=./install_firmware
 
 # Prints a message and return an error code.
-error_exit()
-{
+error_exit() {
   echo $1
-  clean_temp
   exit 1
 }
 
-verbose_message()
-{
-  test -z "$IS_VERBOSE" || echo "$*"
+# Prints messages if $IS_VERBOSE is not empty.
+verbose_message() {
+  if [ -n "$IS_VERBOSE" ]; then
+    echo "$*"
+  fi
 }
 
 # Untar the file to a temp directory, then chdir to that directory.
-untar_and_chdir()
-{
+untar_and_chdir() {
   SELF="$1"
 
   verbose_message "Extract to $TMP_DIR ..."
   uudecode -o - "$SELF" | tar -C "$TMP_DIR" -zxf -
 
-  if [ ! -x "$TMP_DIR" ] || [ ! -d "$TMP_DIR" ]; then
+  if [ ! -x "$TMP_DIR" -o ! -d "$TMP_DIR" ]; then
     error_exit "Create temp directory $TMP_DIR failed ..."
   fi
 
-  if ! cd $TMP_DIR; then
+  if ! cd "$TMP_DIR"; then
     error_exit "Cannot chdir to $TMP_DIR ..."
   fi
 }
 
-make_temp()
-{
-  TMP_DIR=`mktemp -d`
+make_temp() {
+  TMP_DIR=$(mktemp -d)
 }
 
-clean_temp()
-{
+allow_temp_exec() {
+  if [ -z "$TMP_DIR" ]; then
+    error_exit "allow_temp_exec: Temp folder is empty."
+  fi
+  # TODO(hungte) check if we really need to re-mount tmp.
+  verbose_message "Bind mounting tmp path exec ..."
+  mount --bind "$TMP_DIR" "$TMP_DIR"
+  mount -o remount,exec "$TMP_DIR"
+  IS_NEED_UMOUNT=1
+}
+
+clean_temp() {
+  verbose_message "clean_temp is invoked."
+  if [ -z "$TMP_DIR" ]; then
+    return
+  fi
+  # Attempt to cd to OLDPWD
+  if ! cd - >/dev/null 2>&1; then
+    verbose_message "Failed to cd -. chdir'd to /"
+    cd /
+  fi
+  if [ -n "$IS_NEED_UMOUNT" ]; then
+    verbose_message "Unmount temporary folder $TMP_DIR..."
+    umount "$TMP_DIR"
+  fi
   verbose_message "Clean up $TMP_DIR ..."
-  rm -rf $TMP_DIR
+  rm -rf "$TMP_DIR"
+  TMP_DIR=""
 }
 
 SELF="$0"
 case "$1" in
   -V)
-    make_temp
-    untar_and_chdir "$SELF"
-    cat VERSION
-    clean_temp
+    # Quick way to provide version information
+    uudecode -o - "$SELF" | tar zxO ./VERSION
     exit 0
     ;;
   --sb_check)
@@ -67,13 +95,14 @@ case "$1" in
     untar_and_chdir "$SELF"
     md5sum -c VERSION
     ret=$?
-    clean_temp
     exit $ret
     ;;
   --sb_extract)
     make_temp
-    IS_VERBOSE=1
+    echo "The resources are extracted into: $TMP_DIR"
     untar_and_chdir "$SELF"
+    # Don't remove the temporary folder on exit.
+    TMP_DIR=""
     exit 0
     ;;
   -h|"-?"|--help)
@@ -105,17 +134,16 @@ esac
 
 # for all other cases, invoke carried script
 make_temp
+allow_temp_exec
 untar_and_chdir "$SELF"
 
-SCRIPT=./install_firmware
 if [ ! -x $SCRIPT ]; then
   error_exit "Cannot execute $SCRIPT"
 fi
 verbose_message "Run built-in script ($SCRIPT) ..."
 if ! $SCRIPT "$@"; then
-  error_exit "ERROR: Script $SCRIPT returned as failed (#$?)!"
+  error_exit "ERROR: $SCRIPT failed."
 fi
-clean_temp
 exit 0
 
 # Below are uuencoded blob. Don't put code behind exit 0.
