@@ -142,13 +142,13 @@ CHROMEOS_BIOS_PRESERVE_LIST=""
 CHROMEOS_EC_PRESERVE_LIST=""
 
 # Default list of those targets requiring foreground execution for updates
-# (eg, Embedded Controller, because it will freeze keyboard)
-CHROMEOS_NEED_FOREGROUND_UPDATE_TARGETS="ec"
+# (eg, Embedded Controller, because it may freeze keyboard)
+CHROMEOS_NEED_FOREGROUND_UPDATE_TARGETS=""
 
 # Default list of those targets requiring to reboot immediately after updates
-# (eg, Embedded Controller, because it will freeze keyboard)
+# (eg, Embedded Controller, because it may freeze keyboard)
 # Note: does not apply to factory, as factory install is noninteractive.
-CHROMEOS_NEED_DIRECT_REBOOT_UPDATE_TARGETS="ec"
+CHROMEOS_NEED_DIRECT_REBOOT_UPDATE_TARGETS=""
 
 # Default list of targets to be updated. Can be changed by --targets='xxx'.
 CHROMEOS_UPDATE_TARGETS="bios ec"
@@ -1084,7 +1084,7 @@ chromeos_need_foreground() {
   esac
 
   local target
-  for target in $CHROMEOS_NEED_FOREGROUND_UPDATE_TARGETS ; do
+  for target in $CHROMEOS_NEED_FOREGROUND_UPDATE_TARGETS; do
     if [ "$target" = $1 ]; then
       debug_msg "chromeos_need_foreground: NEED ($target)"
       return $FLAGS_TRUE
@@ -1099,17 +1099,37 @@ chromeos_post_update() {
   check_param "chromeos_post_update(target)" "$@"
 
   # check if we need to reboot directly (usually keyboard hang).
-  if in_list "$1" "$CHROMEOS_NEED_DIRECT_REBOOT_UPDATE_TARGETS"; then
+  # note: the leading space before $CHROMEOS_NEED_DIRECT_REBOOT_UPDATE_TARGETS
+  #       is required for in_list to work properly on empty list.
+  if in_list "$1" " $CHROMEOS_NEED_DIRECT_REBOOT_UPDATE_TARGETS"; then
     echo "  ** this update needs to reboot system immediately. **"
     # NOTE: We never need to reboot in factory (non-interative) mode.
     if is_positive "$is_factory"; then
       debug_msg "bypass reboot due to factory mode."
+    elif is_positive "$is_background"; then
+      alert " * INTERNAL WARNING: need reboot in background mode... (bypass)"
     else
-      debug_msg "going to reboot NOW"
-      sync
+      debug_msg "!!!!! going to reboot NOW !!!!!"
+      sync; sync; sync
       execute_command "$CHROMEOS_REBOOT_CMD" || err_die "cannot reboot"
     fi
   fi
+}
+
+chromeos_check_background_update() {
+  # Checks if given target is safe for background update.
+  # Returns $FLAGS_TRUE for safe to continue, $FLAGS_FALSE to abort.
+  check_param "chromeos_check_background_update(target)" "$@"
+
+  # NOTE: when in factory mode (is_factory), is_background won't be positive.
+  assert_str $is_background
+  local target="$1"
+  if is_positive $is_background && chromeos_need_foreground "$target"; then
+    echo "  - running in background update mode, postpone to next boot."
+    chromeos_need_reboot || err_die "cannot set reboot tag"
+    return $FLAGS_FALSE
+  fi
+  return $FLAGS_TRUE
 }
 
 chromeos_check_same_root_keys() {
@@ -1394,6 +1414,7 @@ update_firmware() {
         echo "  * action: rewrite whole image"
         flashrom_write_whole $image_fname
       else
+        chromeos_check_background_update "$code" || return
         echo "  - start RW (AB together) + RO code (bootstub/recovery) update"
         local update_list="$ro_list"
         flashrom_verify_sections \
@@ -1444,12 +1465,7 @@ update_firmware() {
   fi
 
   # some part is different, determine what task to do here.
-  # NOTE: when in factory mode (is_factory), is_background won't be positive.
-  if is_positive $is_background && chromeos_need_foreground $code; then
-    echo "  - running in background update mode, postpone to next boot."
-    chromeos_need_reboot || err_die "cannot set update tag for next reboot."
-    return
-  fi
+  chromeos_check_background_update "$code" || return
 
   if is_positive $allow_2stage_update && [ -n "$rw_list_b" ]; then
     # A/B
