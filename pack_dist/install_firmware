@@ -895,8 +895,8 @@ flashrom_apply_skip_verify() {
     fi
     debug_msg "apply skip verify: (sec=$1, blob=$2)[$ventry]"
 
-    local dd_cmd="dd if=$zero_fn of=$2 seek=$voff count=$vsize conv=notrunc"
-    execute_command "$dd_cmd" ||
+    local dd_opt="if=$zero_fn of=$2 bs=1 seek=$voff count=$vsize conv=notrunc"
+    execute_command "dd $dd_opt" ||
       err_die "flashrom_apply_skip_verify($1, $2)[$ventry]"
   done
 }
@@ -1121,7 +1121,6 @@ chromeos_check_background_update() {
   # Returns $FLAGS_TRUE for safe to continue, $FLAGS_FALSE to abort.
   check_param "chromeos_check_background_update(target)" "$@"
 
-  # NOTE: when in factory mode (is_factory), is_background won't be positive.
   assert_str $is_background
   local target="$1"
   if is_positive $is_background && chromeos_need_foreground "$target"; then
@@ -1402,11 +1401,18 @@ update_firmware() {
   # running on a different (wrong) configuration.  So the logic here is, if
   # RO is different, rewrite entire image or fail.
 
+  # An update should be always called after chromeos_check_background but before
+  # chromeos_post_update.
+  # Even if is_factory=true, is_background still may to be true because when the
+  # updater is trying to upgrade an incompatible firmware, it may force entering
+  # factory mode.
+
   if ! is_positive $is_rw_only; then
     echo "  - checking RO data: $ro_list"
     local verify_list="*"
     if ! flashrom_verify_sections \
       "$ro_list" "$ro_list" $current_fname $image_fname ; then
+      chromeos_check_background_update "$code" || return
       # for factory, rewrite everything. otherwise (with-ro-code),
       # update only the sections we want.
       if is_positive $is_factory; then
@@ -1414,7 +1420,6 @@ update_firmware() {
         echo "  * action: rewrite whole image"
         flashrom_write_whole $image_fname
       else
-        chromeos_check_background_update "$code" || return
         echo "  - start RW (AB together) + RO code (bootstub/recovery) update"
         local update_list="$ro_list"
         flashrom_verify_sections \
@@ -1446,6 +1451,7 @@ update_firmware() {
          "$rw_list" "$rw_list" $current_fname $image_fname ; then
       echo "  - no need to update."
     else
+      chromeos_check_background_update "$code" || return
       echo "  * action: update $rw_list"
       start_firmware_section_update "$rw_list" "$rw_list" $image_fname
       chromeos_post_update "$code"
@@ -1666,7 +1672,9 @@ fi
 if is_positive $is_factory; then
   echo " % Firmware Update Mode: Factory (RO+RW+Everything)"
   is_rw_only=0
-  is_background=0
+  # is_background cannot be set to 0 here, because we may still need to check it
+  # in factory mode when the 'factory mode' was enforced by an incompatible
+  # version of firmware.
 elif is_positive $is_rw_only; then
   is_positive $allow_2stage_update &&
     echo " % Firmware Update Mode: RW Only (2 stage update for A/B)" ||
