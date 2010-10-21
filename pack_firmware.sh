@@ -19,7 +19,7 @@ script_base="$(dirname "$0")"
 DEFINE_string bios_image "" "Path of input BIOS firmware image" "b"
 DEFINE_string ec_image "" "Path of input EC firmware image" "e"
 DEFINE_string output "-" "Path of output filename; '-' for stdout" "o"
-DEFINE_string extra "" "Directory of extra files to be put in firmware package"
+DEFINE_string extra "" "Directory list (separated by :) of files to be merged"
 
 # tools
 DEFINE_string flashrom "" \
@@ -98,11 +98,13 @@ tmpfolder="`mktemp -d`" || err_die "Cannot create temporary folder."
 # will destroy $tmpbase.
 tmpbase="$tmpfolder"
 version_file="$tmpbase/VERSION"
+flashrom_ver="$(strings "$flashrom_bin" |
+                grep '^[0-9\.]\+ \+: \+[a-z0-9]\+ \+: \+.\+UTC')"
 echo "Package create date: `date +'%c'`
 
 flashrom(8): $(md5sum -b "$flashrom_bin")
-             $(file -b "$flashrom_bin")" >> \
-  "$version_file"
+             $(file -b "$flashrom_bin")
+             $flashrom_ver" >> "$version_file"
 
 # copy firmware image files
 if [ "$bios_bin" != "" ]; then
@@ -125,15 +127,18 @@ cp -rp "$pack_dist"/* "$tmpbase" || err_die "cannot copy pack_dist folder"
 chmod a+rx "$tmpbase"/flashrom "$tmpbase"/install_firmware
 
 # copy extra files. if $FLAGS_extra is a folder, copy all content inside.
-if [ -d "${FLAGS_extra}" ]; then
-  cp -r "${FLAGS_extra}"/* "$tmpbase" || \
-    err_die "cannot copy extra files from folder ${FLAGS_extra}"
-  echo "Extra files from folder: ${FLAGS_extra}" >> "$version_file"
-elif [ "${FLAGS_extra}" != "" ]; then
-  cp -r "${FLAGS_extra}" "$tmpbase" || \
-    err_die "cannot copy extra files ${FLAGS_extra}"
-  echo "Extra file: ${FLAGS_extra}" >> "$version_file"
-fi
+extra_list="$(echo "${FLAGS_extra}" | tr ':' '\n')"
+for extra in $extra_list; do
+  if [ -d "$extra" ]; then
+    cp -r "$extra"/* "$tmpbase" || \
+      err_die "cannot copy extra files from folder $extra"
+    echo "Extra files from folder: $extra" >> "$version_file"
+  elif [ "$extra" != "" ]; then
+    cp -r "$extra" "$tmpbase" || \
+      err_die "cannot copy extra files $extra"
+    echo "Extra file: $extra" >> "$version_file"
+  fi
+done
 
 # create MD5 checksum logs
 echo "
