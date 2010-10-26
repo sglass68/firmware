@@ -41,10 +41,6 @@ CHROMEOS_FMAP_DECODE_CMD='mosys -k eeprom map'
 # Default Chrome OS control tag file to request firmware update after reboot
 CHROMEOS_NEED_REBOOT_TAG='/mnt/stateful_partition/.need_firmware_update'
 
-# Default Chrome OS factory mode control tag files (see chromeos_startup)
-CHROMEOS_FACTORY_TEST_TAG='/root/.factory_test'
-CHROMEOS_FACTORY_INSTALLER_TAG='/root/.factory_installer'
-
 # Default command to change boot index.
 CHROMEOS_CHANGE_BOOT_INDEX_CMD='reboot_mode --try_firmware_b=1'
 
@@ -159,6 +155,9 @@ CHROMEOS_UPDATE_TARGETS="bios ec"
 # Set this to 1 for more messages
 is_verbose=0
 
+# Set this to 1 to allow rebooting system directly if required
+is_allow_reboot=0
+
 # Set this to 1 to enable background update process
 is_background=0
 
@@ -201,6 +200,8 @@ CURRENT_IMAGE='_current.bin'
 CURRENT_LAYOUT='_layout.txt'
 # (internal) Skip verify list of current target
 CURRENT_SKIP_VERIFY=""
+# (internal) List to for keeping what targets has been modified.
+CURRENT_MODIFIED_TARGETS=""
 
 # (internal) layout data structure
 # Many POSIX shells do not support association/array, let's use a simple
@@ -284,6 +285,8 @@ alert() {
 err_die() {
   # Reports error message and exit(1)
   # NOTE: this function CANNOT invoke check_param.
+  # NOTE: top level script does not exit if call to err_die is inside a
+  # sub-shell (ex: (func-call), $(func-call)) or if-blocks.
   alert "ERROR: $*"
   cleanup
   exit 1
@@ -1001,16 +1004,6 @@ flashrom_copy_image() {
 # ----------------------------------------------------------------------------
 # Chrome OS Specific Utilities
 
-chromeos_detect_factory_mode() {
-  # Detects if we are running under Chrome OS factory testing mode
-  check_param "chromeos_detect_factory_mode()" "$@"
-
-  if [ -f "$CHROMEOS_FACTORY_TEST_TAG" -o -f "$CHROMEOS_FACTORY_INSTALLER_TAG" ]
-  then
-    is_factory=1
-  fi
-}
-
 chromeos_need_reboot() {
   # Utility to schedule a system reboot.
   check_param "chromeos_need_reboot()" "$@"
@@ -1094,26 +1087,12 @@ chromeos_need_foreground() {
 }
 
 chromeos_post_update() {
-  # Any procedure / check to perform after an update (which really
+  # Put all procedures / checks here to perform after an update (which really
   # changed some data on flashrom).
   check_param "chromeos_post_update(target)" "$@"
 
-  # check if we need to reboot directly (usually keyboard hang).
-  # note: the leading space before $CHROMEOS_NEED_DIRECT_REBOOT_UPDATE_TARGETS
-  #       is required for in_list to work properly on empty list.
-  if in_list "$1" " $CHROMEOS_NEED_DIRECT_REBOOT_UPDATE_TARGETS"; then
-    echo "  ** this update needs to reboot system immediately. **"
-    # NOTE: We never need to reboot in factory (non-interative) mode.
-    if is_positive "$is_factory"; then
-      debug_msg "bypass reboot due to factory mode."
-    elif is_positive "$is_background"; then
-      alert " * INTERNAL WARNING: need reboot in background mode... (bypass)"
-    else
-      debug_msg "!!!!! going to reboot NOW !!!!!"
-      sync; sync; sync
-      execute_command "$CHROMEOS_REBOOT_CMD" || err_die "cannot reboot"
-    fi
-  fi
+  # Log modified targets
+  CURRENT_MODIFIED_TARGETS="$CURRENT_MODIFIED_TARGETS $1"
 }
 
 chromeos_check_background_update() {
@@ -1491,7 +1470,7 @@ update_firmware() {
 }
 
 end_update_firmware() {
-  # Any procedure / check to perform after an update trial (no matter
+  # Put all procedures / checks here to perform after an update trial (no matter
   # if any data is really changed. See also chromeos_post_update).
   check_param "end_update_firmware(code)" "$@"
 
@@ -1506,6 +1485,31 @@ end_update_firmware() {
 
   # reset flashrom target
   flashrom_select_target "reset" || alert "Cannot reset flashrom target."
+}
+
+updater_shutdown() {
+  # Put all procedures / checks here to perform after all updates are complete.
+  # Ex, check if we need to reboot directly for the keyboard frozen issue
+  local target
+  assert_str is_factory
+  assert_str is_background
+  assert_str is_allow_reboot
+  debug_msg "updater_shutdown: modified targets are: $CURRENT_MODIFIED_TARGETS"
+
+  for target in $CURRENT_MODIFIED_TARGETS; do
+    debug_msg "updater_shutdown: checking target $target"
+
+    # check if we need to reboot.
+    # note: the leading space before $CHROMEOS_NEED_DIRECT_REBOOT_UPDATE_TARGETS
+    #       is required for in_list to work properly on empty list.
+    if is_positive $is_allow_reboot &&
+       in_list "$target" " $CHROMEOS_NEED_DIRECT_REBOOT_UPDATE_TARGETS"; then
+      echo "  ** this update needs to reboot system immediately. **"
+      debug_msg "!!!!! going to reboot NOW !!!!!"
+      sync; sync; sync
+      execute_command "$CHROMEOS_REBOOT_CMD" || err_die "cannot reboot"
+    fi
+  done
 }
 
 # ----------------------------------------------------------------------------
@@ -1550,6 +1554,7 @@ mode aliases:
 
 special options:
     --background-update  Skip update that may freeze keyboard/reboot (eg, EC)
+    --allow-reboot       Allow updater to reboot device if required
     --write-protect      Enable write protection after update complete
     --targets='list'     Targets to be updated (def: '$CHROMEOS_UPDATE_TARGETS')
 
@@ -1606,6 +1611,10 @@ general options:
       is_background=1
       verbose_msg " * Enable background update mode"
       ;;
+    --allow-reboot* )
+      is_allow_reboot=1
+      verbose_msg " * Allow rebooting system after updates applied"
+      ;;
     --write-protect* | --enable-write-protect* )
       is_enable_write_protect=1
       verbose_msg " * Enable write protection"
@@ -1656,11 +1665,12 @@ done
 $CHROMEOS_ACPI_INIT_CMD >/dev/null 2>&1 ||
   debug_msg "Warning: ACPI initialization failure ($?) - ignored."
 
-# detect and adjust factory/background modes
+# detect and adjust modes
 assert_str $is_mode_assigned
-assert_str $is_factory
-is_positive $is_mode_assigned || is_positive $is_factory ||
-  chromeos_detect_factory_mode
+if [ -n "$IS_CHROMEOS_STARTUP" ]; then
+  # allow reboot by default in Chrome OS startup
+  is_allow_reboot=1
+fi
 
 # load customized information
 if [ -r $CUSTOM_SCRIPT_FILENAME ]; then
@@ -1689,6 +1699,7 @@ if is_positive $is_debug; then
   debug_msg "(mode) is_rw_only: $is_rw_only"
   debug_msg "(mode) allow_2stage_update: $allow_2stage_update"
   debug_msg "(opt) is_background: $is_background"
+  debug_msg "(opt) is_allow_reboot: $is_allow_reboot"
   debug_msg "(opt) is_always_verify: $is_always_verify"
   debug_msg "(opt) is_enable_write_protect: $is_enable_write_protect"
   debug_msg "(opt) allow_fmap_decode_layout: $allow_fmap_decode_layout"
@@ -1741,4 +1752,5 @@ for target in $CHROMEOS_UPDATE_TARGETS; do
   esac
 done
 
+updater_shutdown
 echo " *** Firmware update complete. ***"
