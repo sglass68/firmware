@@ -41,6 +41,9 @@ CHROMEOS_FMAP_DECODE_CMD='mosys -k eeprom map'
 # Default Chrome OS control tag file to request firmware update after reboot
 CHROMEOS_NEED_REBOOT_TAG='/mnt/stateful_partition/.need_firmware_update'
 
+# Workaround for chrome-os-partner:1563. Backup for CMOS flag.
+NEED_FIRMWARE_TRYB='/mnt/stateful_partition/.need_firmware_tryb'
+
 # Default command to change boot index.
 CHROMEOS_CHANGE_BOOT_INDEX_CMD='reboot_mode --try_firmware_b=1'
 
@@ -1061,6 +1064,10 @@ chromeos_change_boot_index() {
   # In Chrome OS, we use the "try_firmware_b".
   execute_command "$CHROMEOS_CHANGE_BOOT_INDEX_CMD" ||
     err_die "chromeos_change_boot_index(): failed to set try_firmware_b"
+
+  # Workaround for chrome-os-partner:1563. Touch the try-firmware-B flag file
+  # in case CMOS loses the flag.
+  touch "$NEED_FIRMWARE_TRYB"
 }
 
 chromeos_need_foreground() {
