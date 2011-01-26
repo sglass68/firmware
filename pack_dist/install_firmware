@@ -29,6 +29,8 @@ FLASHROM_TOOLPATH='flashrom'
 CHROMEOS_ACPI_ROOT='/sys/devices/platform/chromeos_acpi'
 
 # Default command to initialize ACPI driver
+# TODO(hungte) clean up this in the future - it's not required anymore because
+# the driver is built-in by kernel now.
 CHROMEOS_ACPI_INIT_CMD='modprobe chromeos_acpi'
 
 # Default command to reboot immediately
@@ -51,15 +53,10 @@ CHROMEOS_CHANGE_BOOT_INDEX_CMD='reboot_mode --try_firmware_b=1'
 CHROMEOS_QUERY_TRIAL_BOOT_CMD='reboot_mode| grep try_firmware_b| sed "s/.*: //"'
 
 # Default command to select BIOS as flashrom target
-CHROMEOS_SELECT_BIOS_CMD='
-iotools mmio_write32 0xfed1f410 $(iotools mmio_read32 0xfed1f410|head -c 6)0460'
+CHROMEOS_SELECT_BIOS_OPT='-p internal:bus=spi'
 
 # Default command to select EC (Embedded Controller) as flashrom target
-CHROMEOS_SELECT_EC_CMD='
-iotools mmio_write32 0xfed1f410 $(iotools mmio_read32 0xfed1f410|head -c 6)0c60'
-
-# Default command to reset flashrom target. Default is BIOS.
-CHROMEOS_SELECT_RESET_CMD="$CHROMEOS_SELECT_BIOS_CMD"
+CHROMEOS_SELECT_EC_OPT='-p internal:bus=lpc'
 
 # Default Chrome OS BIOS firmware memory layout,
 # overwrite this if you plan to support different layout
@@ -203,6 +200,8 @@ CURRENT_IMAGE='_current.bin'
 CURRENT_LAYOUT='_layout.txt'
 # (internal) Skip verify list of current target
 CURRENT_SKIP_VERIFY=""
+# (internal) Target option for flashom
+CURRENT_TARGET_OPT=""
 # (internal) List to for keeping what targets has been modified.
 CURRENT_MODIFIED_TARGETS=""
 
@@ -495,7 +494,7 @@ flashrom_read_whole() {
   # Reads entire flashrom into $CURRENT_IMAGE file.
   check_param "flashrom_read_whole()" "$@"
 
-  execute_command "$FLASHROM_TOOLPATH -r $CURRENT_IMAGE" ||
+  execute_command "$FLASHROM_TOOLPATH $CURRENT_TARGET_OPT -r $CURRENT_IMAGE" ||
     err_die "cannot read flashrom"
 }
 
@@ -503,7 +502,7 @@ flashrom_write_whole() {
   # Writes entire flashrom image from given file.
   check_param "flashrom_read_whole(image_file)" "$@"
 
-  execute_command "$FLASHROM_TOOLPATH -w $1" ||
+  execute_command "$FLASHROM_TOOLPATH $CURRENT_TARGET_OPT -w $1" ||
     err_die "cannot write whole flashrom"
 }
 
@@ -555,7 +554,8 @@ flashrom_partial_write() {
     flashrom_check_valid_section_name $i
     list="$list -i $i"
   done
-  execute_command "$FLASHROM_TOOLPATH -l $CURRENT_LAYOUT $list -w $2" ||
+  local opt="$CURRENT_TARGET_OPT -l $CURRENT_LAYOUT $list -w $2"
+  execute_command "$FLASHROM_TOOLPATH $opt" ||
     err_die "flashrom_partial_write failed"
 }
 
@@ -565,13 +565,10 @@ flashrom_select_target() {
 
   case $1 in
     bios )
-      execute_command "$CHROMEOS_SELECT_BIOS_CMD" || err_die "can't select BIOS"
+      CURRENT_TARGET_OPT="$CHROMEOS_SELECT_BIOS_OPT"
       ;;
     ec )
-      execute_command "$CHROMEOS_SELECT_EC_CMD" || err_die "cannot select EC"
-      ;;
-    reset )
-      execute_command "$CHROMEOS_SELECT_RESET_CMD" || err_die "reset failed"
+      CURRENT_TARGET_OPT="$CHROMEOS_SELECT_EC_OPT"
       ;;
     * )
       err_die "unknown target for flashrom selection: $1"
@@ -588,9 +585,10 @@ flashrom_enable_write_protect() {
   local size=$(flashrom_echo_section_size $1)
 
   debug_msg "flashrom_enable_write_protect(section=$1, off=$offset, sz=$size)"
-  execute_command "$FLASHROM_TOOLPATH --wp-range $offset $size" ||
+  local opt="$CURRENT_TARGET_OPT"
+  execute_command "$FLASHROM_TOOLPATH $opt --wp-range $offset $size" ||
     err_die "flashrom_enable_write_protect failed (wp-range $offset $size)"
-  execute_command "$FLASHROM_TOOLPATH --wp-enable" ||
+  execute_command "$FLASHROM_TOOLPATH $opt --wp-enable" ||
     err_die "flashrom_enable_write_protect failed (wp-enable $offset $size)"
 }
 
@@ -1665,12 +1663,6 @@ general options:
   esac
   shift
 done
-
-# initialization of kernel modules
-# TODO(hungte) the chromeos_acpi may be a built-in component in default kernel,
-# and at that time we don't need this anymore.
-$CHROMEOS_ACPI_INIT_CMD >/dev/null 2>&1 ||
-  debug_msg "Warning: ACPI initialization failure ($?) - ignored."
 
 # detect and adjust modes
 assert_str $is_mode_assigned
