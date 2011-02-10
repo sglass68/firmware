@@ -570,6 +570,9 @@ flashrom_select_target() {
     ec )
       CURRENT_TARGET_OPT="$CHROMEOS_SELECT_EC_OPT"
       ;;
+    reset )
+      CURRENT_TARGET_OPT=""
+      ;;
     * )
       err_die "unknown target for flashrom selection: $1"
   esac
