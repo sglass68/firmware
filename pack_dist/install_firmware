@@ -651,6 +651,14 @@ flashrom_detect_layout_by_fmap_decode() {
     n="Boot Stub"; map[n]="FV_BSTUB";
     n="RO VPD"; map[n]="RO_VPD";
     n="RW VPD"; map[n]="RW_VPD";
+
+    n="VBLOCK_A"; map[n]="VBOOTA";
+    n="FW_MAIN_A"; map[n]="FVMAIN";
+    n="VBLOCK_B"; map[n]="VBOOTB";
+    n="FW_MAIN_B"; map[n]="FVMAINB";
+    n="GBB"; map[n]="FV_GBB";
+    n="BOOT_STUB"; map[n]="FV_BSTUB";
+    n="RECOVERY"; map[n]="FVDEV";
   }
   /area_/ {
     gsub( /.*area_name="/, "" );
