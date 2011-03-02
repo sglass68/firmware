@@ -138,6 +138,12 @@ esac
 NEED_FIRMWARE_UPDATE='/mnt/stateful_partition/.need_firmware_update'
 NEED_FIRMWARE_TRYB='/mnt/stateful_partition/.need_firmware_tryb'
 BINF1='/sys/devices/platform/chromeos_acpi/BINF.1'
+# /dev/nvram is required by reboot_mode.  chromeos_startup may re-mount devfs
+# and caused nvram to disappear for a while.  Since we cannot wait for
+# delayed-loading, mknod provides a quick solution.
+
+[ -e /dev/nvram ] || mknod /dev/nvram c 10 144
+
 if [ -f "$NEED_FIRMWARE_TRYB" ]; then
   # Yes, flag file is present.  Make sure we don't do this more than once
   rm -f "$NEED_FIRMWARE_TRYB"
@@ -146,7 +152,6 @@ if [ -f "$NEED_FIRMWARE_TRYB" ]; then
   if [ -r "$BINF1" ]; then
     if [ "$(cat "$BINF1")" = "1" ]; then
       # Yes, in firmware A, so we need to try firmware B
-      [ -e /dev/nvram ] || mknod /dev/nvram c 10 144
       reboot_mode --try_firmware_b=1
       # When we do, we want to run the shellball again.
       touch "$NEED_FIRMWARE_UPDATE"
