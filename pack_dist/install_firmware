@@ -25,20 +25,12 @@ EC_IMAGE_FILENAME='ec.bin'
 # flashrom(8) tool path, can be changed to use system default flashrom
 FLASHROM_TOOLPATH='flashrom'
 
-# Default Chrome OS ACPI folder. You should only change this for debug/test
-CHROMEOS_ACPI_ROOT='/sys/devices/platform/chromeos_acpi'
-
-# Default command to initialize ACPI driver
-# TODO(hungte) clean up this in the future - it's not required anymore because
-# the driver is built-in by kernel now.
-CHROMEOS_ACPI_INIT_CMD='modprobe chromeos_acpi'
-
 # Default command to reboot immediately
 CHROMEOS_REBOOT_CMD="reboot"
 
 # Default command to decode fmap
 CHROMEOS_FMAP_DECODE_CMD='mosys -k eeprom map'
-# note: an alternative is "fmap_decode"
+# note: an alternative is "fmap_decode, or dump_fmap"
 
 # Default Chrome OS control tag file to request firmware update after reboot
 CHROMEOS_NEED_REBOOT_TAG='/mnt/stateful_partition/.need_firmware_update'
@@ -47,10 +39,10 @@ CHROMEOS_NEED_REBOOT_TAG='/mnt/stateful_partition/.need_firmware_update'
 NEED_FIRMWARE_TRYB='/mnt/stateful_partition/.need_firmware_tryb'
 
 # Default command to change boot index.
-CHROMEOS_CHANGE_BOOT_INDEX_CMD='reboot_mode --try_firmware_b=1'
+CHROMEOS_CHANGE_BOOT_INDEX_CMD='crossystem fwb_tries=1'
 
 # Default command to query next (planned) boot index
-CHROMEOS_QUERY_TRIAL_BOOT_CMD='reboot_mode| grep try_firmware_b| sed "s/.*: //"'
+CHROMEOS_QUERY_TRIAL_BOOT_CMD='crossystem fwb_tries'
 
 # Default command to select BIOS as flashrom target
 CHROMEOS_SELECT_BIOS_OPT='-p internal:bus=spi'
@@ -1032,19 +1024,16 @@ chromeos_get_last_boot_index() {
 
   # See "Google Chrome OS Firmware - High Level Specification" section
   # "BINF (Chrome OS boot information)" for more detail.
-  local binf_val="$(cat "$CHROMEOS_ACPI_ROOT/BINF.1")"
+  local binf_val="$(crossystem mainfw_act)"
   debug_msg "original binf_val=$binf_val"
 
-  # ACPI value: 0=recovery, 1=firmwareA, 2=firmwareB
+  # Possible values: 'A', 'B', 'recovery'
   # get_index return values requires 0=A, 1=B
-  # so we remap the return value to: recovery=firmwareA=0, firmwareA=1
-  # recovery is mapped to zero(A) because booting from B has special meaning
-  # (check the behavior of firmware_try_b in Chrome OS firmware)
   case $binf_val in
-    0 | 1 )
+    A | recovery )
       return 0
       ;;
-    2 )
+    B )
       return 1
       ;;
     * )
