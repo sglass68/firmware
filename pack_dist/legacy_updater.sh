@@ -9,6 +9,9 @@
 # To simply design, THIS SCRIPT MUST BE EXECUTED IN A R/W EXCLUSIVE TEMP FOLDER.
 # AND ALL FILENAMES FOR INPUT AND OUTPUT MUST NOT CONTAIN SPACE.
 
+SCRIPT_BASE="$(dirname "$0")"
+. "$SCRIPT_BASE/common.sh"
+
 # customizable parameters
 # ----------------------------------------------------------------------------
 # If you want to customize any of these parameters, make a script and name it
@@ -16,7 +19,7 @@
 
 # The script to be loaded for customization;
 # please put all your own settings in this file.
-CUSTOM_SCRIPT_FILENAME='install_firmware_custom.sh'
+CUSTOM_SCRIPT_FILENAME='legacy_updater_custom.sh'
 
 # Default file names of carried (target) image files
 BIOS_IMAGE_FILENAME='bios.bin'
@@ -39,10 +42,10 @@ CHROMEOS_NEED_REBOOT_TAG='/mnt/stateful_partition/.need_firmware_update'
 NEED_FIRMWARE_TRYB='/mnt/stateful_partition/.need_firmware_tryb'
 
 # Default command to change boot index.
-CHROMEOS_CHANGE_BOOT_INDEX_CMD='crossystem fwb_tries=1'
+CHROMEOS_CHANGE_BOOT_INDEX_CMD='crossystem fwb_tries=1 || true'
 
 # Default command to query next (planned) boot index
-CHROMEOS_QUERY_TRIAL_BOOT_CMD='crossystem fwb_tries'
+CHROMEOS_QUERY_TRIAL_BOOT_CMD='crossystem fwb_tries || true'
 
 # Default command to select BIOS as flashrom target
 CHROMEOS_SELECT_BIOS_OPT='-p internal:bus=spi'
@@ -204,15 +207,10 @@ LAYOUT_LIST=""
 LAYOUT_SIZE=""
 LAYOUT_OFFSET=""
 
-# Shell style return value (compatible to shflags)
-FLAGS_TRUE=0
-FLAGS_FALSE=1
-FLAGS_ERROR=2
-
 # Script should exit on any unexpected error
 set -e
 
-# Tool program (flashrom, iotools, mosys, ...) search path:
+# Tool program (flashrom, mosys, ...) search path:
 # 1. bundled (.) 2. $INSTALL_ROOT/* 3. defaults (/usr/sbin,/sbin) and $PATH
 PATH="/usr/sbin:/sbin:$PATH"
 if [ -n "${INSTALL_ROOT}" -a "${INSTALL_ROOT}" != "/" ]; then
@@ -270,29 +268,6 @@ PATH=".:$PATH"; export PATH
 
 # Utilities
 
-alert() {
-  # Reports some critical message in stderr
-  # NOTE: this function CANNOT invoke check_param.
-  echo "$*" 1>&2
-}
-
-err_die() {
-  # Reports error message and exit(1)
-  # NOTE: this function CANNOT invoke check_param.
-  # NOTE: top level script does not exit if call to err_die is inside a
-  # sub-shell (ex: (func-call), $(func-call)) or if-blocks.
-  alert "ERROR: $*"
-  cleanup
-  exit 1
-}
-
-cleanup() {
-  # Cleans every temporary files
-  # NOTE: this function CANNOT invoke check_param.
-  # TODO (hungte) use TRAP ERR instead?
-  is_positive "$is_debug" || rm -f _*
-}
-
 is_positive() {
   # Returns $FLAGS_TRUE or $FLAGS_FALSE for compare result of $1 > 0
   # NOTE: this function CANNOT invoke check_param.
@@ -336,72 +311,6 @@ assert_str() {
       err_die "!!! assert_str failed: $*. abort."
     fi
   fi
-}
-
-_is_param_reentrant=0
-check_param() {
-  # Checks if provided parameters are in correct form.
-  # Syntax: check_pram format "$@"
-  local format="$1"
-  local original_format="$format"
-  local has_wild_arg=0
-  local param i
-  # check re-entrant
-  if [ "$_is_param_reentrant" != "0" ]; then
-    err_die "INTERNAL ERROR: re-entrant error in check_param!"
-  fi
-  _is_param_reentrant=1
-
-  # build format string: command param param ...
-  format=$(echo "$format" | sed 's/[(,) ]/ /g; s/  */ /g;')
-  i=0
-  for param in $format ; do
-    if [ "$param" = "..." ]; then
-      # ignore everything after '...'
-      has_wild_arg=1
-      break
-    fi
-    i=$(($i + 1))
-  done
-
-  # now i holds number of program + required parameters
-  # $# has format + provided parameter
-  if [ $has_wild_arg = 1 ]; then
-    [ $# -ge $i ] || err_die "$original_format: need $i+ parameters (got $#)"
-  else
-    [ $# -eq $i ] || err_die "$original_format: need $i parameters (got $#)"
-  fi
-
-  i=0
-  for param in "$@"; do
-    local param_name=$(nth $i $format)
-    # forr params started with 'opt_', allow it to be empty.
-    if [ -z "$param" -a "${param_name##opt_*}" != "" ]; then
-      shift # remove the invoke command name
-      err_die "check_param: $original_format: " \
-              "param '$param_name' is empty (original: '$@')"
-    fi
-    i=$(($i + 1))
-  done
-
-  # clear re-entrant flag
-  _is_param_reentrant=0
-}
-
-verbose_msg() {
-  # Prints a message if in verbose mode
-  check_param "verbose_msg(...)" "$@"
-
-  assert_str $is_verbose
-  is_positive $is_verbose && echo "$*" || true
-}
-
-debug_msg() {
-  # Prints a message if in debug mode
-  check_param "debug_msg(...)" "$@"
-
-  assert_str $is_debug
-  is_positive $is_debug && alert " (DEBUG) $*" || true
 }
 
 in_list() {
@@ -1024,7 +933,7 @@ chromeos_get_last_boot_index() {
 
   # See "Google Chrome OS Firmware - High Level Specification" section
   # "BINF (Chrome OS boot information)" for more detail.
-  local binf_val="$(crossystem mainfw_act)"
+  local binf_val="$(crossystem mainfw_act || true)"
   debug_msg "original binf_val=$binf_val"
 
   # Possible values: 'A', 'B', 'recovery'
@@ -1546,6 +1455,8 @@ for arg in "$@"; do
       echo "$0 [options]
 
 mode selection (only the last one assigned mode will take effect):
+    --mode=MODE          Mode string: startup, bootok, autoupdate, todev,
+                         recovery, factory_install, factory_final
     --factory            Force using factory mode (write RO+RW+GBB/VPD together)
     --with-ro-code       Update RW(A/B together) & RO(BSTUB/FVDEV), keep GBB/VPD
     --rw-ab-together     Update R/W firmware, and update A/B parts together
@@ -1579,10 +1490,50 @@ general options:
     --debug-help )
       echo "Extra parameters by for debugging:
 
-    --debug-only-select-ec    Select target to EC and exit
-    --debug-only-select-bios  Select target to BIOS and exit
     --debug-trace             Print executed shell commands line-by-line"
       exit 0
+      ;;
+    --mode=* )
+      arg_value="${arg_value#=}"
+      case $arg_value in
+        startup )
+          is_allow_reboot=1
+          allow_2stage_update=1
+          is_factory=0
+          is_rw_only=1
+          is_mode_assigned=1
+          verbose_msg " * Auto Update in Reboot (A/B 2 stage)"
+          ;;
+        autoupdate )
+          is_background=1
+          allow_2stage_update=1
+          is_factory=0
+          is_rw_only=1
+          is_mode_assigned=1
+          verbose_msg " * Auto Update in Background (try A/B 2 stage)"
+          ;;
+        recovery )
+          allow_2stage_update=0
+          is_factory=0
+          is_rw_only=1
+          is_mode_assigned=1
+          verbose_msg " * (Recovery) Update R/W firmware (A/B at once)"
+          ;;
+        factory_install )
+          allow_2stage_update=0
+          is_factory=1
+          is_rw_only=0
+          is_mode_assigned=1
+          verbose_msg " * Enable factory mode"
+          ;;
+        factory_final | todev | bootok )
+          alert "Warning: mode [$arg_value] is not available on this platform."
+          exit 0
+        * )
+          alert "Warning: mode [$arg_value] is not supported."
+          exit 0
+          ;;
+      esac
       ;;
     --factory* )
       allow_2stage_update=0
@@ -1643,17 +1594,15 @@ general options:
       ;;
     --verbose )
       is_verbose=1
+      FLAGS_verbose=$FLAGS_TRUE
       ;;
     --debug )
       is_debug=1
-      ;;
-    --debug-only-select-* )
-      dbg_target="${arg#--debug-only-select-}"
-      flashrom_select_target "$dbg_target"
-      exit 0
+      FLAGS_debug=$FLAGS_TRUE
       ;;
     --debug-trace )
       is_debug=1
+      FLAGS_debug=$FLAGS_TRUE
       set -x
       ;;
     * )
@@ -1694,6 +1643,7 @@ fi
 
 if is_positive $is_debug; then
   is_verbose=1
+  FLAGS_verbose=$FLAGS_TRUE
   debug_msg "(mode) is_factory: $is_factory"
   debug_msg "(mode) is_rw_only: $is_rw_only"
   debug_msg "(mode) allow_2stage_update: $allow_2stage_update"

@@ -8,12 +8,13 @@
 # It requires:
 #  - at least one BIOS image and/or EC image (*.bin / *.fd)
 #  - flashrom(8) as native binary tool
-#  - pack_dist/install_firmware script to execute flashrom(8)
+#  - pack_dist/updater.sh script to execute flashrom(8)
 #  - pack_stub as the template/stub script for output
-#  - any other additional files used by install_firmware in pack_dist folder
+#  - any other additional files used by updater.sh in pack_dist folder
 
 script_base="$(dirname "$0")"
-. "$script_base/lib/shflags/shflags"
+SHFLAGS_FILE="$script_base/lib/shflags/shflags"
+. "$SHFLAGS_FILE"
 
 # DEFINE_string name default_value description flag
 DEFINE_string bios_image "" "Path of input BIOS firmware image" "b"
@@ -21,10 +22,12 @@ DEFINE_string ec_image "" "Path of input EC firmware image" "e"
 DEFINE_string output "-" "Path of output filename; '-' for stdout" "o"
 DEFINE_string extra "" "Directory list (separated by :) of files to be merged"
 
+# TODO(hungte) add 'crossytem' into embedded tools
+
 # tools
 DEFINE_string flashrom "" \
   "Path of flashrom(8), using tool_base/flashrom if not assigned"
-DEFINE_string tools "iotools mosys" \
+DEFINE_string tools "mosys" \
   "List of tool programs to be bundled into updater"
 DEFINE_string tool_base "" "Default source location for tools programs"
 
@@ -45,12 +48,12 @@ fi
 # we need following tools to be inside a package:
 #  - flashrom(8): native binary tool
 #  - $FLAGS_tools: native binary tools
-#  - pack_dist/install_firmware
-#  - all files in pack_dist (usually used by install_firmware like selectors)
+#  - pack_dist/updater.sh
+#  - all files in pack_dist (usually used by updater.sh like selectors)
 
 pack_dist="$script_base/pack_dist"
 flashrom_bin="${FLAGS_flashrom}"
-install_firmware_script="$pack_dist/install_firmware"
+main_script="$pack_dist/updater.sh"
 stub_file="$script_base/pack_stub"
 
 function do_cleanup {
@@ -71,7 +74,7 @@ function err_die {
 type -P uuencode >/dev/null || err_die "ERROR: You need uuencode(sharutils)"
 
 # check required basic files
-for X in "$flashrom_bin" "$install_firmware_script" "$stub_file"; do
+for X in "$flashrom_bin" "$main_script" "$stub_file"; do
   if [ ! -r "$X" ]; then
     err_die "ERROR: Cannot find required file: $X"
   fi
@@ -119,12 +122,13 @@ fi
 # copy other resources files from pack_dist
 # XXX do not put any files with dot in prefix ( eg: .blah )
 cp -p "$flashrom_bin" "$tmpbase"/flashrom || err_die "cannot copy tool flashrom"
+cp -p "$SHFLAGS_FILE" "$tmpbase"/. || err_die "cannot copy shflags"
 for X in $FLAGS_tools; do
   src="${FLAGS_tool_base}/$X"
   cp -p "$src" "$tmpbase"/. || err_die "cannot copy tools: $src"
 done
 cp -rp "$pack_dist"/* "$tmpbase" || err_die "cannot copy pack_dist folder"
-chmod a+rx "$tmpbase"/flashrom "$tmpbase"/install_firmware
+chmod a+rx "$tmpbase"/flashrom "$tmpbase"/updater.sh
 
 # copy extra files. if $FLAGS_extra is a folder, copy all content inside.
 extra_list="$(echo "${FLAGS_extra}" | tr ':' '\n')"
