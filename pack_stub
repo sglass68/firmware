@@ -67,6 +67,8 @@ allow_temp_exec() {
 
 clean_temp() {
   verbose_message "clean_temp is invoked."
+  # It is safer to always use SPI(Main) for the system flashrom bus target
+  flashrom -p internal:bus=spi >/dev/null 2>&1 || true
   if [ -z "$TMP_DIR" ]; then
     return
   fi
