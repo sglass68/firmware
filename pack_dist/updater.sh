@@ -93,6 +93,8 @@ DEFINE_boolean update_ro_ec $FLAGS_FALSE \
   "Allow updating RO section of EC Firmware"
 
 DEFINE_boolean check_keys $FLAGS_TRUE "Check firmware keys before updating." ""
+DEFINE_boolean check_wp $FLAGS_TRUE \
+  "Check if write protection is enabled before updating RO sections" ""
 
 # ----------------------------------------------------------------------------
 # General Updater
@@ -268,20 +270,28 @@ prepare_ec_current_image() {
 }
 
 is_mainfw_write_protected() {
+  if [ "$FLAGS_check_wp" = $FLAGS_FALSE ]; then
+    verbose_msg "Warning: write protection checking is bypassed."
+    return $FLAGS_FALSE
+  fi
   if ! cros_is_hardware_write_protected; then
     false
   else
     flashrom $TARGET_OPT_MAIN --wp-status 2>/dev/null |
-      grep -q write\ protect\ is\ enabled
+      grep -q "write protect is enabled"
   fi
 }
 
 is_ecfw_write_protected() {
+  if [ "$FLAGS_check_wp" = $FLAGS_FALSE ]; then
+    verbose_msg "Warning: write protection checking is bypassed."
+    return $FLAGS_FALSE
+  fi
   if ! cros_is_hardware_write_protected; then
     false
   else
     flashrom $TARGET_OPT_EC --wp-status 2>/dev/null |
-      grep -q write\ protect\ is\ enabled
+      grep -q "write protect is enabled"
   fi
 }
 
