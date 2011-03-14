@@ -96,6 +96,9 @@ DEFINE_boolean check_keys $FLAGS_TRUE "Check firmware keys before updating." ""
 DEFINE_boolean check_wp $FLAGS_TRUE \
   "Check if write protection is enabled before updating RO sections" ""
 
+# Required for factory compatibility
+DEFINE_boolean factory $FLAGS_FALSE "Equivalent to --mode=factory_install"
+
 # ----------------------------------------------------------------------------
 # General Updater
 
@@ -470,6 +473,11 @@ mode_factory_final() {
 # Main Entry
 
 main() {
+  # factory compatibility
+  if [ "${FLAGS_factory}" = "${FLAGS_TRUE}" ]; then
+    FLAGS_mode=factory_install
+  fi
+
   verbose_msg "Starting firmware updater (${FLAGS_mode})..."
   # quick check and setup for basic envoronments
   if [ ! -s "$IMAGE_MAIN" ]; then
