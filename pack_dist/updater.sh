@@ -345,7 +345,12 @@ mode_startup() {
 # Update Engine - Current Boot Successful (chromeos_setgoodkernel)
 mode_bootok() {
   if [ "$(cros_get_prop ecfw_act)" = "RO" ]; then
-    cros_set_startup_update_tries 6
+    verbose_msg "EC was boot by RO and may need an update/recovery."
+    if [ "${FLAGS_update_ec}" = "${FLAGS_TRUE}" ]; then
+      cros_set_startup_update_tries 6
+    else
+      debug_msg "Although EC was boot from RO, updating for EC is disabled."
+    fi
   fi
 
   if [ "${FLAGS_update_main}" = "${FLAGS_TRUE}" ]; then
