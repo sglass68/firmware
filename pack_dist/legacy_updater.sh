@@ -159,6 +159,9 @@ is_background=0
 # Set this to 1 to enable factory test / installer mode
 is_factory=0
 
+# Set this to 1 for recovery mode
+is_recovery=0
+
 # Set this to 1 to check/update only RW parts (skip RO),
 #   0 for RW (A/B at the same time) plus RO code (boot stub / recovery image)
 #   and keep VPD/GBB.
@@ -1300,6 +1303,22 @@ update_firmware() {
   # updater is trying to upgrade an incompatible firmware, it may force entering
   # factory mode.
 
+  if is_positive $is_recovery && [ "$code" = "bios" ]; then
+    # To allow recovering RW_SHARED section which is not in any FMAP sections of
+    # legacy CR-48 BIOS, we need to rewrite whole RW area.
+
+    # use CHROMEOS_BIOS_WP_LAYOUT_DESC to construct layout for whole RW.
+    flashrom_reset_layout
+    flashrom_detect_layout_by_default_map "bios_wp"
+    ro_list="RO"
+    rw_list_a="RW"
+    rw_list_b=""
+    rw_list="$rw_list_a"
+    ro_list=""
+    is_rw_only=1
+    allow_2stage_update=0
+  fi
+
   if ! is_positive $is_rw_only; then
     echo "  - checking RO data: $ro_list"
     local verify_list="*"
@@ -1517,7 +1536,8 @@ general options:
           is_factory=0
           is_rw_only=1
           is_mode_assigned=1
-          verbose_msg " * (Recovery) Update R/W firmware (A/B at once)"
+          is_recovery=1
+          verbose_msg " * (Recovery) Update R/W firmware (Whole RW at once)"
           ;;
         factory_install )
           allow_2stage_update=0
@@ -1529,7 +1549,7 @@ general options:
         incompatible_update | factory_final | todev | bootok )
           alert "Warning: mode [$arg_value] is not available on this platform."
           exit 0
-	  ;;
+          ;;
         * )
           alert "Warning: mode [$arg_value] is not supported."
           exit 0
