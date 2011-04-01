@@ -1539,7 +1539,7 @@ general options:
           is_recovery=1
           verbose_msg " * (Recovery) Update R/W firmware (Whole RW at once)"
           ;;
-        factory_install )
+        factory_install | factory )
           allow_2stage_update=0
           is_factory=1
           is_rw_only=0

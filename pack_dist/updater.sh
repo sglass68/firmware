@@ -20,7 +20,7 @@ SCRIPT_BASE="$(dirname "$0")"
 . "$SCRIPT_BASE/common.sh"
 
 # Use bundled tools with highest priority, to prevent dependency when updating
-PATH=".:$PATH"
+PATH=".:$PATH"; export PATH
 
 # ----------------------------------------------------------------------------
 # Customization Section
@@ -526,7 +526,8 @@ main() {
   trap drop_lock EXIT
 
   # factory compatibility
-  if [ "${FLAGS_factory}" = "${FLAGS_TRUE}" ]; then
+  if [ "${FLAGS_factory}" = "${FLAGS_TRUE}" ] ||
+     [ "${FLAGS_mode}" = "factory" ]; then
     FLAGS_mode=factory_install
   fi
 
