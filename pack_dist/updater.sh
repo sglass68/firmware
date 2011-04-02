@@ -314,6 +314,11 @@ is_ecfw_write_protected() {
 
 # Startup
 mode_startup() {
+  if [ "$(cros_get_prop mainfw_type)" = "developer" ]; then
+    debug_msg "Developer firmware detected - bypass firmware updates."
+    cros_set_startup_update_tries 0
+    return
+  fi
   # decreasing of the "startup_update_tries" should be done inside
   # chromeos_startup.
   if [ "${FLAGS_update_main}" = ${FLAGS_TRUE} ] &&
@@ -344,6 +349,13 @@ mode_startup() {
 
 # Update Engine - Current Boot Successful (chromeos_setgoodkernel)
 mode_bootok() {
+  if [ "$(cros_get_prop mainfw_type)" = "developer" ]; then
+    debug_msg "Developer firmware detected - bypass firmware updates."
+    cros_set_fwb_tries 0
+    return
+  fi
+  # TODO(hungte) check if WP disabled and FRID does not match embedded firmware
+
   if [ "$(cros_get_prop ecfw_act)" = "RO" ]; then
     verbose_msg "EC was boot by RO and may need an update/recovery."
     if [ "${FLAGS_update_ec}" = "${FLAGS_TRUE}" ]; then
@@ -354,18 +366,15 @@ mode_bootok() {
   fi
 
   if [ "${FLAGS_update_main}" = "${FLAGS_TRUE}" ]; then
-    prepare_main_image
+    verbose_msg "Developer firmware detected, skip firmware updating."
+  else
     local mainfw_act="$(cros_get_prop mainfw_act)"
+    # Copy firmware to the spare slot.
+    # flashrom will check if we really need to update the bits
     if [ "$mainfw_act" = "A" ]; then
-      # flashrom will check if we really need to update the bits
-      update_mainfw "$SLOT_B" "$FWSRC_NORMAL"
+      dup2_mainfw "$SLOT_A" "$SLOT_B"
     elif [ "$mainfw_act" = "B" ]; then
-      # TODO(hungte) maybe we can replace this by using dup2_mainfw?
-      local fwsrc="$FWSRC_NORMAL"
-      if [ "$(cros_get_prop mainfw_type)" = "developer" ]; then
-        fwsrc="$FWSRC_DEV"
-      fi
-      update_mainfw "$SLOT_A" "$fwsrc"
+      dup2_mainfw "$SLOT_B" "$SLOT_A"
     else
       err_die "bootok: unexpected active firmware ($mainfw_act)..."
     fi
@@ -378,6 +387,10 @@ mode_bootok() {
 mode_autoupdate() {
   # Only RW updates in main firmware is allowed.
   # RO updates and EC updates requires a reboot and fires in startup.
+  if [ "$(cros_get_prop mainfw_type)" = "developer" ]; then
+    debug_msg "Developer firmware detected - bypass firmware updates."
+    return
+  fi
 
   if [ "${FLAGS_update_main}" = "${FLAGS_TRUE}" ]; then
     if [ "${FLAGS_update_ro_main}" = "${FLAGS_TRUE}" ] && need_update_ro ; then
