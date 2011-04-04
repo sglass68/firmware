@@ -366,8 +366,6 @@ mode_bootok() {
   fi
 
   if [ "${FLAGS_update_main}" = "${FLAGS_TRUE}" ]; then
-    verbose_msg "Developer firmware detected, skip firmware updating."
-  else
     local mainfw_act="$(cros_get_prop mainfw_act)"
     # Copy firmware to the spare slot.
     # flashrom will check if we really need to update the bits
