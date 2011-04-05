@@ -95,6 +95,8 @@ DEFINE_boolean update_ro_ec $FLAGS_FALSE \
 DEFINE_boolean check_keys $FLAGS_TRUE "Check firmware keys before updating." ""
 DEFINE_boolean check_wp $FLAGS_TRUE \
   "Check if write protection is enabled before updating RO sections" ""
+DEFINE_boolean check_devfw $FLAGS_TRUE \
+  "Check if developer firmware is activated and bypass updates" ""
 
 # Required for factory compatibility
 DEFINE_boolean factory $FLAGS_FALSE "Equivalent to --mode=factory_install"
@@ -309,12 +311,20 @@ is_ecfw_write_protected() {
   fi
 }
 
+is_developer_firmware() {
+  if [ "$FLAGS_check_devfw" = $FLAGS_FALSE ]; then
+    verbose_msg "Warning: developer firmware checking is bypassed."
+    return $FLAGS_FALSE
+  fi
+  [ "$(cros_get_prop mainfw_type)" = "developer" ]
+}
+
 # ----------------------------------------------------------------------------
 # Core logic in different modes
 
 # Startup
 mode_startup() {
-  if [ "$(cros_get_prop mainfw_type)" = "developer" ]; then
+  if is_developer_firmware; then
     debug_msg "Developer firmware detected - bypass firmware updates."
     cros_set_startup_update_tries 0
     return
@@ -349,7 +359,7 @@ mode_startup() {
 
 # Update Engine - Current Boot Successful (chromeos_setgoodkernel)
 mode_bootok() {
-  if [ "$(cros_get_prop mainfw_type)" = "developer" ]; then
+  if is_developer_firmware; then
     debug_msg "Developer firmware detected - bypass firmware updates."
     cros_set_fwb_tries 0
     return
@@ -366,6 +376,8 @@ mode_bootok() {
   fi
 
   if [ "${FLAGS_update_main}" = "${FLAGS_TRUE}" ]; then
+    verbose_msg "Developer firmware detected, skip firmware updating."
+  else
     local mainfw_act="$(cros_get_prop mainfw_act)"
     # Copy firmware to the spare slot.
     # flashrom will check if we really need to update the bits
@@ -385,7 +397,7 @@ mode_bootok() {
 mode_autoupdate() {
   # Only RW updates in main firmware is allowed.
   # RO updates and EC updates requires a reboot and fires in startup.
-  if [ "$(cros_get_prop mainfw_type)" = "developer" ]; then
+  if is_developer_firmware; then
     debug_msg "Developer firmware detected - bypass firmware updates."
     return
   fi
