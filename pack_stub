@@ -23,6 +23,8 @@ LEGACY_SCRIPT=./legacy_updater.sh
 
 SHELLBALL_FWVERSION="REPLACE_FWVERSION"
 SHELLBALL_ECVERSION="REPLACE_ECVERSION"
+IGNORE_TAG_FILE='/root/.leave_firmware_alone'
+force_flag=""
 
 # Prints a message and return an error code.
 error_exit() {
@@ -155,6 +157,7 @@ case "$1" in
     echo "options:"
     echo "           -h  show usage help"
     echo "           -V  show version of containing files"
+    echo "      --force  force execute and ignore $IGNORE_TAG_FILE"
     echo "   --sb_check  check content integrity"
     echo " --sb_extract  extract content to temp folder"
     echo ""
@@ -175,8 +178,8 @@ case "$1" in
 esac
 
 # Do nothing if we're debugging BIOS changes, unless forced
-if [ -e /root/.leave_firmware_alone ] && [ -z "${force_flag:-}" ]; then
-  echo "WARNING: $0 is disabled"
+if [ -e "$IGNORE_TAG_FILE" ] && [ -z "${force_flag:-}" ]; then
+  echo "WARNING: $0 is disabled by $IGNORE_TAG_FILE"
   exit 0
 fi
 
