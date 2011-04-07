@@ -26,7 +26,7 @@ cros_get_prop() {
 cros_set_prop() {
   if [ "${FLAGS_dry_run}" = "${FLAGS_TRUE}" ]; then
     alert "dry_run: cros_set_prop $@"
-    return {$FLAGS_TRUE}
+    return ${FLAGS_TRUE}
   fi
   crossystem "$@" || err_die "cannot SET crossystem property: $@"
 }

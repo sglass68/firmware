@@ -140,3 +140,22 @@ alert_unknown_platform() {
   "
 }
 
+# Prints a "incompatible" warning message
+alert_incompatible_firmware() {
+  # Syntax: alert_incompatible_firmware reboot_will_autoupdate
+  echo "
+  Your current RO firmware is NOT compatible with the new RW firmware, and needs
+  a RO update.  Please make sure you've DISABLED write protection for such
+  special update."
+
+  if [ "$1" = "${FLAGS_TRUE}" ]; then
+    echo "A RO autoupdate is also scheduled in next boot."
+  fi
+
+  echo "
+  If you want to start a manual update immediately, please use command:
+
+  sudo chromeos-firmwareupdate --mode=incompatible_update
+  "
+}
+

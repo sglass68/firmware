@@ -15,6 +15,8 @@
 # - gbb_utility
 # - crossystem
 # All other special commands should be defined by a function in crosutil.sh.
+#
+# Temporary files should be named as "_*" to prevent confliction
 
 SCRIPT_BASE="$(dirname "$0")"
 . "$SCRIPT_BASE/common.sh"
@@ -32,6 +34,12 @@ CUSTOMIZATION_SCRIPT="updater_custom.sh"
 # Customization script main entry - do not change this.
 # You have to define a function with this name to run your customization.
 CUSTOMIZATION_MAIN="updater_custom_main"
+
+# Customization script "RW compatible check" function.
+# Overrides this with any function names to test if RW firmware in current
+# system is compatible with this updater. The function must returns $FLAGS_FALSE
+# if RW is not compatible (i.e., need incompatible_update mode)
+CUSTOMIZATION_RW_COMPATIBLE_CHECK=""
 
 # Override this with the name with RO_FWID prefix.
 # Updater will stop and give error if the platform does not match.
@@ -78,7 +86,7 @@ PLATFORM="$(crossystem ro_fwid 2>/dev/null | sed 's/\..*//' || true)"
 
 DEFINE_string mode "" \
  "Updater mode ( startup | bootok | autoupdate | todev | recovery |"\
-" factory_install | factory_final )" "m"
+" factory_install | factory_final | incompatible_update )" "m"
 DEFINE_boolean debug $FLAGS_FALSE "Enable debug messages." "d"
 DEFINE_boolean verbose $FLAGS_TRUE "Enable verbose messages." "v"
 DEFINE_boolean dry_run $FLAGS_FALSE "Enable dry-run mode." ""
@@ -95,9 +103,10 @@ DEFINE_boolean update_ro_ec $FLAGS_FALSE \
 DEFINE_boolean check_keys $FLAGS_TRUE "Check firmware keys before updating." ""
 DEFINE_boolean check_wp $FLAGS_TRUE \
   "Check if write protection is enabled before updating RO sections" ""
+DEFINE_boolean check_rw_compatible $FLAGS_TRUE \
+  "Check if RW firmware is compatible with current RO" ""
 DEFINE_boolean check_devfw $FLAGS_TRUE \
-  "Check if developer firmware is activated and bypass updates" ""
-
+  "Bypass firmware updates if active firmware type is developer" ""
 # Required for factory compatibility
 DEFINE_boolean factory $FLAGS_FALSE "Equivalent to --mode=factory_install"
 
@@ -173,14 +182,14 @@ preserve_hwid() {
 }
 
 obtain_bmpfv() {
-  silent_invoke "flashrom $TARGET_OPT_MAIN -i GBB:gbb.bin -r temp.rom"
-  silent_invoke "gbb_utility -g --bmpfv=bmpfv.bin gbb.bin"
+  silent_invoke "flashrom $TARGET_OPT_MAIN -i GBB:_gbb.bin -r _temp.rom"
+  silent_invoke "gbb_utility -g --bmpfv=_bmpfv.bin _gbb.bin"
 }
 
 preserve_bmpfv() {
   [ -s "$IMAGE_MAIN" ] || err_die "preserve_bmpfv: no main firmware."
-  [ -s bmpfv.bin ] || return
-  silent_invoke "gbb_utility -s --bmpfv=bmpfv.bin $IMAGE_MAIN"
+  [ -s _bmpfv.bin ] || return
+  silent_invoke "gbb_utility -s --bmpfv=_bmpfv.bin $IMAGE_MAIN"
 }
 
 # Compares two slots from current and target folder.
@@ -201,9 +210,11 @@ check_compatible_keys() {
     return $FLAGS_TRUE
   fi
   if ! cros_check_same_root_keys "$current_image" "$target_image"; then
-      err_die "Incompatible firmware image (Root key is different).
+      err_die "
+      Incompatible firmware image (Root key is different).
+
       You may need to disable hardware write protection and perform a factory
-      install by '--mode=factory' or recovery by '--mode=recovery'.
+      install by '--mode=factory_install' or recovery by '--mode=recovery'.
       "
   fi
 }
@@ -339,7 +350,11 @@ mode_startup() {
     # into unknown state if crashed during the large update, so let's update
     # step-by-step.
     update_mainfw "$SLOT_RO"
-    update_mainfw "$SLOT_A"
+    if [ "$(cros_get_prop mainfw_type)" = "developer" ]; then
+      update_mainfw "$SLOT_A" "$FWSRC_DEVELOPER"
+    else
+      update_mainfw "$SLOT_A" "$FWSRC_NORMAL"
+    fi
     update_mainfw "$SLOT_B"
     update_mainfw "$SLOT_RW_SHARED"
   fi
@@ -440,7 +455,8 @@ mode_todev() {
     err_die "Cannot switch to developer mode due to missing main firmware"
   fi
   prepare_main_image
-  # TODO(hungte) make sure the keys are compatible.
+  prepare_main_current_image
+  check_compatible_keys
   update_mainfw "$SLOT_A" "$FWSRC_DEVELOPER"
   cros_set_fwb_tries 0
   cros_reboot
@@ -520,7 +536,7 @@ drop_lock() {
   rm -f /tmp/chromeos-firmwareupdate-running
 }
 
-# Updates from incompatible firmware versions
+# Updates for incompatible RW firmware (need to update RO)
 mode_incompatible_update() {
   if is_mainfw_write_protected || is_ecfw_write_protected; then
     # TODO(hungte) check if we really need to stop user by comparing firmware
@@ -542,10 +558,59 @@ mode_incompatible_update() {
   if [ "${FLAGS_update_ec}" = "${FLAGS_TRUE}" ]; then
     update_ecfw
   fi
+
+  # Clean any further updates
+  cros_set_fwb_tries 0
+  cros_set_startup_update_tries 0
+
+  # incompatible_update may be redirected from a "startup" update, which expects
+  # a reboot after update complete.
+  if [ "${FLAGS_mode}" = "startup" ]; then
+    cros_reboot
+  fi
 }
 
 # ----------------------------------------------------------------------------
 # Main Entry
+
+main_check_rw_compatible() {
+  local try_autoupdate="$1"
+  if [ "${FLAGS_check_rw_compatible}" = "${FLAGS_FALSE}" ]; then
+    verbose_msg "Bypassed RW compatbility check. You're on your own."
+    return $FLAGS_TRUE
+  fi
+
+  if [ -z "$CUSTOMIZATION_RW_COMPATIBLE_CHECK" ]; then
+    debug_msg "No compatibility check rules defined in customization."
+    return $FLAGS_TRUE
+  fi
+
+  local is_compatible="${FLAGS_TRUE}"
+  debug_msg "Checking customized RW compatibility..."
+  "$CUSTOMIZATION_RW_COMPATIBLE_CHECK" || is_compatible="${FLAGS_FALSE}"
+  if [ "$is_compatible" = "${FLAGS_TRUE}" ]; then
+    return $FLAGS_TRUE
+  fi
+
+  verbose_msg "RW firmware update is not compatible with current RO firmware."
+  verbose_msg "Need to update RO (RW incompatible mode update)."
+
+  if [ "$try_autoupdate" = "$FLAGS_FALSE" ]; then
+    # No need to print anything in this case.
+    return $FLAGS_FALSE
+  fi
+
+  if is_developer_firmware; then
+    try_autoupdate=$FLAGS_FALSE
+    verbose_msg "Developer firmware detected - not scheduling auto updates."
+  else
+    # Try to schedule an autoupdate.
+    (cros_set_startup_update_tries 6) || try_autoupdate="${FLAGS_FALSE}"
+  fi
+
+  alert_incompatible_firmware "$try_autoupdate"
+  return $FLAGS_FALSE
+}
 
 main() {
   if [ -r /tmp/chromeos-firmwareupdate-running ]; then
@@ -595,9 +660,29 @@ main() {
   fi
 
   case "${FLAGS_mode}" in
-    startup | bootok | autoupdate | todev | recovery | \
-    incompatible_update | factory_install | factory_final )
-      debug_msg "mode: ${FLAGS_mode}"
+    # Modes which can attempt to update RO if RO+RW are not compatible.
+    startup | recovery )
+      debug_msg "mode allowing compatibility update: ${FLAGS_mode}"
+      if main_check_rw_compatible $FLAGS_FALSE; then
+        mode_"${FLAGS_mode}"
+      else
+        verbose_msg "Starting a RW incompatible mode update..."
+        mode_incompatible_update
+      fi
+      ;;
+    # Modes which update RW firmware only; these need to verify if existing RO
+    # firmware is compatible.  If not, schedule a RO+RW update at next startup.
+    autoupdate | bootok | todev )
+      debug_msg "mode with compatibility check: ${FLAGS_mode}"
+      if main_check_rw_compatible $FLAGS_TRUE; then
+        mode_"${FLAGS_mode}"
+      fi
+      ;;
+    # Modes which don't mix existing RO firmware with new RW firmware from the
+    # updater.  They either copy RW firmware between EEPROM slots, or copy both
+    # RO+RW from the shellball.  Either way, RO+RW compatibility is assured.
+    factory_install | factory_final | incompatible_update )
+      debug_msg "mode without incompatible checks: ${FLAGS_mode}"
       mode_"${FLAGS_mode}"
       ;;
     "" )
