@@ -10,6 +10,7 @@ set -e
 trap clean_temp EXIT
 
 # Global variables
+ORIGINAL_PARAMS="$@"
 
 # Set by make_temp function and removed by clean_temp
 TMP_DIR=
@@ -180,6 +181,8 @@ esac
 # Do nothing if we're debugging BIOS changes, unless forced
 if [ -e "$IGNORE_TAG_FILE" ] && [ -z "${force_flag:-}" ]; then
   echo "WARNING: $0 is disabled by $IGNORE_TAG_FILE"
+  echo "To force execution, please add --force to your command:"
+  echo " sudo $0 --force $ORIGINAL_PARAMS"
   exit 0
 fi
 
