@@ -492,7 +492,8 @@ mode_recovery() {
   if [ "${FLAGS_update_ec}" = "${FLAGS_TRUE}" ]; then
     prepare_ec_image
     debug_msg "mode_recovery: update ec"
-    if ! is_ecfw_write_protected; then
+    if [ "${FLAGS_update_ro_ec}" = "${FLAGS_TRUE}" ] &&
+       ! is_ecfw_write_protected; then
       debug_msg "mode_recovery: update ec/RO"
       update_ecfw "$SLOT_EC_RO"
     fi
