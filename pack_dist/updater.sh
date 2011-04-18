@@ -478,6 +478,19 @@ mode_todev() {
   cros_reboot
 }
 
+# Transition to Normal Mode
+mode_tonormal() {
+  if [ "${FLAGS_update_main}" != "${FLAGS_TRUE}" ]; then
+    err_die "Cannot switch to normal mode due to missing main firmware"
+  fi
+  prepare_main_image
+  prepare_main_current_image
+  check_compatible_keys
+  update_mainfw "$SLOT_A" "$FWSRC_NORMAL"
+  cros_set_fwb_tries 0
+  cros_reboot
+}
+
 # Recovery Installer
 mode_recovery() {
   if [ "${FLAGS_update_main}" = "${FLAGS_TRUE}" ]; then
@@ -689,7 +702,7 @@ main() {
       ;;
     # Modes which update RW firmware only; these need to verify if existing RO
     # firmware is compatible.  If not, schedule a RO+RW update at next startup.
-    autoupdate | bootok | todev )
+    autoupdate | bootok | todev | tonormal)
       debug_msg "mode with compatibility check: ${FLAGS_mode}"
       if main_check_rw_compatible $FLAGS_TRUE; then
         mode_"${FLAGS_mode}"

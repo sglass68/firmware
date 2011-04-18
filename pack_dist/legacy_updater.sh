@@ -1546,7 +1546,7 @@ general options:
           is_mode_assigned=1
           verbose_msg " * Enable factory mode"
           ;;
-        incompatible_update | factory_final | todev | bootok )
+        incompatible_update | factory_final | todev | tonormal | bootok )
           alert "Warning: mode [$arg_value] is not available on this platform."
           exit 0
           ;;
