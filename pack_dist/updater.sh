@@ -90,6 +90,7 @@ DEFINE_string mode "" \
 DEFINE_boolean debug $FLAGS_FALSE "Enable debug messages." "d"
 DEFINE_boolean verbose $FLAGS_TRUE "Enable verbose messages." "v"
 DEFINE_boolean dry_run $FLAGS_FALSE "Enable dry-run mode." ""
+DEFINE_boolean force $FLAGS_FALSE "Try to force update." ""
 
 DEFINE_boolean update_ec $FLAGS_TRUE "Enable updating for Embedded Firmware." ""
 DEFINE_boolean update_main $FLAGS_TRUE "Enable updating for Main Firmware." ""
@@ -454,10 +455,25 @@ mode_todev() {
   if [ "${FLAGS_update_main}" != "${FLAGS_TRUE}" ]; then
     err_die "Cannot switch to developer mode due to missing main firmware"
   fi
+  if [ "${FLAGS_force}" != "${FLAGS_TRUE}" ] &&
+     [ "$(cros_get_fwb_tries)" != "0" ]; then
+      err_die "
+      It seems a firmware autoupdate is in progress.
+      Re-run with --force to proceed with developer firmware transition.
+      Or you can reboot and retry, in which case you should get updated
+      developer firmware."
+    fi
+  fi
+
+  # Make sure no auto updates come in our way.
+  /sbin/stop update-engine
+
   prepare_main_image
   prepare_main_current_image
   check_compatible_keys
   update_mainfw "$SLOT_A" "$FWSRC_DEVELOPER"
+
+  # Make sure we run developer firmware on next reboot.
   cros_set_fwb_tries 0
   cros_reboot
 }

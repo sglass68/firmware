@@ -56,6 +56,10 @@ cros_set_fwb_tries() {
   cros_set_prop fwb_tries="$1"
 }
 
+cros_get_fwb_tries() {
+  cros_query_prop fwb_tries
+}
+
 # Reboots the system immediately
 cros_reboot() {
   verbose_msg "Rebooting system..."
