@@ -17,7 +17,6 @@ SHFLAGS_FILE="$script_base/lib/shflags/shflags"
 
 # DEFINE_string name default_value description flag
 DEFINE_string bios_image "" "Path of input BIOS firmware image" "b"
-DEFINE_string bios_version "IGNORE" "Version of input BIOS firmware image"
 DEFINE_string ec_image "" "Path of input EC firmware image" "e"
 DEFINE_string ec_version "IGNORE" "Version of input EC firmware image"
 DEFINE_string output "-" "Path of output filename; '-' for stdout" "o"
@@ -29,6 +28,9 @@ DEFINE_string tools "flashrom mosys" \
   "List of tool programs to be bundled into updater"
 DEFINE_string tool_base "" \
   "Default source locations for tools programs (delimited by colon)"
+
+# deprecated parameters
+DEFINE_string bios_version "(deprecated)" "Please don't use this."
 
 # Parse command line
 FLAGS "$@" || exit 1
@@ -77,6 +79,15 @@ find_tool() {
   [ -n "$toolpath" ] && echo "$toolpath"
 }
 
+extract_frid() {
+  local tmpdir="$(mktemp -d)"
+  local bios_file="$(readlink -f "$1")"
+  ( cd "$tmpdir"
+    dump_fmap -x "$bios_file" >/dev/null 2>&1 || true
+    [ ! -s "RO_FRID" ] || cat "RO_FRID" )
+  rm -rf "$tmpdir" 2>/dev/null
+}
+
 trap do_cleanup EXIT
 
 # check tool: we need uuencode to create the shell ball.
@@ -102,7 +113,9 @@ done
 
 # check input: fail if no any images were assigned
 bios_bin="${FLAGS_bios_image}"
+bios_version="IGNORE"
 ec_bin="${FLAGS_ec_image}"
+ec_version="${FLAGS_ec_version}"
 if [ "$bios_bin" = "" -a "$ec_bin" = "" ]; then
   err_die "must assign at least one of BIOS or EC image."
 fi
@@ -124,8 +137,10 @@ echo "" >>"$version_file"
 
 # copy firmware image files
 if [ "$bios_bin" != "" ]; then
+  bios_version="$(extract_frid "$bios_bin" || echo "$bios_version")"
   cp -pf "$bios_bin" "$tmpbase/bios.bin" || err_die "cannot get BIOS image"
   echo "BIOS image:  $(md5sum -b "$bios_bin")" >> "$version_file"
+  echo "BIOS version: $bios_version" >> "$version_file"
 fi
 if [ "$ec_bin" != "" ]; then
   cp -pf "$ec_bin" "$tmpbase/ec.bin" || err_die "cannot get EC image"
@@ -174,8 +189,8 @@ else
 fi
 output="${FLAGS_output}"
 (cat "$stub_file" |
- sed -e "s/REPLACE_FWVERSION/${FLAGS_bios_version}/" \
-     -e "s/REPLACE_ECVERSION/${FLAGS_ec_version}/" &&
+ sed -e "s/REPLACE_FWVERSION/${bios_version}/" \
+     -e "s/REPLACE_ECVERSION/${ec_version}/" &&
  tar zcf - -C "$tmpbase" . | uuencode firmware_package.tgz) |
  dd $output_opt 2>/dev/null || err_die "Failed to archive firmware package"
 

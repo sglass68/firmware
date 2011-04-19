@@ -3,6 +3,10 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+# Version information. Please keep this in head of the updater.
+SHELLBALL_FWVERSION="REPLACE_FWVERSION"
+SHELLBALL_ECVERSION="REPLACE_ECVERSION"
+
 # All scripts should die on error unless commands are specifically excepted
 # by prefixing with '!' or surrounded by 'set +e' / 'set -e'.
 set -e
@@ -22,8 +26,6 @@ IS_VERBOSE=
 SCRIPT=./updater.sh
 LEGACY_SCRIPT=./legacy_updater.sh
 
-SHELLBALL_FWVERSION="REPLACE_FWVERSION"
-SHELLBALL_ECVERSION="REPLACE_ECVERSION"
 IGNORE_TAG_FILE='/root/.leave_firmware_alone'
 force_flag=""
 
