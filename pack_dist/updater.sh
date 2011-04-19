@@ -461,7 +461,6 @@ mode_todev() {
       Re-run with --force to proceed with developer firmware transition.
       Or you can reboot and retry, in which case you should get updated
       developer firmware."
-    fi
   fi
 
   # Make sure no auto updates come in our way.
