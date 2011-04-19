@@ -427,8 +427,7 @@ mode_autoupdate() {
     fi
     local mainfw_act="$(cros_get_prop mainfw_act)"
     if [ "$mainfw_act" = "B" ]; then
-      verbose_msg "Done (retry update next boot)"
-      return
+      err_die_need_reboot "Done (retry update next boot)"
     elif [ "$mainfw_act" != "A" ]; then
       err_die "autoupdate: unexpected active firmware ($mainfw_act)..."
     fi

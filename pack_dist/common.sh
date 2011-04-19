@@ -28,6 +28,14 @@ err_die() {
   exit 1
 }
 
+# Reports error message and exit(2)
+# NOTE: top level script does not exit if call to err_die is inside a
+# sub-shell (ex: (func-call), $(func-call)) or if-blocks.
+err_die_need_reboot() {
+  alert "ERROR: $*"
+  exit 2
+}
+
 # Prints a message if in verbose mode
 verbose_msg() {
   if [ "$FLAGS_verbose" = "$FLAGS_TRUE" ] ||
