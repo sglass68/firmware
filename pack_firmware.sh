@@ -24,7 +24,7 @@ DEFINE_string extra "" "Directory list (separated by :) of files to be merged"
 
 # embedded tools
 # TODO(hungte) add crossystem after we've updated the ebuild files
-DEFINE_string tools "flashrom mosys" \
+DEFINE_string tools "flashrom mosys crossystem" \
   "List of tool programs to be bundled into updater"
 DEFINE_string tool_base "" \
   "Default source locations for tools programs (delimited by colon)"
