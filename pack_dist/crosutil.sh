@@ -73,10 +73,15 @@ cros_reboot() {
 
 # Returns if the hardware write-protection switch is enabled.
 cros_is_hardware_write_protected() {
+  local ret=${FLAGS_FALSE}
   # In current design, hardware write protection is one single switch for all
   # targets. NOTE: if wpsw_cur gives error, we should treat like "protected"
   # so the test uses "!= 0" instead of "= 1".
-  [ "$(cros_query_prop wpsw_cur)" != "0" ]
+  if [ "$(cros_query_prop wpsw_cur)" != "0" ]; then
+    verbose_msg "Hardware write protection is enabled!"
+    ret=${FLAGS_TRUE}
+  fi
+  return $ret
 }
 
 # Checks if the root keys (from Google Binary Block) are the same.
