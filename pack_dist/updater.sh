@@ -456,11 +456,11 @@ mode_todev() {
   fi
   if [ "${FLAGS_force}" != "${FLAGS_TRUE}" ] &&
      [ "$(cros_get_fwb_tries)" != "0" ]; then
-      err_die "
-      It seems a firmware autoupdate is in progress.
-      Re-run with --force to proceed with developer firmware transition.
-      Or you can reboot and retry, in which case you should get updated
-      developer firmware."
+    err_die "
+    It seems a firmware autoupdate is in progress.
+    Re-run with --force to proceed with developer firmware transition.
+    Or you can reboot and retry, in which case you should get updated
+    developer firmware."
   fi
 
   # Make sure no auto updates come in our way.
