@@ -80,11 +80,12 @@ find_tool() {
 }
 
 extract_frid() {
+  local image_file="$(readlink -f "$1")"
+  local default_frid="$2"
   local tmpdir="$(mktemp -d)"
-  local bios_file="$(readlink -f "$1")"
   ( cd "$tmpdir"
-    dump_fmap -x "$bios_file" >/dev/null 2>&1 || true
-    [ ! -s "RO_FRID" ] || cat "RO_FRID" )
+    dump_fmap -x "$image_file" >/dev/null 2>&1 || true
+    [ -s "RO_FRID" ] && cat "RO_FRID" || echo "$default_frid" )
   rm -rf "$tmpdir" 2>/dev/null
 }
 
@@ -137,14 +138,18 @@ echo "" >>"$version_file"
 
 # copy firmware image files
 if [ "$bios_bin" != "" ]; then
-  bios_version="$(extract_frid "$bios_bin" || echo "$bios_version")"
+  bios_version="$(extract_frid "$bios_bin" "IGNORE")"
   cp -pf "$bios_bin" "$tmpbase/bios.bin" || err_die "cannot get BIOS image"
-  echo "BIOS image:  $(md5sum -b "$bios_bin")" >> "$version_file"
-  echo "BIOS version: $bios_version" >> "$version_file"
+  echo "BIOS image:   $(md5sum -b "$bios_bin")" >> "$version_file"
+  [ "$bios_version" = "IGNORE" ] ||
+    echo "BIOS version: $bios_version" >> "$version_file"
 fi
 if [ "$ec_bin" != "" ]; then
+  ec_version="$(extract_frid "$ec_bin" "$FLAGS_ec_version")"
   cp -pf "$ec_bin" "$tmpbase/ec.bin" || err_die "cannot get EC image"
-  echo "EC image:    $(md5sum -b "$ec_bin")" >> "$version_file"
+  echo "EC image:     $(md5sum -b "$ec_bin")" >> "$version_file"
+  [ "$ec_version" = "IGNORE" ] ||
+    echo "EC version:   $ec_version" >>"$version_file"
 fi
 
 # copy tool programs and main resources from pack_dist.
