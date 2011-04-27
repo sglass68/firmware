@@ -116,38 +116,6 @@ case "$1" in
     TMP_DIR=""
     exit 0
     ;;
-  --mode=devstartup)
-    # This command is inside the stub for quick launch.
-    fw_version="$(crossystem fwid)"
-    ec_info="$(mosys -k ec info 2>/dev/null)" || ec_info=""
-    ec_version="$(eval "$ec_info"; echo "$fw_version")"
-    notify_update=0
-    verbose_message "ec_version: $ec_version ; ec_info: $ec_info"
-    if [ "$SHELLBALL_FWVERSION" != "$fw_version" ] &&
-       [ "$SHELLBALL_FWVERSION" != "IGNORE" ]; then
-      echo "System firmware update available: [$SHELLBALL_FWVERSION]"
-      echo "Currently installed system firmware: [$fw_version]"
-      notify_update=1
-    fi
-    if [ "$SHELLBALL_ECVERSION" != "$ec_version" ] &&
-       [ "$SHELLBALL_ECVERSION" != "IGNORE" ]; then
-      echo "EC firmware update available: [$SHELLBALL_ECVERSION]"
-      echo "Currently installed EC firmware: [$ec_version]"
-      notify_update=1
-    fi
-    if [ $notify_update -ne 0 ]; then
-      echo "
-      Firmware auto updating is disabled for developer mode. If you want to
-      manually update your firmware, please run the following command from a
-      root shell:
-
-      sudo chromeos-firmwareupdate --mode=recovery
-      "
-    fi
-
-    # TODO(hungte) add some info here to tell user how to update firmware
-    exit 0
-    ;;
   --mode=autoupdate)
     # This command is inside the stub for quick launch.
     fw_version="$(crossystem fwid)"
@@ -230,6 +198,10 @@ if [ "$PLATFORM" = "Mario" ] ||
    [ "$PLATFORM" = "ZGA" ]; then
   SCRIPT=$LEGACY_SCRIPT
 
+  # TODO(hungte) Refactory these stuff to work with latest tools (crossystem).
+  # crossystem and nvram are fixed in latest OS; however when updating from an
+  # old CR48, the updater will be executed inside an old environment; so we need
+  # to keep both reboot_mode and nvram re-creation here.
   # Workaround for chrome-os-partner:1563. If we're supposed to reboot into
   # firmware B but haven't, it's likely because the CMOS has lost its state, so
   # let's try once more right now.
@@ -248,7 +220,7 @@ if [ "$PLATFORM" = "Mario" ] ||
     if [ -r "$BINF1" ]; then
       if [ "$(cat "$BINF1")" = "1" ]; then
         # Yes, in firmware A, so we need to try firmware B
-        reboot_mode --try_firmware_b=1
+        crossystem fwb_tries=1 || reboot_mode --try_firmware_b=1
         # When we do, we want to run the shellball again.
         touch "$NEED_FIRMWARE_UPDATE"
         reboot
