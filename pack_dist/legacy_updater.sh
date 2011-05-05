@@ -1445,8 +1445,45 @@ updater_shutdown() {
   done
 }
 
+issue_1563_workaround() {
+  # TODO(hungte) Refactory these stuff to work with latest tools (crossystem).
+  # crossystem and nvram are fixed in latest OS; however when updating from an
+  # old CR48, the updater will be executed inside an old environment; so we need
+  # to keep both reboot_mode and nvram re-creation here.
+  # Workaround for chrome-os-partner:1563. If we're supposed to reboot into
+  # firmware B but haven't, it's likely because the CMOS has lost its state, so
+  # let's try once more right now.
+  NEED_FIRMWARE_UPDATE='/mnt/stateful_partition/.need_firmware_update'
+  NEED_FIRMWARE_TRYB='/mnt/stateful_partition/.need_firmware_tryb'
+  BINF1='/sys/devices/platform/chromeos_acpi/BINF.1'
+
+  # /dev/nvram is required by reboot_mode.  chromeos_startup may re-mount devfs
+  # and caused nvram to disappear for a while.  Since we cannot wait for
+  # delayed-loading, mknod provides a quick solution.
+  [ -e /dev/nvram ] || mknod /dev/nvram c 10 144
+
+  if [ -f "$NEED_FIRMWARE_TRYB" ]; then
+    # Yes, flag file is present.  Make sure we don't do this more than once
+    rm -f "$NEED_FIRMWARE_TRYB"
+    if [ -r "$BINF1" ]; then
+      if [ "$(cat "$BINF1")" = "1" ]; then
+        # Yes, in firmware A, so we need to try firmware B
+        crossystem fwb_tries=1 || reboot_mode --try_firmware_b=1
+        # When we do, we want to run the shellball again.
+        crossystem fwupdate_tries=1 || touch "$NEED_FIRMWARE_UPDATE"
+        reboot
+        # should never get here
+        sleep 10
+        err_die "ERROR: $0 should have rebooted"
+      fi
+    fi
+  fi
+}
+
 # ----------------------------------------------------------------------------
 # Main Entry
+
+issue_1563_workaround
 
 # if a mode is assigned by parameter, we won't do any further mode detection.
 # if multiple modes were listed as parameter, the last one takes effect.
