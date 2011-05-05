@@ -1626,6 +1626,9 @@ general options:
       FLAGS_debug=$FLAGS_TRUE
       set -x
       ;;
+    --force )
+      verbose_msg " * Ignoring --force."
+      ;;
     * )
       echo " ! ERROR: unknown parameter: $arg"
       echo " ! Please invoke with --help for full syntax."
