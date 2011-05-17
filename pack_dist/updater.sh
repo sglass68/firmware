@@ -145,10 +145,20 @@ dup2_mainfw() {
   # Syntax: dup2_mainfw SLOT_FROM SLOT_TO
   #    Duplicates a slot to another place on system live firmware
   local slot_from="$1" slot_to="$2"
-  local temp_image="_dup2_temp_image" temp_slot="_dup2_temp_slot"
+  # Writing in flashrom, even if there's nothing to write, is still much slower
+  # than reading because it needs to read + verify whole image. So we should
+  # only write firmware on if there's something changed.
+  local temp_from="_dup2_temp_from"
+  local temp_to="_dup2_temp_to"
+  local temp_image="_dup2_temp_image"
   debug_msg "invoking: dup2_mainfw($@)"
-  invoke "flashrom $TARGET_OPT_MAIN -i $slot_from:$temp_slot -r $temp_image"
-  invoke "flashrom $TARGET_OPT_MAIN -i $slot_to:$temp_slot -w $temp_image"
+  local opt_read_slots="-i $slot_from:$temp_from -i $slot_to:$temp_to"
+  invoke "flashrom $TARGET_OPT_MAIN $opt_read_slots -r $temp_image"
+  if [ -s "$temp_from" ] && cros_compare_file "$temp_from" "$temp_to"; then
+    debug_msg "dup2_mainfw: slot content is the same, no need to copy."
+  else
+    invoke "flashrom $TARGET_OPT_MAIN -i $slot_to:$temp_from -w $temp_image"
+  fi
 }
 
 # Update EC Firmware (LPC)
