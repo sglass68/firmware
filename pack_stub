@@ -6,6 +6,7 @@
 # Version information. Please keep this in head of the updater.
 SHELLBALL_FWVERSION="REPLACE_FWVERSION"
 SHELLBALL_ECVERSION="REPLACE_ECVERSION"
+SHELLBALL_PLATFORM="REPLACE_PLATFORM"
 
 # All scripts should die on error unless commands are specifically excepted
 # by prefixing with '!' or surrounded by 'set +e' / 'set -e'.
@@ -28,6 +29,16 @@ LEGACY_SCRIPT=./legacy_updater.sh
 
 IGNORE_TAG_FILE='/root/.leave_firmware_alone'
 force_flag=""
+
+# Export updater information for main script
+# TODO(hungte) rename SHELLBALL_* to TARGET_* (need to sync with
+# src/platform/init/chromeos-boot-alert)
+TARGET_FWID="$SHELLBALL_FWVERSION"
+TARGET_ECID="$SHELLBALL_ECVERSION"
+TARGET_PLATFORM="$SHELLBALL_PLATFORM"
+export TARGET_FWID
+export TARGET_ECID
+export TARGET_PLATFORM
 
 # Prints a message and return an error code.
 error_exit() {
@@ -116,38 +127,6 @@ case "$1" in
     TMP_DIR=""
     exit 0
     ;;
-  --mode=autoupdate)
-    PLATFORM="$(/usr/sbin/mosys platform name 2>/dev/null || true)"
-    # Mario uses the old updater.
-    if [ "$PLATFORM" != "Mario" ] &&
-       [ "$PLATFORM" != "ZGA" ]; then
-      # This command is inside the stub for quick launch.
-      fw_version="$(crossystem fwid)"
-      ec_info="$(mosys -k ec info 2>/dev/null)" || ec_info=""
-      ec_version="$(eval "$ec_info"; echo "$fw_version")"
-      notify_update=0
-      verbose_message "ec_version: $ec_version ; ec_info: $ec_info"
-      if [ "$SHELLBALL_FWVERSION" != "$fw_version" ] &&
-         [ "$SHELLBALL_FWVERSION" != "IGNORE" ]; then
-        echo "System firmware update available: [$SHELLBALL_FWVERSION]"
-        echo "Currently installed system firmware: [$fw_version]"
-        notify_update=1
-      fi
-      if [ "$SHELLBALL_ECVERSION" != "$ec_version" ] &&
-         [ "$SHELLBALL_ECVERSION" != "IGNORE" ]; then
-        echo "EC firmware update available: [$SHELLBALL_ECVERSION]"
-        echo "Currently installed EC firmware: [$ec_version]"
-        notify_update=1
-      fi
-      if [ $notify_update -eq 0 ]; then
-        echo "
-        No firmware auto update is available. Returning gracefully.
-        "
-        exit 0
-      fi
-    fi
-    break
-    ;;
   --force)
     force_flag=1
     ;;
@@ -197,9 +176,7 @@ fi
 
 # Are we running in legacy mode or new flavor?
 PATH=".:$PATH"
-PLATFORM="$(/usr/sbin/mosys platform name 2>/dev/null || true)"
-if [ "$PLATFORM" = "Mario" ] ||
-   [ "$PLATFORM" = "ZGA" ]; then
+if [ "$TARGET_PLATFORM" = "Mario" ]; then
   SCRIPT=$LEGACY_SCRIPT
 fi
 

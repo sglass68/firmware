@@ -41,10 +41,6 @@ CUSTOMIZATION_MAIN="updater_custom_main"
 # if RW is not compatible (i.e., need incompatible_update mode)
 CUSTOMIZATION_RW_COMPATIBLE_CHECK=""
 
-# Override this with the name with RO_FWID prefix.
-# Updater will stop and give error if the platform does not match.
-TARGET_PLATFORM=""
-
 # ----------------------------------------------------------------------------
 # Constants
 
@@ -75,11 +71,15 @@ TARGET_OPT_EC="-p internal:bus=lpc"
 # ----------------------------------------------------------------------------
 # Global Variables
 
-# Current HWID, FWID (may be empty if running on non-H2C systems)
-HWID="$(crossystem hwid 2>/dev/null || true)"
-FWID="$(crossystem fwid 2>/dev/null || true)"
-PLATFORM="$(crossystem ro_fwid 2>/dev/null | sed 's/[. ].*//' || true)"
-[ -n "$PLATFORM" ] || PLATFORM="<Unknown>"
+# Current system identifiers (may be empty if running on non-H2C systems)
+HWID="$(crossystem hwid 2>/dev/null)" || HWID=""
+ECINFO="$(mosys -k ec info 2>/dev/null)" || ECINFO=""
+
+# Compare following values with TARGET_FWID, TARGET_ECID, TARGET_PLATFORM
+# (should be passed by wrapper as environment variables)
+FWID="$(crossystem fwid 2>/dev/null)" || FWID=""
+ECID="$(eval "$ECINFO"; echo "$fw_version")"
+PLATFORM="$(mosys platform name 2>/dev/null)" || PLATFORM=""
 
 # ----------------------------------------------------------------------------
 # Parameters
@@ -108,6 +108,8 @@ DEFINE_boolean check_rw_compatible $FLAGS_TRUE \
   "Check if RW firmware is compatible with current RO" ""
 DEFINE_boolean check_devfw $FLAGS_TRUE \
   "Bypass firmware updates if active firmware type is developer" ""
+DEFINE_boolean check_platform $FLAGS_TRUE \
+  "Bypass firmware updates if the system platform name is different" ""
 # Required for factory compatibility
 DEFINE_boolean factory $FLAGS_FALSE "Equivalent to --mode=factory_install"
 
@@ -446,8 +448,29 @@ mode_autoupdate() {
   # Only RW updates in main firmware is allowed.
   # RO updates and EC updates requires a reboot and fires in startup.
   if is_developer_firmware; then
-    debug_msg "Developer firmware detected - bypass firmware updates."
+    verbose_msg "Developer firmware detected - bypass firmware updates."
     return
+  fi
+
+  # Quick check if we need to update
+  local need_update=0
+  if [ "${FLAGS_force}" != "${FLAGS_TRUE}" ]; then
+    if [ "${FLAGS_update_main}" = "${FLAGS_TRUE}" ] &&
+       [ "$TARGET_FWID" != "$FWID" ]; then
+        verbose_msg "System firmware update available: [$TARGET_FWID]"
+        verbose_msg "Currently installed system firmware: [$FWID]"
+        need_update=1
+    fi
+    if [ "${FLAGS_update_ec}" = "${FLAGS_TRUE}" ] &&
+       [ "$TARGET_ECID" != "$ECID" ]; then
+        verbose_msg "EC firmware update available: [$TARGET_ECID]"
+        verbose_msg "Currently installed EC firmware: [$ECID]"
+        need_update=1
+    fi
+    if [ "$need_update" -eq 0 ]; then
+      verbose_msg "No firmware auto update is available. Returning gracefully."
+      return
+    fi
   fi
 
   if [ "${FLAGS_update_main}" = "${FLAGS_TRUE}" ]; then
@@ -704,18 +727,19 @@ main() {
     debug_msg "No EC firmware bundled in updater, ignored."
   fi
 
+  # Check platform except in factory_install mode.
+  if [ "${FLAGS_check_platform}" = "${FLAGS_TRUE}" ] &&
+     [ "${FLAGS_mode}" != "factory_install" ] &&
+     [ -n "$TARGET_PLATFORM" ] &&
+     [ "$PLATFORM" != "$TARGET_PLATFORM" ]; then
+    alert_unknown_platform "$PLATFORM" "$TARGET_PLATFORM"
+    exit 1
+  fi
+
   # load customization
   if [ -r "$CUSTOMIZATION_SCRIPT" ]; then
     debug_msg "loading customization..."
     . ./$CUSTOMIZATION_SCRIPT
-    verbose_msg "Checking $TARGET_PLATFORM firmware updates..."
-
-    if [ "${FLAGS_mode}" != "factory_install" ] &&
-       [ "$PLATFORM" != "$TARGET_PLATFORM" ]; then
-      alert_unknown_platform "$PLATFORM" "$TARGET_PLATFORM"
-      exit 1
-    fi
-
     # invoke customization
     debug_msg "starting customized updater main..."
     $CUSTOMIZATION_MAIN

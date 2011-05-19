@@ -19,6 +19,7 @@ SHFLAGS_FILE="$script_base/lib/shflags/shflags"
 DEFINE_string bios_image "" "Path of input BIOS firmware image" "b"
 DEFINE_string ec_image "" "Path of input EC firmware image" "e"
 DEFINE_string ec_version "IGNORE" "Version of input EC firmware image"
+DEFINE_string platform "" "Platform name to check for firmware"
 DEFINE_string output "-" "Path of output filename; '-' for stdout" "o"
 DEFINE_string extra "" "Directory list (separated by :) of files to be merged"
 
@@ -195,7 +196,8 @@ fi
 output="${FLAGS_output}"
 (cat "$stub_file" |
  sed -e "s/REPLACE_FWVERSION/${bios_version}/" \
-     -e "s/REPLACE_ECVERSION/${ec_version}/" &&
+     -e "s/REPLACE_ECVERSION/${ec_version}/" \
+     -e "s/REPLACE_PLATFORM/${FLAGS_platform}/" &&
  tar zcf - -C "$tmpbase" . | uuencode firmware_package.tgz) |
  dd $output_opt 2>/dev/null || err_die "Failed to archive firmware package"
 
