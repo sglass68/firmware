@@ -534,8 +534,9 @@ mode_todev() {
     developer firmware."
   fi
 
-  # Make sure no auto updates come in our way.
-  /sbin/stop update-engine
+  # Make sure no auto updates come in our way. Sometimes the update-engine is
+  # already stopped so we must ignore the return value.
+  initctl stop update-engine || true
 
   prepare_main_image
   prepare_main_current_image
