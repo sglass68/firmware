@@ -254,6 +254,20 @@ check_compatible_keys() {
       install by '--mode=factory_install' or recovery by '--mode=recovery'.
       "
   fi
+  # unpack image for checking TPM
+  local rootkey="_rootkey"
+  silent_invoke "gbb_utility -g --rootkey=$rootkey $target_image" 2>/dev/null ||
+    true
+  if ! cros_check_tpm_key_version "$DIR_TARGET/$TYPE_MAIN/$SLOT_A" \
+                                  "$DIR_TARGET/$TYPE_MAIN/FW_MAIN_A" \
+                                  "$rootkey"; then
+    err_die "
+      Incompatible firmware image (Rollback - older than keys stored in TPM).
+
+      Please update with latest recovery image and firmware, or restart a
+      factory setup process to reset TPM key version.
+    "
+  fi
 }
 
 need_update_ro() {

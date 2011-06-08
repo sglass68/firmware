@@ -92,7 +92,7 @@ cros_is_hardware_write_protected() {
 
 # Checks if the root keys (from Google Binary Block) are the same.
 cros_check_same_root_keys() {
-  check_param "chromeos_check_same_root_keys(current, target)" "$@"
+  check_param "cros_check_same_root_keys(current, target)" "$@"
   local keyfile1="_gk1"
   local keyfile2="_gk2"
   local keyfile1_strip="${keyfile1}_strip"
@@ -114,3 +114,43 @@ cros_check_same_root_keys() {
   return $ret
 }
 
+# Checks if the firmare key and version are allowed by TPM.
+cros_check_tpm_key_version() {
+  check_param "cros_check_tpm_key_version(section, fw_main, rootkey)" "$@"
+  local section="$1"
+  local fw_main="$2"
+  local rootkey="$3"
+
+  local tpm_fwver="$(cros_query_prop tpm_fwver)"
+  if [ -z "$tpm_fwver" ]; then
+    alert "Warning: failed to retrieve TPM information."
+    # TODO(hungte) what now?
+    return "$FLAGS_ERROR"
+  fi
+  tpm_fwver="$((tpm_fwver))"
+  debug_msg "tpm_fwver: $tpm_fwver"
+
+  local fw_info="$(vbutil_firmware \
+                   --verify "$section" \
+                   --signpubkey "$rootkey" \
+                   --fv "$fw_main" 2>/dev/null)"
+  local data_key_version="$(
+    echo "$fw_info" | sed -n '/Data key version:/s/.*:[ \t]*//p')"
+  debug_msg "data_key_version: $data_key_version"
+  local firmware_version="$(
+    echo "$fw_info" | sed -n '/Firmware version:/s/.*:[ \t]*//p')"
+  debug_msg "firmware_version: $firmware_version"
+  if [ -z "$data_key_version" ] || [ -z "$firmware_version" ]; then
+    err_die "Cannot verify firmware key version from target image."
+  fi
+
+  local fw_key_version="$((
+    (data_key_version << 16) | (firmware_version & 0xFFFF) ))"
+  debug_msg "fw_key_version: $fw_key_version"
+
+  if [ "$tpm_fwver" -gt "$fw_key_version" ]; then
+    debug_msg "Firmware ($fw_key_version) will be rejected by TPM ($tpm_fwver)."
+    return $FLAGS_FALSE
+  fi
+  return $FLAGS_TRUE
+}
