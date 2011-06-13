@@ -33,7 +33,7 @@ err_die() {
 # sub-shell (ex: (func-call), $(func-call)) or if-blocks.
 err_die_need_reboot() {
   alert "ERROR: $*"
-  exit 2
+  exit 3
 }
 
 # Prints a message if in verbose mode
