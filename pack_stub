@@ -4,9 +4,14 @@
 # found in the LICENSE file.
 
 # Version information. Please keep this in head of the updater.
-SHELLBALL_FWVERSION="REPLACE_FWVERSION"
-SHELLBALL_ECVERSION="REPLACE_ECVERSION"
-SHELLBALL_PLATFORM="REPLACE_PLATFORM"
+TARGET_FWID="REPLACE_FWID"
+TARGET_ECID="REPLACE_ECID"
+TARGET_PLATFORM="REPLACE_PLATFORM"
+TARGET_UNSTABLE="REPLACE_UNSTABLE"
+TARGET_SCRIPT="REPLACE_SCRIPT"
+
+# Export all version information
+export TARGET_FWID TARGET_ECID TARGET_PLATFORM TARGET_UNSTABLE TARGET_SCRIPT
 
 # All scripts should die on error unless commands are specifically excepted
 # by prefixing with '!' or surrounded by 'set +e' / 'set -e'.
@@ -24,21 +29,11 @@ IS_NEED_UMOUNT=
 # Decides if we need to print verbose messages
 IS_VERBOSE=
 # The default script to be invoked from extracted resource
-SCRIPT=./updater.sh
-LEGACY_SCRIPT=./legacy_updater.sh
+SCRIPT="./${TARGET_SCRIPT:-updater.sh}"
 
 IGNORE_TAG_FILE='/root/.leave_firmware_alone'
 force_flag=""
 
-# Export updater information for main script
-# TODO(hungte) rename SHELLBALL_* to TARGET_* (need to sync with
-# src/platform/init/chromeos-boot-alert)
-TARGET_FWID="$SHELLBALL_FWVERSION"
-TARGET_ECID="$SHELLBALL_ECVERSION"
-TARGET_PLATFORM="$SHELLBALL_PLATFORM"
-export TARGET_FWID
-export TARGET_ECID
-export TARGET_PLATFORM
 
 # Prints a message and return an error code.
 error_exit() {
@@ -89,8 +84,6 @@ clean_temp() {
   if [ -z "$TMP_DIR" ]; then
     return
   fi
-  # It is safer to always use SPI(Main) for the system flashrom bus target
-  flashrom -p internal:bus=spi >/dev/null 2>&1 || true
   # Attempt to cd to OLDPWD
   if ! cd - >/dev/null 2>&1; then
     verbose_message "Failed to cd -. chdir'd to /"
@@ -178,9 +171,6 @@ fi
 
 # Are we running in legacy mode or new flavor?
 PATH=".:$PATH"
-if [ "$TARGET_PLATFORM" = "Mario" ]; then
-  SCRIPT=$LEGACY_SCRIPT
-fi
 
 verbose_message "Run built-in script ($SCRIPT) ..."
 $SCRIPT "$@" || RC="$?"

@@ -4,23 +4,9 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-# This script can be called on startup during factory wipe and copies
-# the "normal" firmware image from RW_SECTION_B over the "developer"
-# firmware in RW_SECTION_A.
-
-TMP_IMAGE=$(mktemp)
-TMP_SECTION=$(mktemp)
-OPT_MAIN="-p internal:bus=spi"
 RESULT=0
-
-# Wipe developer firmware (in section A) by normal firmware (in section B)
-flashrom $OPT_MAIN -r "$TMP_IMAGE" -i "RW_SECTION_B:$TMP_SECTION" &&
-flashrom $OPT_MAIN -w "$TMP_IMAGE" -i "RW_SECTION_A:$TMP_SECTION" ||
-RESULT=$?
-
-rm -f "$TMP_IMAGE" "$TMP_SECTION"
+chromeos-firmwareupdate --force --mode=factory_final || RESULT=$?
 if [ "$RESULT" != "0" ]; then
   echo "Warning: firmware wiping failed with error code $RESULT."
 fi
-
 exit "$RESULT"

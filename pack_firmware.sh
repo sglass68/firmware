@@ -20,8 +20,10 @@ DEFINE_string bios_image "" "Path of input BIOS firmware image" "b"
 DEFINE_string ec_image "" "Path of input EC firmware image" "e"
 DEFINE_string ec_version "IGNORE" "Version of input EC firmware image"
 DEFINE_string platform "" "Platform name to check for firmware"
+DEFINE_string script "updater.sh" "Path of main script file"
 DEFINE_string output "-" "Path of output filename; '-' for stdout" "o"
 DEFINE_string extra "" "Directory list (separated by :) of files to be merged"
+DEFINE_boolean unstable ${FLAGS_FALSE} "Mark as unstable firmware (update RO)"
 
 # embedded tools
 # TODO(hungte) add crossystem after we've updated the ebuild files
@@ -39,12 +41,12 @@ eval set -- "${FLAGS_ARGV}"
 
 # we need following tools to be inside a package:
 #  - $FLAGS_tools: native binary tools
-#  - pack_dist/updater.sh
-#  - all files in pack_dist (usually used by updater.sh like selectors)
+#  - pack_dist/${FLAGS_script}
+#  - all files in pack_dist (utilities and resources)
 
 stub_file="$script_base/pack_stub"
 pack_dist="$script_base/pack_dist"
-main_script="$pack_dist/updater.sh"
+main_script="$pack_dist/${FLAGS_script}"
 tmpbase=""
 
 # helper utilities
@@ -194,10 +196,19 @@ else
   output_opt="of=${FLAGS_output}"
 fi
 output="${FLAGS_output}"
+
+# decide unstable flag (non-empty for unstable).
+unstable=""
+if [ "${FLAGS_unstable}" = "${FLAGS_TRUE}" ]; then
+  unstable="TRUE"
+fi
+
 (cat "$stub_file" |
- sed -e "s/REPLACE_FWVERSION/${bios_version}/" \
-     -e "s/REPLACE_ECVERSION/${ec_version}/" \
-     -e "s/REPLACE_PLATFORM/${FLAGS_platform}/" &&
+ sed -e "s/REPLACE_FWID/${bios_version}/" \
+     -e "s/REPLACE_ECID/${ec_version}/" \
+     -e "s/REPLACE_PLATFORM/${FLAGS_platform}/" \
+     -e "s/REPLACE_UNSTABLE/${unstable}/" \
+     -e "s/REPLACE_SCRIPT/${FLAGS_script}/" &&
  tar zcf - -C "$tmpbase" . | uuencode firmware_package.tgz) |
  dd $output_opt 2>/dev/null || err_die "Failed to archive firmware package"
 

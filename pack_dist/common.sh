@@ -162,7 +162,9 @@ alert_incompatible_firmware() {
   special update."
 
   if [ "$1" = "${FLAGS_TRUE}" ]; then
-    echo "A RO autoupdate is also scheduled in next boot."
+    echo "
+  A RO autoupdate is also scheduled in next boot.
+  "
   fi
 
   echo "

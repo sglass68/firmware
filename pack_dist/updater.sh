@@ -84,6 +84,13 @@ FWID="$(crossystem fwid 2>/dev/null)" || FWID=""
 ECID="$(eval "$ECINFO"; echo "$fw_version")"
 PLATFORM="$(mosys platform name 2>/dev/null)" || PLATFORM=""
 
+# RO update flags are usually enabled only in customization.
+FLAGS_update_ro_main="$FLAGS_FALSE"
+FLAGS_update_ro_ec="$FLAGS_FALSE"
+
+# TARGET_UNSTABLE is non-zero if the firmware is not stable.
+: ${TARGET_UNSTABLE:=}
+
 # ----------------------------------------------------------------------------
 # Parameters
 
@@ -97,12 +104,6 @@ DEFINE_boolean force $FLAGS_FALSE "Try to force update." ""
 
 DEFINE_boolean update_ec $FLAGS_TRUE "Enable updating for Embedded Firmware." ""
 DEFINE_boolean update_main $FLAGS_TRUE "Enable updating for Main Firmware." ""
-
-# RO update flags are usually enabled only in customization.
-DEFINE_boolean update_ro_main $FLAGS_FALSE \
-  "Allow updating RO section of Main Firmware"
-DEFINE_boolean update_ro_ec $FLAGS_FALSE \
-  "Allow updating RO section of EC Firmware"
 
 DEFINE_boolean check_keys $FLAGS_TRUE "Check firmware keys before updating." ""
 DEFINE_boolean check_wp $FLAGS_TRUE \
@@ -222,14 +223,11 @@ preserve_hwid() {
   silent_invoke "gbb_utility -s --hwid='$HWID' $IMAGE_MAIN"
 }
 
-obtain_bmpfv() {
-  silent_invoke "flashrom $TARGET_OPT_MAIN -i GBB:_gbb.bin -r _temp.rom"
-  silent_invoke "gbb_utility -g --bmpfv=_bmpfv.bin _gbb.bin"
-}
-
 preserve_bmpfv() {
   [ -s "$IMAGE_MAIN" ] || err_die "preserve_bmpfv: no main firmware."
-  [ -s _bmpfv.bin ] || return
+  silent_invoke "flashrom $TARGET_OPT_MAIN -i GBB:_gbb.bin -r _temp.rom"
+  silent_invoke "gbb_utility -g --bmpfv=_bmpfv.bin _gbb.bin"
+  [ -s "_bmpfv.bin" ] || err_die "preserve_bmpfv: invalid bmpfv"
   silent_invoke "gbb_utility -s --bmpfv=_bmpfv.bin $IMAGE_MAIN"
 }
 
@@ -610,41 +608,42 @@ mode_tonormal() {
 # Recovery Installer
 mode_recovery() {
   if [ "${FLAGS_update_main}" = "${FLAGS_TRUE}" ]; then
-    prepare_main_image
-    debug_msg "mode_recovery: udpate main"
-    if [ "${FLAGS_update_ro_main}" = "${FLAGS_TRUE}" ] &&
-       ! is_mainfw_write_protected; then
-      # Preserve BMPFV
-      obtain_bmpfv
+    if ! is_mainfw_write_protected; then
+      verbose_msg "mode_recovery: update RO+RW"
+      preserve_vpd
+      prepare_main_image
       preserve_bmpfv
       # HWID should be already preserved
-      debug_msg "mode_recovery: update main/RO"
-      update_mainfw "$SLOT_RO"
+      update_mainfw
+      if ! is_two_stop_image && ! is_developer_firmware; then
+        update_mainfw "$SLOT_A" "$FWSRC_NORMAL"
+      fi
     else
+      verbose_msg "mode_recovery: update main/RW:A,B,SHARED"
+      prepare_main_image
       prepare_main_current_image
       check_compatible_keys
+      if is_developer_firmware; then
+        update_mainfw "$SLOT_A" "$FWSRC_DEVELOPER"
+      else
+        update_mainfw "$SLOT_A" "$FWSRC_NORMAL"
+      fi
+      update_mainfw "$SLOT_B" "$FWSRC_NORMAL"
+      update_mainfw "$SLOT_RW_SHARED"
     fi
-    debug_msg "mode_recovery: update main/RW:A,B,SHARED"
-    if [ "$(cros_get_prop mainfw_type)" = "developer" ]; then
-      update_mainfw "$SLOT_A" "$FWSRC_DEVELOPER"
-    else
-      update_mainfw "$SLOT_A" "$FWSRC_NORMAL"
-    fi
-    update_mainfw "$SLOT_B" "$FWSRC_NORMAL"
-    update_mainfw "$SLOT_RW_SHARED"
   fi
 
   if [ "${FLAGS_update_ec}" = "${FLAGS_TRUE}" ]; then
     prepare_ec_image
-    debug_msg "mode_recovery: update ec"
-    if [ "${FLAGS_update_ro_ec}" = "${FLAGS_TRUE}" ] &&
-       ! is_ecfw_write_protected; then
-      debug_msg "mode_recovery: update ec/RO"
-      update_ecfw "$SLOT_EC_RO"
+    if ! is_ecfw_write_protected; then
+      verbose_msg "mode_recovery: update ec/RO+RW"
+      update_ecfw
+    else
+      verbose_msg "mode_recovery: update ec/RW"
+      update_ecfw "$SLOT_EC_RW"
     fi
-    debug_msg "mode_recovery: update ec/RW"
-    update_ecfw "$SLOT_EC_RW"
   fi
+
   clear_update_cookies
 }
 
@@ -669,41 +668,26 @@ mode_factory_install() {
 mode_factory_final() {
   # To prevent theat factory has installed a more recent version of firmware,
   # don't use the firmware from bundled image. Use the one from current system.
-  dup2_mainfw "$SLOT_B" "$SLOT_A"
-
-  # TODO(hungte) Write protection is currently made by
-  # factory_EnableWriteProtect. We may move that into here in the future.
-  # enable_write_protection
-  # verify_write_protection
+  prepare_main_image
+  if is_two_stop_image; then
+    cros_set_prop dev_boot_usb=0
+  else
+    dup2_mainfw "$SLOT_B" "$SLOT_A"
+    crossystem dev_boot_usb=0 || true
+  fi
   clear_update_cookies
 }
 
 # Updates for incompatible RW firmware (need to update RO)
 mode_incompatible_update() {
-  if is_mainfw_write_protected || is_ecfw_write_protected; then
-    # TODO(hungte) check if we really need to stop user by comparing firmware
-    # image, bit-by-bit.
+  if ! is_mainfw_write_protected || ! is_ecfw_write_protected ; then
+    # TODO(hungte) check if we really need to stop user by comparing
+    # firmware image, bit-by-bit.
     err_die "You need to first disable hardware write protection switch."
   fi
-  if [ "${FLAGS_update_main}" = "${FLAGS_TRUE}" ]; then
-    preserve_vpd
-    prepare_main_image
-    # Preserve BMPFV
-    obtain_bmpfv
-    preserve_bmpfv
-    update_mainfw
-    if [ "$(cros_get_prop mainfw_type)" != "developer" ]; then
-      # and now overwrite slot a firmware with normal
-      update_mainfw "$SLOT_A" "$FWSRC_NORMAL"
-    fi
-  fi
-  if [ "${FLAGS_update_ec}" = "${FLAGS_TRUE}" ]; then
-    update_ecfw
-  fi
-
-  # Clean any further updates
-  cros_set_fwb_tries 0
-  cros_set_startup_update_tries 0
+  FLAGS_update_ro_main=$FLAGS_TRUE
+  FLAGS_update_ro_ec=$FLAGS_TRUE
+  mode_recovery
 
   # incompatible_update may be redirected from a "startup" update, which expects
   # a reboot after update complete.
@@ -721,15 +705,31 @@ main_check_rw_compatible() {
     verbose_msg "Bypassed RW compatbility check. You're on your own."
     return $FLAGS_TRUE
   fi
+  local is_compatible="${FLAGS_TRUE}"
 
-  if [ -z "$CUSTOMIZATION_RW_COMPATIBLE_CHECK" ]; then
-    debug_msg "No compatibility check rules defined in customization."
-    return $FLAGS_TRUE
+  if [ -n "${TARGET_UNSTABLE}" ]; then
+    debug_msg "Current image is tagged as UNSTABLE."
+    if [ "${FLAGS_update_main}" = ${FLAGS_TRUE} ] &&
+       [ "$FWID" != "$TARGET_FWID" ]; then
+      debug_msg "Incompatible: $FWID != $TARGET_FWID".
+      is_compatible="${FLAGS_FALSE}"
+    fi
+    if [ "${FLAGS_update_ec}" = ${FLAGS_TRUE} ] &&
+       [ "$ECID" != "$TARGET_ECID" ]; then
+      debug_msg "Incompatible: $ECID != $TARGET_ECID".
+      is_compatible="${FLAGS_FALSE}"
+    fi
   fi
 
-  local is_compatible="${FLAGS_TRUE}"
-  debug_msg "Checking customized RW compatibility..."
-  "$CUSTOMIZATION_RW_COMPATIBLE_CHECK" || is_compatible="${FLAGS_FALSE}"
+  if [ "$is_compatible" = "${FLAGS_TRUE}" ]; then
+    if [ -z "$CUSTOMIZATION_RW_COMPATIBLE_CHECK" ]; then
+      debug_msg "No compatibility check rules defined in customization."
+      return $FLAGS_TRUE
+    fi
+    debug_msg "Checking customized RW compatibility..."
+    "$CUSTOMIZATION_RW_COMPATIBLE_CHECK" || is_compatible="${FLAGS_FALSE}"
+  fi
+
   if [ "$is_compatible" = "${FLAGS_TRUE}" ]; then
     return $FLAGS_TRUE
   fi
@@ -754,18 +754,23 @@ main_check_rw_compatible() {
   return $FLAGS_FALSE
 }
 
+LOCK_FILE="/tmp/chromeos-firmwareupdate-running"
+
 drop_lock() {
-  rm -f /tmp/chromeos-firmwareupdate-running
+  rm -f "$LOCK_FILE"
+}
+
+accuire_lock() {
+  if [ -r "$LOCK_FILE" ]; then
+    err_die "Firmware Updater already running ($LOCK_FILE). Please retry later."
+  fi
+  touch "$LOCK_FILE"
+  # Clean up on regular or error exits.
+  trap drop_lock EXIT
 }
 
 main() {
-  if [ -r /tmp/chromeos-firmwareupdate-running ]; then
-    err_die "chromeos-firmwareupdate is already running. Please retry later."
-  fi
-  touch /tmp/chromeos-firmwareupdate-running
-
-  # Clean up on regular or error exits.
-  trap drop_lock EXIT
+  accuire_lock
 
   # factory compatibility
   if [ "${FLAGS_factory}" = "${FLAGS_TRUE}" ] ||
@@ -819,7 +824,7 @@ main() {
       ;;
     # Modes which update RW firmware only; these need to verify if existing RO
     # firmware is compatible.  If not, schedule a RO+RW update at next startup.
-    autoupdate | bootok | todev | tonormal)
+    autoupdate | todev | tonormal )
       debug_msg "mode with compatibility check: ${FLAGS_mode}"
       if main_check_rw_compatible $FLAGS_TRUE; then
         mode_"${FLAGS_mode}"
@@ -828,7 +833,7 @@ main() {
     # Modes which don't mix existing RO firmware with new RW firmware from the
     # updater.  They either copy RW firmware between EEPROM slots, or copy both
     # RO+RW from the shellball.  Either way, RO+RW compatibility is assured.
-    factory_install | factory_final | incompatible_update )
+    bootok | factory_install | factory_final | incompatible_update )
       debug_msg "mode without incompatible checks: ${FLAGS_mode}"
       mode_"${FLAGS_mode}"
       ;;
