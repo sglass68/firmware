@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# Copyright (c) 2010 The Chromium OS Authors. All rights reserved.
+# Copyright (c) 2011 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 #
@@ -198,18 +198,19 @@ preserve_vpd() {
   local temp_file="_vpd_temp.bin"
   local vpd_list="-i RO_VPD -i RW_VPD"
   silent_invoke "flashrom $TARGET_OPT_MAIN -r $temp_file" ||
-    die "Failed to read current main firmware."
+    err_die "Failed to read current main firmware."
   local size_current="$(cros_get_file_size "$temp_file")"
   local size_target="$(cros_get_file_size "$IMAGE_MAIN")"
-  if [ -z "$size_current" ] ||
-     [ "$size_current" = "0" ] ||
-     [ "$size_current" != "$size_target" ]; then
-     err_die "Failed to read preserve VPD content. Abort."
+  if [ -z "$size_current" ] || [ "$size_current" = "0" ]; then
+    err_die "Invalid current main firmware. Abort."
+  fi
+  if [ "$size_current" != "$size_target" ]; then
+    err_die "Incompatible firmware image size ($size_current != $size_target)."
   fi
 
   local param="dummy:emulate=VARIABLE_SIZE,image=$IMAGE_MAIN,size=$size_current"
   silent_invoke "flashrom -p $param $vpd_list -w $temp_file" ||
-    die "Failed to update VPD from existing system."
+   err_die "Failed to preserve VPD. Please check target firmware image."
   debug_msg "preserve_vpd: $IMAGE_MAIN updated."
 }
 
