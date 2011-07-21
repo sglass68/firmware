@@ -106,6 +106,9 @@ clean_temp() {
 }
 
 SELF="$0"
+RC=0
+IGNORE_RC=
+
 case "$1" in
   -V)
     # Quick way to provide version information
@@ -115,9 +118,8 @@ case "$1" in
   --sb_check)
     make_temp
     untar_and_chdir "$SELF"
-    md5sum -c VERSION
-    ret=$?
-    exit $ret
+    md5sum -c VERSION || RC=$?
+    exit $RC
     ;;
   --sb_extract)
     make_temp
@@ -127,27 +129,27 @@ case "$1" in
     TMP_DIR=""
     exit 0
     ;;
-  --force)
+  -h | "-?" | --help)
+    echo "
+USAGE: $SELF [bundle_option|--] [updater_options]
+
+bundle_option (only one option can be selected):
+  -h,--help:  Show usage help
+  -V:  show version and content of bundle
+  --force:  force execution and ignore $IGNORE_TAG_FILE
+  --sb_check:  check bundle ingegrity
+  --sb_extract:  extract bundle content to a temporary folder
+
+updater_options:
+    "
+    # Invoke updater with -h for usage help
+    set -- "-h"
     force_flag=1
+    IGNORE_RC=1
     ;;
-  -h|"-?"|--help)
-    echo "Shellball -- self-extract and install"
-    echo ""
-    echo "Usage: $SELF [options] [-- [inside-script-options]]"
-    echo ""
-    echo "options:"
-    echo "           -h  show usage help"
-    echo "           -V  show version of containing files"
-    echo "      --force  force execute and ignore $IGNORE_TAG_FILE"
-    echo "   --sb_check  check content integrity"
-    echo " --sb_extract  extract content to temp folder"
-    echo ""
-    echo " All other parameters will be passed to the script inside."
-    echo ""
-    echo " You can invoke as '$SELF -- -h'"
-    echo " to see the usage and options of inside-script."
-    echo ""
-    exit 1
+  --force)
+    # Pass this into updaters
+    force_flag=1
     ;;
   --debug | --verbose | -v)
     # do not shift here because this needs to be passed into the script
@@ -161,7 +163,7 @@ esac
 # Do nothing if we're debugging BIOS changes, unless forced
 if [ -e "$IGNORE_TAG_FILE" ] && [ -z "${force_flag:-}" ]; then
   echo "WARNING: $0 is disabled by $IGNORE_TAG_FILE"
-  echo "To force execution, please add --force to your command:"
+  echo "To force execution, please prefix --force to your command:"
   echo " sudo $0 --force $ORIGINAL_PARAMS"
   exit 0
 fi
@@ -181,12 +183,10 @@ if [ "$TARGET_PLATFORM" = "Mario" ]; then
 fi
 
 verbose_message "Run built-in script ($SCRIPT) ..."
-RC=0
 $SCRIPT "$@" || RC="$?"
-if [ "$RC" -ne 0 ]; then
+if [ "$RC" -ne 0 -a -z "$IGNORE_RC" ]; then
   echo "ERROR: $SCRIPT failed."
-  exit "$RC"
 fi
-exit 0
+exit $RC
 
 # Below are uuencoded blob. Don't put code behind exit 0.
