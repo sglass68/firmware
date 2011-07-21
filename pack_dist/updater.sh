@@ -68,6 +68,9 @@ IMAGE_EC="ec.bin"
 TARGET_OPT_MAIN="-p internal:bus=spi"
 TARGET_OPT_EC="-p internal:bus=lpc"
 
+# Determine if the target image is "two-stop" design.
+TARGET_IS_TWO_STOP=""
+
 # ----------------------------------------------------------------------------
 # Global Variables
 
@@ -85,8 +88,8 @@ PLATFORM="$(mosys platform name 2>/dev/null)" || PLATFORM=""
 # Parameters
 
 DEFINE_string mode "" \
- "Updater mode ( startup | bootok | autoupdate | todev | recovery |"\
-" factory_install | factory_final | incompatible_update )" "m"
+ "Updater mode ( startup | bootok | autoupdate | todev | tonormal |"\
+" recovery | factory_install | factory_final | incompatible_update )" "m"
 DEFINE_boolean debug $FLAGS_FALSE "Enable debug messages." "d"
 DEFINE_boolean verbose $FLAGS_TRUE "Enable verbose messages." "v"
 DEFINE_boolean dry_run $FLAGS_FALSE "Enable dry-run mode." ""
@@ -348,6 +351,25 @@ prepare_ec_current_image() {
   prepare_current_image "$TYPE_EC" "$IMAGE_EC" "$TARGET_OPT_EC" "$@"
 }
 
+is_two_stop_image() {
+  if [ "$TARGET_IS_TWO_STOP" = "" ]; then
+    # Currently two_stop firmware contains only BOOT_STUB and empty "RECOVERY".
+    debug_msg "is_two_stop_image: autodetect"
+    if [ -s "$DIR_TARGET/$TYPE_MAIN/BOOT_STUB" ] &&
+       [ ! -s "$DIR_TARGET/$TYPE_MAIN/RECOVERY" ]; then
+      debug_msg "Target is TWO_STOP image."
+      return $FLAGS_TRUE
+    else
+      debug_msg "Target is NOT two_stop image."
+      return $FLAGS_FALSE
+    fi
+  elif [ "$TARGET_IS_TWO_STOP" -gt 0 ]; then
+    return $FLAGS_TRUE
+  else
+    return $FLAGS_FALSE
+  fi
+}
+
 is_mainfw_write_protected() {
   if [ "$FLAGS_check_wp" = $FLAGS_FALSE ]; then
     verbose_msg "Warning: write protection checking is bypassed."
@@ -380,6 +402,11 @@ is_developer_firmware() {
     return $FLAGS_FALSE
   fi
   [ "$(cros_get_prop mainfw_type)" = "developer" ]
+}
+
+clear_update_cookies() {
+  cros_set_fwb_tries 0
+  cros_set_startup_update_tries 0
 }
 
 # ----------------------------------------------------------------------------
@@ -523,6 +550,17 @@ mode_autoupdate() {
 
 # Transition to Developer Mode
 mode_todev() {
+  prepare_main_image
+  if is_two_stop_image; then
+    cros_set_prop dev_boot_usb=1
+    echo "
+    Booting from USB device is enabled.  Insert bootable media into USB / SDCard
+    slot and press Ctrl-U in developer screen to boot your own image.
+    "
+    return
+  fi
+
+  crossystem dev_boot_usb=1 || true
   if [ "${FLAGS_update_main}" != "${FLAGS_TRUE}" ]; then
     err_die "Cannot switch to developer mode due to missing main firmware"
   fi
@@ -539,18 +577,25 @@ mode_todev() {
   # already stopped so we must ignore the return value.
   initctl stop update-engine || true
 
-  prepare_main_image
   prepare_main_current_image
   check_compatible_keys
   update_mainfw "$SLOT_A" "$FWSRC_DEVELOPER"
 
   # Make sure we run developer firmware on next reboot.
-  cros_set_fwb_tries 0
+  clear_update_cookies
   cros_reboot
 }
 
 # Transition to Normal Mode
 mode_tonormal() {
+  prepare_main_image
+  if is_two_stop_image; then
+    cros_set_prop dev_boot_usb=0
+    echo "Booting from USB device is disabled."
+    return
+  fi
+
+  crossystem dev_boot_usb=0 || true
   if [ "${FLAGS_update_main}" != "${FLAGS_TRUE}" ]; then
     err_die "Cannot switch to normal mode due to missing main firmware"
   fi
@@ -558,7 +603,7 @@ mode_tonormal() {
   prepare_main_current_image
   check_compatible_keys
   update_mainfw "$SLOT_A" "$FWSRC_NORMAL"
-  cros_set_fwb_tries 0
+  clear_update_cookies
   cros_reboot
 }
 
@@ -600,9 +645,7 @@ mode_recovery() {
     debug_msg "mode_recovery: update ec/RW"
     update_ecfw "$SLOT_EC_RW"
   fi
-
-  cros_set_fwb_tries 0
-  cros_set_startup_update_tries 0
+  clear_update_cookies
 }
 
 # Factory Installer
@@ -619,6 +662,7 @@ mode_factory_install() {
   if [ "${FLAGS_update_ec}" = "${FLAGS_TRUE}" ]; then
     update_ecfw
   fi
+  clear_update_cookies
 }
 
 # Factory Wipe
@@ -631,10 +675,7 @@ mode_factory_final() {
   # factory_EnableWriteProtect. We may move that into here in the future.
   # enable_write_protection
   # verify_write_protection
-}
-
-drop_lock() {
-  rm -f /tmp/chromeos-firmwareupdate-running
+  clear_update_cookies
 }
 
 # Updates for incompatible RW firmware (need to update RO)
@@ -711,6 +752,10 @@ main_check_rw_compatible() {
 
   alert_incompatible_firmware "$try_autoupdate"
   return $FLAGS_FALSE
+}
+
+drop_lock() {
+  rm -f /tmp/chromeos-firmwareupdate-running
 }
 
 main() {
