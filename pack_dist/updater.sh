@@ -352,16 +352,20 @@ prepare_ec_current_image() {
 is_two_stop_image() {
   if [ "$TARGET_IS_TWO_STOP" = "" ]; then
     # Currently two_stop firmware contains only BOOT_STUB and empty "RECOVERY".
+    # TODO(hungte) Detect by crossystem (chromium-os:18041)
     debug_msg "is_two_stop_image: autodetect"
+    [ -e "$DIR_TARGET/$TYPE_MAIN/FMAP" ] || prepare_main_image
     if [ -s "$DIR_TARGET/$TYPE_MAIN/BOOT_STUB" ] &&
        [ ! -s "$DIR_TARGET/$TYPE_MAIN/RECOVERY" ]; then
       debug_msg "Target is TWO_STOP image."
-      return $FLAGS_TRUE
+      TARGET_IS_TWO_STOP="1"
     else
       debug_msg "Target is NOT two_stop image."
-      return $FLAGS_FALSE
+      TARGET_IS_TWO_STOP="0"
     fi
-  elif [ "$TARGET_IS_TWO_STOP" -gt 0 ]; then
+  fi
+
+  if [ "$TARGET_IS_TWO_STOP" -gt 0 ]; then
     return $FLAGS_TRUE
   else
     return $FLAGS_FALSE
@@ -548,13 +552,13 @@ mode_autoupdate() {
 
 # Transition to Developer Mode
 mode_todev() {
-  prepare_main_image
   if is_two_stop_image; then
     cros_set_prop dev_boot_usb=1
     echo "
     Booting from USB device is enabled.  Insert bootable media into USB / SDCard
     slot and press Ctrl-U in developer screen to boot your own image.
     "
+    clear_update_cookies
     return
   fi
 
@@ -575,6 +579,7 @@ mode_todev() {
   # already stopped so we must ignore the return value.
   initctl stop update-engine || true
 
+  prepare_main_image
   prepare_main_current_image
   check_compatible_keys
   update_mainfw "$SLOT_A" "$FWSRC_DEVELOPER"
@@ -586,10 +591,10 @@ mode_todev() {
 
 # Transition to Normal Mode
 mode_tonormal() {
-  prepare_main_image
   if is_two_stop_image; then
     cros_set_prop dev_boot_usb=0
     echo "Booting from USB device is disabled."
+    clear_update_cookies
     return
   fi
 
@@ -668,7 +673,6 @@ mode_factory_install() {
 mode_factory_final() {
   # To prevent theat factory has installed a more recent version of firmware,
   # don't use the firmware from bundled image. Use the one from current system.
-  prepare_main_image
   if is_two_stop_image; then
     cros_set_prop dev_boot_usb=0
   else
@@ -822,9 +826,18 @@ main() {
         mode_incompatible_update
       fi
       ;;
+    # Modes which work differently in two_stop firmware.
+    todev | tonormal )
+      if is_two_stop_image; then
+        debug_msg "mode (two_stop) without incompatible checks: ${FLAGS_mode}"
+        mode_"${FLAGS_mode}"
+      elif main_check_rw_compatible $FLAGS_TRUE; then
+        debug_msg "mode with incompatible checks: ${FLAGS_mode}"
+      fi
+      ;;
     # Modes which update RW firmware only; these need to verify if existing RO
     # firmware is compatible.  If not, schedule a RO+RW update at next startup.
-    autoupdate | todev | tonormal )
+    autoupdate )
       debug_msg "mode with compatibility check: ${FLAGS_mode}"
       if main_check_rw_compatible $FLAGS_TRUE; then
         mode_"${FLAGS_mode}"
