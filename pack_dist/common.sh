@@ -11,6 +11,7 @@ else
   . /usr/lib/shflags
 fi
 . "$SCRIPT_BASE/crosutil.sh"
+. "$SCRIPT_BASE/crosfw.sh"
 
 # ----------------------------------------------------------------------------
 # Common Utilities
@@ -174,3 +175,20 @@ alert_incompatible_firmware() {
   "
 }
 
+alert_incompatible_rootkey() {
+  alert "
+  Incompatible firmware image (Root key is different).
+
+  You may need to disable hardware write protection and perform a factory
+  install by '--mode=factory_install' or recovery by '--mode=recovery'.
+  "
+}
+
+alert_incompatible_tpmkey() {
+  alert"
+  Incompatible firmware image (Rollback - older than keys stored in TPM).
+
+  Please update with latest recovery image and firmware, or restart a
+  factory setup process to reset TPM key version.
+  "
+}
