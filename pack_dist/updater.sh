@@ -687,7 +687,7 @@ mode_factory_final() {
 
 # Updates for incompatible RW firmware (need to update RO)
 mode_incompatible_update() {
-  if ! is_mainfw_write_protected || ! is_ecfw_write_protected ; then
+  if is_mainfw_write_protected || is_ecfw_write_protected; then
     # TODO(hungte) check if we really need to stop user by comparing
     # firmware image, bit-by-bit.
     err_die "You need to first disable hardware write protection switch."
