@@ -836,6 +836,7 @@ main() {
         mode_"${FLAGS_mode}"
       elif main_check_rw_compatible $FLAGS_TRUE; then
         debug_msg "mode with incompatible checks: ${FLAGS_mode}"
+        mode_"${FLAGS_mode}"
       fi
       ;;
     # Modes which update RW firmware only; these need to verify if existing RO
