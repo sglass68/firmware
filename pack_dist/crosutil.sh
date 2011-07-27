@@ -154,3 +154,10 @@ cros_check_tpm_key_version() {
   fi
   return $FLAGS_TRUE
 }
+
+# Returns if firmware was boot with VBSD_LF_USE_RO_NORMAL flag.
+cros_is_ro_normal_boot() {
+  local VBSD_LF_USE_RO_NORMAL=0x08
+  local vdat_flags="$(cros_get_prop vdat_flags 2>/dev/null)"
+  [ "$((vdat_flags & VBSD_LF_USE_RO_NORMAL))" -gt "0" ]
+}

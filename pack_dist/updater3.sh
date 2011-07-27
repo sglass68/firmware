@@ -22,6 +22,8 @@
 # This is designed for ARM platform, with following assumption:
 # 1. No EC firmware
 # 2. No need to update RO in startup (no ACPI/ASL code dependency)
+# 3. Perform updates even if active firmware is "developer mode" (with
+#    root-shell)
 
 SCRIPT_BASE="$(dirname "$0")"
 . "$SCRIPT_BASE/common.sh"
@@ -88,15 +90,12 @@ DEFINE_boolean debug $FLAGS_FALSE "Enable debug messages." "d"
 DEFINE_boolean verbose $FLAGS_TRUE "Enable verbose messages." "v"
 DEFINE_boolean dry_run $FLAGS_FALSE "Enable dry-run mode." ""
 DEFINE_boolean force $FLAGS_FALSE "Try to force update." ""
-DEFINE_boolean update_main $FLAGS_TRUE "Enable updating for Main Firmware." ""
 
 DEFINE_boolean check_keys $FLAGS_TRUE "Check firmware keys before updating." ""
 DEFINE_boolean check_wp $FLAGS_TRUE \
   "Check if write protection is enabled before updating RO sections" ""
 DEFINE_boolean check_rw_compatible $FLAGS_TRUE \
   "Check if RW firmware is compatible with current RO" ""
-DEFINE_boolean check_devfw $FLAGS_TRUE \
-  "Bypass firmware updates if active firmware type is developer" ""
 DEFINE_boolean check_platform $FLAGS_TRUE \
   "Bypass firmware updates if the system platform name is different" ""
 # Required for factory compatibility
@@ -234,27 +233,12 @@ is_mainfw_write_protected() {
   fi
 }
 
-is_developer_firmware() {
-  if [ "$FLAGS_check_devfw" = $FLAGS_FALSE ]; then
-    verbose_msg "Warning: developer firmware checking is bypassed."
-    return $FLAGS_FALSE
-  fi
-  [ "$(cros_get_prop mainfw_type)" = "developer" ]
-}
-
 clear_update_cookies() {
   # Always success because the system may not have crossystem ready yet if we're
   # trying to recover a broken firmware or after transition from legacy firmware
   ( cros_set_fwb_tries 0
     cros_set_startup_update_tries 0 ) >/dev/null 2>&1 ||
       debug_msg "clear_update_cookies: there were some errors, ignored."
-}
-
-ensure_non_develop_mode() {
-  if is_developer_firmware; then
-    verbose_msg "Developer firmware detected - bypass firmware updates."
-    return $FLAGS_FALSE
-  fi
 }
 
 # ----------------------------------------------------------------------------
@@ -272,8 +256,6 @@ mode_startup() {
 
 # Update Engine - Current Boot Successful (chromeos_setgoodkernel)
 mode_bootok() {
-  ensure_non_develop_mode || return
-
   # TODO(hungte) Quick check by startup_update_tries or VBLOCK preamble
 
   local mainfw_act="$(cros_get_prop mainfw_act)"
@@ -291,18 +273,19 @@ mode_bootok() {
 
 # Update Engine - Received Update
 mode_autoupdate() {
-  ensure_non_develop_mode || return
-
   # Quick check if we need to update
   local need_update=0
   if [ "$TARGET_FWID" != "$FWID" ]; then
     need_update=1
   fi
-  # TODO(hungte) Add VBLOCK key version in future when crossystem provides that
-  # information.
+
+  # TODO(hungte) Remove the need_update=1 which forces updating when VBLOCK key
+  # version by crossystem is ready. Quick check is reliable only if VBLOCK key
+  # and FWID both match.
+  need_update=1
 
   if [ "$need_update" -eq 0 ] && [ "${FLAGS_force}" != "${FLAGS_TRUE}" ]; then
-    verbose_msg "Your system is already installed with latest firmware $FWID."
+    verbose_msg "Your system is already installed with latest firmware."
     return
   fi
 
@@ -316,7 +299,7 @@ mode_autoupdate() {
   prepare_main_image
   prepare_main_current_image
 
-  # Check VBLOCK or RW_SECTION to decide if we need to update.
+  # Check whole RW_SECTION to decide if we need to update.
   if is_equal_slot "$TYPE_MAIN" "$SLOT_A" "$FWSRC_NORMAL"; then
     verbose_msg "RW Section is the same, no need to update."
     return
@@ -334,14 +317,14 @@ mode_todev() {
   Booting from USB device is enabled.  Insert bootable media into USB / SDCard
   slot and press Ctrl-U in developer screen to boot your own image.
   "
-  clear_update_cookies
 }
 
 # Transition to Normal Mode
 mode_tonormal() {
+  # This is optional because whenever you turn off developer switch, the
+  # dev_boot_usb is also cleared by firmware.
   cros_set_prop dev_boot_usb=0
   echo "Booting from USB device is disabled."
-  clear_update_cookies
 }
 
 # Recovery Installer
@@ -352,6 +335,7 @@ mode_recovery() {
     preserve_bmpfv
     update_mainfw
   else
+    # TODO(hungte) check if FMAP is not changed
     verbose_msg "mode_recovery: update main/RW:A,B,SHARED"
     prepare_main_image
     prepare_main_current_image
@@ -382,9 +366,8 @@ mode_factory_install() {
 
 # Factory Wipe
 mode_factory_final() {
-  # Same as tonormal
-  cros_set_prop dev_boot_usb=0
-  verbose_msg "Factory finalization is complete (disabled USB boot)."
+  verbose_msg "Factory finalization is complete."
+  # For two-stop firmware, we have nothing to do in finalization stage.
   clear_update_cookies
 }
 
@@ -468,10 +451,7 @@ main() {
   verbose_msg " - Updater package: [$TARGET_FWID]"
   verbose_msg " - Current system:  [$FWID]"
   # quick check and setup for basic envoronments
-  if [ ! -s "$IMAGE_MAIN" ]; then
-    FLAGS_update_main=${FLAGS_FALSE}
-    verbose_msg "No main firmware bundled in updater, ignored."
-  elif [ -n "$HWID" ]; then
+  if [ -n "$HWID" ]; then
     # always preserve HWID for current system, if available.
     preserve_hwid
     debug_msg "preserved HWID as: $HWID."
@@ -501,7 +481,6 @@ main() {
     # RO+RW update.
     autoupdate )
       debug_msg "mode with dev and compatibility check: ${FLAGS_mode}"
-      ensure_non_develop_mode &&
         main_check_rw_compatible &&
         mode_"${FLAGS_mode}"
       ;;
