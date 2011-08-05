@@ -26,8 +26,7 @@ DEFINE_string extra "" "Directory list (separated by :) of files to be merged"
 DEFINE_boolean unstable ${FLAGS_FALSE} "Mark as unstable firmware (update RO)"
 
 # embedded tools
-# TODO(hungte) add crossystem after we've updated the ebuild files
-DEFINE_string tools "flashrom mosys crossystem" \
+DEFINE_string tools "flashrom mosys crossystem gbb_utility" \
   "List of tool programs to be bundled into updater"
 DEFINE_string tool_base "" \
   "Default source locations for tools programs (delimited by colon)"
