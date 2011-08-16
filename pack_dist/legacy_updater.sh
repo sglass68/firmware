@@ -147,6 +147,12 @@ CHROMEOS_UPDATE_TARGETS="bios ec"
 # ----------------------------------------------------------------------------
 # Global variables
 
+# Set this to 1 to support auto updates
+# TODO(hungte) this is now set to zero because we don't prefer any updates on
+# legacy systems like CR48. We may set this to 1, make it a command line param,
+# or remove whole legacy updater in future.
+is_allow_au=0
+
 # Set this to 1 for more messages
 is_verbose=0
 
@@ -1445,6 +1451,14 @@ updater_shutdown() {
   done
 }
 
+clear_update_cookies() {
+  # Silently clear all possible update request cookies
+  crossystem fwb_tries=0 >/dev/null 2>&1 || true
+  crossystem fwupdate_tries=0 >/dev/null 2>&1 || true
+  rm -f "$CHROMEOS_NEED_REBOOT_TAG" >/dev/null 2>&1 || true
+  rm -f "$NEED_FIRMWARE_TRYB" >/dev/null 2>&1 || true
+}
+
 issue_1563_workaround() {
   # TODO(hungte) Refactory these stuff to work with latest tools (crossystem).
   # crossystem and nvram are fixed in latest OS; however when updating from an
@@ -1483,7 +1497,9 @@ issue_1563_workaround() {
 # ----------------------------------------------------------------------------
 # Main Entry
 
-issue_1563_workaround
+if is_positive "$is_allow_au"; then
+  issue_1563_workaround
+fi
 
 # if a mode is assigned by parameter, we won't do any further mode detection.
 # if multiple modes were listed as parameter, the last one takes effect.
@@ -1558,7 +1574,14 @@ general options:
           is_factory=0
           is_rw_only=1
           is_mode_assigned=1
-          verbose_msg " * Auto Update in Reboot (A/B 2 stage)"
+          if is_positive "$is_allow_au"; then
+            verbose_msg " * Auto Update in Reboot (A/B 2 stage)"
+          else
+            # silent exit
+            debug_msg "mode [$arg_value] is disabled on this platform"
+            clear_update_cookies
+            exit 0
+          fi
           ;;
         autoupdate )
           is_background=1
@@ -1566,7 +1589,14 @@ general options:
           is_factory=0
           is_rw_only=1
           is_mode_assigned=1
-          verbose_msg " * Auto Update in Background (try A/B 2 stage)"
+          if is_positive "$is_allow_au"; then
+            verbose_msg " * Auto Update in Background (try A/B 2 stage)"
+          else
+            # silent exit
+            debug_msg "mode [$arg_value] is disabled on this platform"
+            clear_update_cookies
+            exit 0
+          fi
           ;;
         recovery )
           allow_2stage_update=0
