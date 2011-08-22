@@ -114,12 +114,28 @@ cros_check_same_root_keys() {
   return $ret
 }
 
+# Gets the vbutil_firmware information of a RW firmware image.
+cros_get_rw_firmware_info() {
+  check_param "cros_get_rw_firmware_info(vblock, fw_main, image)" "$@"
+  local vblock="$1"
+  local fw_main="$2"
+  local image="$3"
+
+  local rootkey="_rootkey"
+  silent_invoke "gbb_utility -g --rootkey=$rootkey $image" 2>/dev/null ||
+    return
+
+  local fw_info
+  fw_info="$(vbutil_firmware --verify "$vblock" \
+                             --signpubkey "$rootkey" \
+                             --fv "$fw_main" 2>/dev/null)" || fw_info=""
+  echo "$fw_info"
+}
+
 # Checks if the firmare key and version are allowed by TPM.
 cros_check_tpm_key_version() {
-  check_param "cros_check_tpm_key_version(section, fw_main, rootkey)" "$@"
-  local section="$1"
-  local fw_main="$2"
-  local rootkey="$3"
+  check_param "cros_check_tpm_key_version(fw_info)" "$@"
+  local fw_info="$1"
 
   local tpm_fwver="$(cros_query_prop tpm_fwver)"
   if [ -z "$tpm_fwver" ]; then
@@ -130,15 +146,11 @@ cros_check_tpm_key_version() {
   tpm_fwver="$((tpm_fwver))"
   debug_msg "tpm_fwver: $tpm_fwver"
 
-  local fw_info="$(vbutil_firmware \
-                   --verify "$section" \
-                   --signpubkey "$rootkey" \
-                   --fv "$fw_main" 2>/dev/null)"
   local data_key_version="$(
-    echo "$fw_info" | sed -n '/Data key version:/s/.*:[ \t]*//p')"
+    echo "$fw_info" | sed -n '/^ *Data key version:/s/.*:[ \t]*//p')"
   debug_msg "data_key_version: $data_key_version"
   local firmware_version="$(
-    echo "$fw_info" | sed -n '/Firmware version:/s/.*:[ \t]*//p')"
+    echo "$fw_info" | sed -n '/^ *Firmware version:/s/.*:[ \t]*//p')"
   debug_msg "firmware_version: $firmware_version"
   if [ -z "$data_key_version" ] || [ -z "$firmware_version" ]; then
     err_die "Cannot verify firmware key version from target image."
@@ -153,6 +165,17 @@ cros_check_tpm_key_version() {
     return $FLAGS_FALSE
   fi
   return $FLAGS_TRUE
+}
+
+# Gets the flag of firmware preamble data.
+cros_get_firmware_preamble_flags() {
+  check_param "cros_get_firmware_preamble_flags(fw_info)" "$@"
+  local fw_info="$1"
+
+  local preamble_flags="$(
+    echo "$fw_info" | sed -n '/^ *Preamble flags:/s/.*:[ \t]*//p')"
+  debug_msg "preamble_flags: $preamble_flags"
+  echo "$preamble_flags"
 }
 
 # Returns if firmware was boot with VBSD_LF_USE_RO_NORMAL flag.

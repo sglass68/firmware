@@ -235,13 +235,16 @@ check_compatible_keys() {
     alert_incompatible_rootkey
     err_die "Incompatible Rootkey."
   fi
-  # unpack image for checking TPM
-  local rootkey="_rootkey"
-  silent_invoke "gbb_utility -g --rootkey=$rootkey $target_image" 2>/dev/null ||
-    true
-  if ! cros_check_tpm_key_version "$DIR_TARGET/$TYPE_MAIN/VBLOCK_A" \
-                                  "$DIR_TARGET/$TYPE_MAIN/FW_MAIN_A" \
-                                  "$rootkey"; then
+
+  # Get RW firmware information
+  local fw_info
+  fw_info="$(cros_get_rw_firmware_info "$DIR_TARGET/$TYPE_MAIN/VBLOCK_A" \
+                                       "$DIR_TARGET/$TYPE_MAIN/FW_MAIN_A" \
+                                       "$target_image")" || fw_info=""
+  [ -n "$fw_info" ] || err_die "Failed to get RW firmware information"
+
+  # Check TPM
+  if ! cros_check_tpm_key_version "$fw_info"; then
     alert_incompatible_tpmkey
     err_die "Incompatible TPM Key."
   fi

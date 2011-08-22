@@ -249,26 +249,21 @@ check_compatible_keys() {
     return $FLAGS_TRUE
   fi
   if ! cros_check_same_root_keys "$current_image" "$target_image"; then
-      err_die "
-      Incompatible firmware image (Root key is different).
-
-      You may need to disable hardware write protection and perform a factory
-      install by '--mode=factory_install' or recovery by '--mode=recovery'.
-      "
+    alert_incompatible_rootkey
+    err_die "Incompatible Rootkey."
   fi
-  # unpack image for checking TPM
-  local rootkey="_rootkey"
-  silent_invoke "gbb_utility -g --rootkey=$rootkey $target_image" 2>/dev/null ||
-    true
-  if ! cros_check_tpm_key_version "$DIR_TARGET/$TYPE_MAIN/VBLOCK_A" \
-                                  "$DIR_TARGET/$TYPE_MAIN/FW_MAIN_A" \
-                                  "$rootkey"; then
-    err_die "
-      Incompatible firmware image (Rollback - older than keys stored in TPM).
 
-      Please update with latest recovery image and firmware, or restart a
-      factory setup process to reset TPM key version.
-    "
+  # Get RW firmware information
+  local fw_info
+  fw_info="$(cros_get_rw_firmware_info "$DIR_TARGET/$TYPE_MAIN/VBLOCK_A" \
+                                       "$DIR_TARGET/$TYPE_MAIN/FW_MAIN_A" \
+                                       "$target_image")" || fw_info=""
+  [ -n "$fw_info" ] || err_die "Failed to get RW firmware information"
+
+  # Check TPM
+  if ! cros_check_tpm_key_version "$fw_info"; then
+    alert_incompatible_tpmkey
+    err_die "Incompatible TPM Key."
   fi
 }
 
