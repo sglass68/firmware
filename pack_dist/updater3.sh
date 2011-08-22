@@ -154,8 +154,8 @@ dup2_mainfw() {
 # ----------------------------------------------------------------------------
 # Helper functions
 
-# Note this will change so any processing to the file (ex, prepare_main_image)
-# must be invoked AFTER this call.
+# Note this will change $IMAGE_MAIN so any processing to the file (ex,
+# prepare_main_image) must be invoked AFTER this call.
 preserve_vpd() {
   crosfw_dupe_vpd "-i RO_VPD -i RW_VPD" "$IMAGE_MAIN" ""
 }
@@ -317,6 +317,7 @@ mode_todev() {
   Booting from USB device is enabled.  Insert bootable media into USB / SDCard
   slot and press Ctrl-U in developer screen to boot your own image.
   "
+  clear_update_cookies
 }
 
 # Transition to Normal Mode
@@ -325,6 +326,7 @@ mode_tonormal() {
   # dev_boot_usb is also cleared by firmware.
   cros_set_prop dev_boot_usb=0
   echo "Booting from USB device is disabled."
+  clear_update_cookies
 }
 
 # Recovery Installer

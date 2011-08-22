@@ -18,6 +18,12 @@
 #
 # Temporary files should be named as "_*" to prevent confliction
 
+# Updater for firmware v2 (split developer/normal)
+# This is designed for platform Alex and ZGB.
+# 1. May include both BIOS and EC firmware
+# 2. RW firmware is either developer (slot A) or normal (slot B) mode.
+# 3. Never perform updates in developer mode
+
 SCRIPT_BASE="$(dirname "$0")"
 . "$SCRIPT_BASE/common.sh"
 
@@ -67,9 +73,6 @@ IMAGE_EC="ec.bin"
 # Parametes for flashrom command
 TARGET_OPT_MAIN="-p internal:bus=spi"
 TARGET_OPT_EC="-p internal:bus=lpc"
-
-# Determine if the target image is "two-stop" design.
-TARGET_IS_TWO_STOP=""
 
 # ----------------------------------------------------------------------------
 # Global Variables
@@ -187,35 +190,10 @@ update_ecfw() {
 # ----------------------------------------------------------------------------
 # Helper functions
 
-# Preserve VPD data by merging sections from current system into target
-# firmware. Note this will change $IMAGE_MAIN so any processing to the file (ex,
-# prepare_image) must be invoked AFTER this call.
+# Note this will change $IMAGE_MAIN so any processing to the file (ex,
+# prepare_main_image) must be invoked AFTER this call.
 preserve_vpd() {
-  # Preserve VPD when updating an existing system (maya be legacy firmware or
-  # ChromeOS firmware). The system may not have FMAP, so we need to use
-  # emulation mode otherwise reading sections may fail.
-  if [ "${FLAGS_update_main}" = ${FLAGS_FALSE} ]; then
-    debug_msg "not updating main firmware, skip preserving VPD..."
-    return $FLAGS_TRUE
-  fi
-  debug_msg "preserving VPD..."
-  local temp_file="_vpd_temp.bin"
-  local vpd_list="-i RO_VPD -i RW_VPD"
-  silent_invoke "flashrom $TARGET_OPT_MAIN -r $temp_file" ||
-    err_die "Failed to read current main firmware."
-  local size_current="$(cros_get_file_size "$temp_file")"
-  local size_target="$(cros_get_file_size "$IMAGE_MAIN")"
-  if [ -z "$size_current" ] || [ "$size_current" = "0" ]; then
-    err_die "Invalid current main firmware. Abort."
-  fi
-  if [ "$size_current" != "$size_target" ]; then
-    err_die "Incompatible firmware image size ($size_current != $size_target)."
-  fi
-
-  local param="dummy:emulate=VARIABLE_SIZE,image=$IMAGE_MAIN,size=$size_current"
-  silent_invoke "flashrom -p $param $vpd_list -w $temp_file" ||
-   err_die "Failed to preserve VPD. Please check target firmware image."
-  debug_msg "preserve_vpd: $IMAGE_MAIN updated."
+  crosfw_dupe_vpd "-i RO_VPD -i RW_VPD" "$IMAGE_MAIN" ""
 }
 
 preserve_hwid() {
@@ -224,6 +202,11 @@ preserve_hwid() {
 }
 
 preserve_bmpfv() {
+  if [ -z "$HWID" ]; then
+    debug_msg "preserve_bmpfv: Running on non-ChromeOS firmware system. Skip."
+    return
+  fi
+  debug_msg "Preseving main firmware images..."
   [ -s "$IMAGE_MAIN" ] || err_die "preserve_bmpfv: no main firmware."
   silent_invoke "flashrom $TARGET_OPT_MAIN -i GBB:_gbb.bin -r _temp.rom"
   silent_invoke "gbb_utility -g --bmpfv=_bmpfv.bin _gbb.bin"
@@ -249,12 +232,8 @@ check_compatible_keys() {
     return $FLAGS_TRUE
   fi
   if ! cros_check_same_root_keys "$current_image" "$target_image"; then
-      err_die "
-      Incompatible firmware image (Root key is different).
-
-      You may need to disable hardware write protection and perform a factory
-      install by '--mode=factory_install' or recovery by '--mode=recovery'.
-      "
+    alert_incompatible_rootkey
+    err_die "Incompatible Rootkey."
   fi
   # unpack image for checking TPM
   local rootkey="_rootkey"
@@ -263,12 +242,8 @@ check_compatible_keys() {
   if ! cros_check_tpm_key_version "$DIR_TARGET/$TYPE_MAIN/VBLOCK_A" \
                                   "$DIR_TARGET/$TYPE_MAIN/FW_MAIN_A" \
                                   "$rootkey"; then
-    err_die "
-      Incompatible firmware image (Rollback - older than keys stored in TPM).
-
-      Please update with latest recovery image and firmware, or restart a
-      factory setup process to reset TPM key version.
-    "
+    alert_incompatible_tpmkey
+    err_die "Incompatible TPM Key."
   fi
 }
 
@@ -304,72 +279,21 @@ need_update_ec() {
 }
 
 
-# Prepares target images, in full image and unpacked form.
-prepare_image() {
-  check_param "prepare_image(type,image,target_opt)" "$@"
-  local type_name="$1" image_name="$2" target_opt="$3"
-  debug_msg "preparing $type_name firmware images..."
-  mkdir -p "$DIR_TARGET/$type_name"
-  cp -f "$image_name" "$DIR_TARGET/$image_name"
-  ( cd "$DIR_TARGET/$type_name";
-    dump_fmap -x "../$image_name" >/dev/null 2>&1) ||
-    err_die "Invalid firmware image (missing FMAP) in $image_name."
-}
-
-# Prepares images from current system EEPROM, in full and/or unpacked form.
-prepare_current_image() {
-  check_param "prepare_current_image(type,image,target_opt,...)" "$@"
-  local type_name="$1" image_name="$2" target_opt="$3"
-  shift; shift; shift
-  debug_msg "trying to read $type_name firmware from system EEPROM..."
-  mkdir -p "$DIR_CURRENT/$type_name"
-  local list="" i=""
-  for i in $@ ; do
-    list="$list -i $i"
-  done
-  invoke "flashrom $target_opt $list -r $DIR_CURRENT/$image_name"
-  # current may not have FMAP... (ex, from factory setup)
-  ( cd "$DIR_CURRENT/$type_name";
-    dump_fmap -x "../$image_name" >/dev/null 2>&1) || true
-}
 
 prepare_main_image() {
-  prepare_image "$TYPE_MAIN" "$IMAGE_MAIN" "$TARGET_OPT_MAIN"
+  crosfw_unpack_image "$TYPE_MAIN" "$IMAGE_MAIN" "$TARGET_OPT_MAIN"
 }
 
 prepare_ec_image() {
-  prepare_image "$TYPE_EC" "$IMAGE_EC" "$TARGET_OPT_EC"
+  crosfw_unpack_image "$TYPE_EC" "$IMAGE_EC" "$TARGET_OPT_EC"
 }
 
 prepare_main_current_image() {
-  prepare_current_image "$TYPE_MAIN" "$IMAGE_MAIN" "$TARGET_OPT_MAIN" "$@"
+  crosfw_unpack_current_image "$TYPE_MAIN" "$IMAGE_MAIN" "$TARGET_OPT_MAIN" "$@"
 }
 
 prepare_ec_current_image() {
-  prepare_current_image "$TYPE_EC" "$IMAGE_EC" "$TARGET_OPT_EC" "$@"
-}
-
-is_two_stop_image() {
-  if [ "$TARGET_IS_TWO_STOP" = "" ]; then
-    # Currently two_stop firmware contains only BOOT_STUB and empty "RECOVERY".
-    # TODO(hungte) Detect by crossystem (chromium-os:18041)
-    debug_msg "is_two_stop_image: autodetect"
-    [ -e "$DIR_TARGET/$TYPE_MAIN/FMAP" ] || prepare_main_image
-    if [ -s "$DIR_TARGET/$TYPE_MAIN/BOOT_STUB" ] &&
-       [ ! -s "$DIR_TARGET/$TYPE_MAIN/RECOVERY" ]; then
-      debug_msg "Target is TWO_STOP image."
-      TARGET_IS_TWO_STOP="1"
-    else
-      debug_msg "Target is NOT two_stop image."
-      TARGET_IS_TWO_STOP="0"
-    fi
-  fi
-
-  if [ "$TARGET_IS_TWO_STOP" -gt 0 ]; then
-    return $FLAGS_TRUE
-  else
-    return $FLAGS_FALSE
-  fi
+  crosfw_unpack_current_image "$TYPE_EC" "$IMAGE_EC" "$TARGET_OPT_EC" "$@"
 }
 
 is_mainfw_write_protected() {
@@ -555,16 +479,6 @@ mode_autoupdate() {
 
 # Transition to Developer Mode
 mode_todev() {
-  if is_two_stop_image; then
-    cros_set_prop dev_boot_usb=1
-    echo "
-    Booting from USB device is enabled.  Insert bootable media into USB / SDCard
-    slot and press Ctrl-U in developer screen to boot your own image.
-    "
-    clear_update_cookies
-    return
-  fi
-
   crossystem dev_boot_usb=1 || true
   if [ "${FLAGS_update_main}" != "${FLAGS_TRUE}" ]; then
     err_die "Cannot switch to developer mode due to missing main firmware"
@@ -594,13 +508,6 @@ mode_todev() {
 
 # Transition to Normal Mode
 mode_tonormal() {
-  if is_two_stop_image; then
-    cros_set_prop dev_boot_usb=0
-    echo "Booting from USB device is disabled."
-    clear_update_cookies
-    return
-  fi
-
   crossystem dev_boot_usb=0 || true
   if [ "${FLAGS_update_main}" != "${FLAGS_TRUE}" ]; then
     err_die "Cannot switch to normal mode due to missing main firmware"
@@ -623,7 +530,7 @@ mode_recovery() {
       preserve_bmpfv
       # HWID should be already preserved
       update_mainfw
-      if ! is_two_stop_image && ! is_developer_firmware; then
+      if ! is_developer_firmware; then
         update_mainfw "$SLOT_A" "$FWSRC_NORMAL"
       fi
     else
@@ -676,12 +583,8 @@ mode_factory_install() {
 mode_factory_final() {
   # To prevent theat factory has installed a more recent version of firmware,
   # don't use the firmware from bundled image. Use the one from current system.
-  if is_two_stop_image; then
-    cros_set_prop dev_boot_usb=0
-  else
-    dup2_mainfw "$SLOT_B" "$SLOT_A"
-    crossystem dev_boot_usb=0 || true
-  fi
+  dup2_mainfw "$SLOT_B" "$SLOT_A"
+  crossystem dev_boot_usb=0 || true
   clear_update_cookies
 }
 
@@ -785,7 +688,7 @@ main() {
     FLAGS_mode=factory_install
   fi
 
-  verbose_msg "Starting $TARGET_PLATFORM firmware updater (${FLAGS_mode})..."
+  verbose_msg "Starting $TARGET_PLATFORM firmware updater v2 (${FLAGS_mode})..."
   verbose_msg " - Updater package: [$TARGET_FWID / $TARGET_ECID]"
   verbose_msg " - Current system:  [$FWID / $ECID]"
   # quick check and setup for basic envoronments
@@ -831,24 +734,16 @@ main() {
         mode_incompatible_update
       fi
       ;;
-    # Modes which work differently in two_stop firmware.
-    todev | tonormal )
-      if is_two_stop_image; then
-        debug_msg "mode (two_stop) without incompatible checks: ${FLAGS_mode}"
-        mode_"${FLAGS_mode}"
-      elif main_check_rw_compatible $FLAGS_TRUE; then
-        debug_msg "mode with incompatible checks: ${FLAGS_mode}"
-        mode_"${FLAGS_mode}"
-      fi
-      ;;
+
     # Modes which update RW firmware only; these need to verify if existing RO
     # firmware is compatible.  If not, schedule a RO+RW update at next startup.
-    autoupdate )
+    autoupdate | todev | tonormal )
       debug_msg "mode with compatibility check: ${FLAGS_mode}"
       if main_check_rw_compatible $FLAGS_TRUE; then
         mode_"${FLAGS_mode}"
       fi
       ;;
+
     # Modes which don't mix existing RO firmware with new RW firmware from the
     # updater.  They either copy RW firmware between EEPROM slots, or copy both
     # RO+RW from the shellball.  Either way, RO+RW compatibility is assured.
@@ -856,9 +751,11 @@ main() {
       debug_msg "mode without incompatible checks: ${FLAGS_mode}"
       mode_"${FLAGS_mode}"
       ;;
+
     "" )
       err_die "Please assign updater mode by --mode option."
       ;;
+
     * )
       err_die "Unknown mode: ${FLAGS_mode}"
       ;;
