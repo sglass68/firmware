@@ -20,9 +20,11 @@ DEFINE_string bios_image "" "Path of input BIOS firmware image" "b"
 DEFINE_string ec_image "" "Path of input EC firmware image" "e"
 DEFINE_string ec_version "IGNORE" "Version of input EC firmware image"
 DEFINE_string platform "" "Platform name to check for firmware"
-DEFINE_string script "updater.sh" "Path of main script file"
+DEFINE_string script "updater.sh" "File name of main script file"
 DEFINE_string output "-" "Path of output filename; '-' for stdout" "o"
 DEFINE_string extra "" "Directory list (separated by :) of files to be merged"
+DEFINE_boolean remove_inactive_updaters ${FLAGS_TRUE} \
+  "Remove inactive updater scripts"
 DEFINE_boolean unstable ${FLAGS_FALSE} "Mark as unstable firmware (update RO)"
 
 # embedded tools
@@ -162,6 +164,14 @@ for X in $FLAGS_tools; do
   chmod a+rx "$tmpbase/$X"
 done
 cp -rfp "$pack_dist"/* "$tmpbase" || err_die "cannot copy pack_dist folder"
+
+# remove inactive updater scripts
+if [ "${FLAGS_remove_inactive_updaters}" = $FLAGS_TRUE ]; then
+  (cd "$tmpbase"
+   inactive_list="$(ls updater*.sh | sed "s/\b$FLAGS_script\b//")"
+   rm -f $inactive_list
+  )
+fi
 
 # adjust file permission
 chmod a+rx "$tmpbase"/*.sh
