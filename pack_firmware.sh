@@ -21,7 +21,7 @@ DEFINE_string ec_image "" "Path of input EC firmware image" "e"
 DEFINE_string ec_version "IGNORE" "Version of input EC firmware image"
 DEFINE_string platform "" "Platform name to check for firmware"
 DEFINE_string script "updater.sh" "File name of main script file"
-DEFINE_string output "-" "Path of output filename; '-' for stdout" "o"
+DEFINE_string output "" "Path of output filename" "o"
 DEFINE_string extra "" "Directory list (separated by :) of files to be merged"
 DEFINE_boolean remove_inactive_updaters ${FLAGS_TRUE} \
   "Remove inactive updater scripts"
@@ -96,7 +96,8 @@ extract_frid() {
 trap do_cleanup EXIT
 
 # check tool: we need uuencode to create the shell ball.
-has_command uuencode || err_die "You need uuencode(sharutils)"
+has_command shar || err_die "You need shar (sharutils)"
+has_command uuencode || err_die "You need uuencode (sharutils)"
 
 # check required basic files
 for X in "$main_script" "$stub_file"; do
@@ -128,7 +129,6 @@ fi
 # create temporary folder to store files
 tmpbase="$(mktemp -d)" || err_die "Cannot create temporary folder."
 version_file="$tmpbase/VERSION"
-echo "Package create date: $(date +'%c')" >>"$version_file"
 if [ -n "$flashrom_bin" ]; then
   flashrom_ver="$(
     strings "$flashrom_bin" |
@@ -180,30 +180,20 @@ chmod a+rx "$tmpbase"/*.sh
 extra_list="$(echo "${FLAGS_extra}" | tr ':' '\n')"
 for extra in $extra_list; do
   if [ -d "$extra" ]; then
-    cp -r "$extra"/* "$tmpbase" || \
+    cp -r "$extra"/* "$tmpbase" ||
       err_die "cannot copy extra files from folder $extra"
     echo "Extra files from folder: $extra" >> "$version_file"
   elif [ "$extra" != "" ]; then
-    cp -r "$extra" "$tmpbase" || \
+    cp -r "$extra" "$tmpbase" ||
       err_die "Cannot copy extra files $extra"
     echo "Extra file: $extra" >> "$version_file"
   fi
 done
+echo "" >>"$version_file"
 chmod -R a+r "$tmpbase"/*
 
-# create MD5 checksum logs
-echo "
-Package Content:" >> "$version_file"
-(cd "$tmpbase" && find . -type f \! -name "VERSION" -exec md5sum -b {} \;) >> \
-  "$version_file"
-
 # package temporary folder into ouput file
-# TODO(hungte) use 'shar' instead?
-if [ -z "${FLAGS_output}" -o "${FLAGS_output}" = "-" ]; then
-  output_opt=""
-else
-  output_opt="of=${FLAGS_output}"
-fi
+[ -n "${FLAGS_output}" ] || die "Missing output file."
 output="${FLAGS_output}"
 
 # decide unstable flag (non-empty for unstable).
@@ -212,19 +202,19 @@ if [ "${FLAGS_unstable}" = "${FLAGS_TRUE}" ]; then
   unstable="TRUE"
 fi
 
-(cat "$stub_file" |
- sed -e "s/REPLACE_FWID/${bios_version}/" \
-     -e "s/REPLACE_ECID/${ec_version}/" \
-     -e "s/REPLACE_PLATFORM/${FLAGS_platform}/" \
-     -e "s/REPLACE_UNSTABLE/${unstable}/" \
-     -e "s/REPLACE_SCRIPT/${FLAGS_script}/" &&
- tar zcf - -C "$tmpbase" . | uuencode firmware_package.tgz) |
- dd $output_opt 2>/dev/null || err_die "Failed to archive firmware package"
+cp -f "$stub_file" "$output"
+sed -in "
+  s/REPLACE_FWID/${bios_version}/;
+  s/REPLACE_ECID/${ec_version}/;
+  s/REPLACE_PLATFORM/${FLAGS_platform}/;
+  s/REPLACE_UNSTABLE/${unstable}/;
+  s/REPLACE_SCRIPT/${FLAGS_script}/;
+  " "$output"
+sh "$output" --sb_repack "$tmpbase" ||
+  err_die "Failed to archive firmware package"
 
-# we can provide more information when output is not stdout
-if [ -n "$output_opt" ]; then
-  chmod a+rx "$output"
-  cat "$tmpbase/VERSION"
-  echo ""
-  echo "Packed output image is: $output"
-fi
+# provide more information since output is not stdout
+chmod a+rx "$output"
+cat "$tmpbase/VERSION"*
+echo ""
+echo "Packed output image is: $output"
