@@ -692,8 +692,7 @@ main() {
   fi
 
   verbose_msg "Starting $TARGET_PLATFORM firmware updater v2 (${FLAGS_mode})..."
-  verbose_msg " - Updater package: [$TARGET_FWID / $TARGET_ECID]"
-  verbose_msg " - Current system:  [$FWID / $ECID]"
+
   # quick check and setup for basic envoronments
   if [ ! -s "$IMAGE_MAIN" ]; then
     FLAGS_update_main=${FLAGS_FALSE}
@@ -725,6 +724,9 @@ main() {
     debug_msg "starting customized updater main..."
     $CUSTOMIZATION_MAIN
   fi
+
+  verbose_msg " - Updater package: [$TARGET_FWID / $TARGET_ECID]"
+  verbose_msg " - Current system:  [$FWID / $ECID]"
 
   case "${FLAGS_mode}" in
     # Modes which can attempt to update RO if RO+RW are not compatible.
