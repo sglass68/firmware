@@ -72,9 +72,12 @@ cros_reboot() {
   if [ "${FLAGS_dry_run}" = "${FLAGS_TRUE}" ]; then
     alert "dry_run: reboot"
     return ${FLAGS_TRUE}
+  elif [ "${FLAGS_allow_reboot}" = "${FLAGS_FALSE}" ]; then
+    alert "Rebooting from updater is disabled."
+    return ${FLAGS_TRUE}
   fi
   sync; sync; sync
-  /sbin/reboot
+  reboot
 }
 
 # Returns if the hardware write-protection switch is enabled.

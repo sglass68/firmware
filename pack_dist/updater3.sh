@@ -90,6 +90,8 @@ DEFINE_boolean debug $FLAGS_FALSE "Enable debug messages." "d"
 DEFINE_boolean verbose $FLAGS_TRUE "Enable verbose messages." "v"
 DEFINE_boolean dry_run $FLAGS_FALSE "Enable dry-run mode." ""
 DEFINE_boolean force $FLAGS_FALSE "Try to force update." ""
+DEFINE_boolean allow_reboot $FLAGS_TRUE \
+  "Allow rebooting system immediately if required."
 
 DEFINE_boolean check_keys $FLAGS_TRUE "Check firmware keys before updating." ""
 DEFINE_boolean check_wp $FLAGS_TRUE \

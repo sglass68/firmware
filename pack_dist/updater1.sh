@@ -225,13 +225,7 @@ LAYOUT_OFFSET=""
 # Script should exit on any unexpected error
 set -e
 
-# Tool program (flashrom, mosys, ...) search path:
-# 1. bundled (.) 2. $INSTALL_ROOT/* 3. defaults (/usr/sbin,/sbin) and $PATH
-PATH="/usr/sbin:/sbin:$PATH"
-if [ -n "${INSTALL_ROOT}" -a "${INSTALL_ROOT}" != "/" ]; then
-  PATH="${INSTALL_ROOT}/usr/bin:${INSTALL_ROOT}/bin:$PATH"
-  PATH="${INSTALL_ROOT}/usr/sbin:${INSTALL_ROOT}/sbin:$PATH"
-fi
+# Use bundled tools with highest priority, to prevent dependency when updating
 PATH=".:$PATH"; export PATH
 
 # ----------------------------------------------------------------------------
@@ -1548,7 +1542,7 @@ mode aliases:
 
 special options:
     --background-update  Skip update that may freeze keyboard/reboot (eg, EC)
-    --allow-reboot       Allow updater to reboot device if required
+    --[no]allow-reboot   Allow updater to reboot device if required
     --write-protect      Enable write protection after update complete
     --targets='list'     Targets to be updated (def: '$CHROMEOS_UPDATE_TARGETS')
 
@@ -1665,6 +1659,10 @@ general options:
       is_allow_reboot=1
       verbose_msg " * Allow rebooting system after updates applied"
       ;;
+    --noallow-reboot* )
+      is_allow_reboot=0
+      verbose_msg " * Disallow rebooting system after updates applied"
+      ;;
     --write-protect* | --enable-write-protect* )
       is_enable_write_protect=1
       verbose_msg " * Enable write protection"
@@ -1712,10 +1710,6 @@ done
 
 # detect and adjust modes
 assert_str $is_mode_assigned
-if [ -n "$IS_CHROMEOS_STARTUP" ]; then
-  # allow reboot by default in Chrome OS startup
-  is_allow_reboot=1
-fi
 
 # load customized information
 if [ -r $CUSTOM_SCRIPT_FILENAME ]; then
