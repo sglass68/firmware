@@ -79,7 +79,7 @@ clean_temp() {
 # Extracts bundle content to specified location
 extract_bundle() {
   local destination="$1"
-  "$SELF" --sb_extract "$destination" >/dev/null ||
+  sh "$SELF" --sb_extract "$destination" >/dev/null ||
     die "Cannot extract bundle content to: $destination"
 }
 
