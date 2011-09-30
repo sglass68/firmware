@@ -436,12 +436,16 @@ mode_autoupdate() {
         verbose_msg "System firmware update available: [$TARGET_FWID]"
         verbose_msg "Currently installed system firmware: [$FWID]"
         need_update=1
+    else
+      FLAGS_update_main=$FLAGS_FALSE
     fi
     if [ "${FLAGS_update_ec}" = "${FLAGS_TRUE}" ] &&
        [ "$TARGET_ECID" != "$ECID" ]; then
         verbose_msg "EC firmware update available: [$TARGET_ECID]"
         verbose_msg "Currently installed EC firmware: [$ECID]"
         need_update=1
+    else
+      FLAGS_update_ec=$FLAGS_FALSE
     fi
     if [ "$need_update" -eq 0 ]; then
       verbose_msg "No firmware auto update is available. Returning gracefully."
