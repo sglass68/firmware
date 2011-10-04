@@ -108,6 +108,7 @@ prepare_shar_extract() {
     # Don't remove the temporary files
     TMP_DIR=""
   fi
+  echo "Extracting to: $destination"
   cd "$destination" || die "Invalid destination: $destination"
   exec >/dev/null  # Prevent shar messages in stdout
   set -- "-c"  # Force shar to overwrite files
@@ -158,7 +159,6 @@ main() {
   case "$1" in
     --sb_extract | --sb_extract=*)
       local destination="$(get_parameter_variable "$@")"
-      echo "Extracting to: $destination"
       prepare_shar_extract "$destination"
       return  # Let shar handle the remaining stuff
       ;;
