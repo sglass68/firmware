@@ -19,11 +19,10 @@
 # Temporary files should be named as "_*" to prevent confliction
 
 # Updater for firmware v3 (two-stop)
-# This is designed for ARM platform, with following assumption:
-# 1. No EC firmware
-# 2. No need to update RO in startup (no ACPI/ASL code dependency)
-# 3. Perform updates even if active firmware is "developer mode" (with
-#    root-shell)
+# This is designed for x86/arm platform, with following assumption:
+# 1. Perform updates even if active firmware is "developer mode"
+# 2. Sleep/suspend (S3) after RO update may fail system (due to ACPI/ASL code
+#    dependency), but that only happens on internal developer's dogfood devices
 
 SCRIPT_BASE="$(dirname "$0")"
 . "$SCRIPT_BASE/common.sh"
@@ -56,26 +55,29 @@ SLOT_A="RW_SECTION_A"
 SLOT_B="RW_SECTION_B"
 SLOT_RO="RO_SECTION"
 SLOT_RW_SHARED="RW_SHARED"
+SLOT_EC_RO="EC_RO"
+SLOT_EC_RW="EC_RW"
 
 FWSRC_NORMAL="$SLOT_B"
 FWSRC_DEVELOPER="$SLOT_A"
 
 TYPE_MAIN="main"
+TYPE_EC="ec"
 IMAGE_MAIN="bios.bin"
+IMAGE_EC="ec.bin"
 
 # ----------------------------------------------------------------------------
 # Global Variables
 
 # Current system identifiers (may be empty if running on non-ChromeOS systems)
 HWID="$(crossystem hwid 2>/dev/null)" || HWID=""
+ECINFO="$(mosys -k ec info 2>/dev/null)" || ECINFO=""
 
-# Compare following values with TARGET_FWID, TARGET_PLATFORM
+# Compare following values with TARGET_FWID, TARGET_ECID, TARGET_PLATFORM
 # (should be passed by wrapper as environment variables)
 FWID="$(crossystem fwid 2>/dev/null)" || FWID=""
+ECID="$(eval "$ECINFO"; echo "$fw_version")"
 PLATFORM="$(mosys platform name 2>/dev/null)" || PLATFORM=""
-
-# RO update flags are usually enabled only in customization.
-FLAGS_update_ro_main="$FLAGS_FALSE"
 
 # TARGET_UNSTABLE is non-zero if the firmware is not stable.
 : ${TARGET_UNSTABLE:=}
@@ -92,6 +94,9 @@ DEFINE_boolean dry_run $FLAGS_FALSE "Enable dry-run mode." ""
 DEFINE_boolean force $FLAGS_FALSE "Try to force update." ""
 DEFINE_boolean allow_reboot $FLAGS_TRUE \
   "Allow rebooting system immediately if required."
+
+DEFINE_boolean update_ec $FLAGS_TRUE "Enable updating Embedded Firmware." ""
+DEFINE_boolean update_main $FLAGS_TRUE "Enable updating Main Firmware." ""
 
 DEFINE_boolean check_keys $FLAGS_TRUE "Check firmware keys before updating." ""
 DEFINE_boolean check_wp $FLAGS_TRUE \
@@ -153,6 +158,23 @@ dup2_mainfw() {
   fi
 }
 
+# Update EC Firmware (LPC)
+update_ecfw() {
+  local slot="$1"
+  debug_msg "invoking: update_ecfw($@)"
+  # Syntax: update_mainfw SLOT
+  #    Update assigned slot with proper firmware.
+  # Syntax: update_mainfw
+  #    Write complete MAIN_TARGET_IMAGE
+  # TODO(hungte) verify if slot is valid.
+  [ -s "$IMAGE_EC" ] || err_die "missing firmware image: $IMAGE_EC"
+  if [ -n "$slot" ]; then
+    invoke "flashrom $TARGET_OPT_EC -i $slot -w $IMAGE_EC"
+  else
+    invoke "flashrom $TARGET_OPT_EC -w $IMAGE_EC"
+  fi
+}
+
 # ----------------------------------------------------------------------------
 # Helper functions
 
@@ -182,8 +204,9 @@ preserve_bmpfv() {
 
 # Compares two slots from current and target folder.
 is_equal_slot() {
-  check_param "is_equal_slot(type, slot, opt_slot2)" "$@"
+  check_param "is_equal_slot(type, slot, ...)" "$@"
   local type_name="$1" slot_name="$2" slot2_name="$3"
+  [ "$#" -lt 4 ] || err_die "is_equal_slot: internal error"
   [ -n "$slot2_name" ] || slot2_name="$slot_name"
   local current="$DIR_CURRENT/$type_name/$slot_name"
   local target="$DIR_TARGET/$type_name/$slot2_name"
@@ -194,7 +217,7 @@ is_equal_slot() {
 check_compatible_keys() {
   local current_image="$DIR_CURRENT/$IMAGE_MAIN"
   local target_image="$DIR_TARGET/$IMAGE_MAIN"
-  if [ "${FLAGS_check_keys}" = "${FLAGS_FALSE}" ]; then
+  if [ "${FLAGS_check_keys}" = ${FLAGS_FALSE} ]; then
     debug_msg "check_compatible_keys: ignored."
     return $FLAGS_TRUE
   fi
@@ -229,25 +252,77 @@ check_compatible_keys() {
   fi
 }
 
+need_update_main_vblock() {
+  # Check if VBLOCK (key version and firmware signature) is different.
+  prepare_main_image
+  prepare_main_current_image
+
+  # Compare VBLOCK from current A slot and target B slot (normal firmware).
+  is_equal_slot "$TYPE_MAIN" "VBLOCK_A" "VBLOCK_B"
+}
+
+need_update_ec() {
+  prepare_ec_image
+  prepare_ec_current_image
+  if ! is_ecfw_write_protected && ! is_equal_slot "$TYPE_EC" "$SLOT_EC_RO"; then
+      debug_msg "EC RO needs update."
+      return $FLAGS_TRUE
+  fi
+  if ! is_equal_slot "$TYPE_EC" "$SLOT_EC_RW"; then
+      debug_msg "EC RW needs update."
+      return $FLAGS_TRUE
+  fi
+  return $FLAGS_FALSE
+}
+
 prepare_main_image() {
   crosfw_unpack_image "$TYPE_MAIN" "$IMAGE_MAIN" "$TARGET_OPT_MAIN"
+}
+
+prepare_ec_image() {
+  crosfw_unpack_image "$TYPE_EC" "$IMAGE_EC" "$TARGET_OPT_EC"
 }
 
 prepare_main_current_image() {
   crosfw_unpack_current_image "$TYPE_MAIN" "$IMAGE_MAIN" "$TARGET_OPT_MAIN" "$@"
 }
 
+prepare_ec_current_image() {
+  crosfw_unpack_current_image "$TYPE_EC" "$IMAGE_EC" "$TARGET_OPT_EC" "$@"
+}
+
 is_mainfw_write_protected() {
   if [ "$FLAGS_check_wp" = $FLAGS_FALSE ]; then
     verbose_msg "Warning: write protection checking is bypassed."
-    return $FLAGS_FALSE
-  fi
-  if ! cros_is_hardware_write_protected; then
+    false
+  elif ! cros_is_hardware_write_protected; then
     false
   else
     flashrom $TARGET_OPT_MAIN --wp-status 2>/dev/null |
       grep -q "write protect is enabled"
   fi
+}
+
+is_ecfw_write_protected() {
+  if [ "$FLAGS_check_wp" = $FLAGS_FALSE ]; then
+    verbose_msg "Warning: write protection checking is bypassed."
+    false
+  elif ! cros_is_hardware_write_protected; then
+    false
+  else
+    flashrom $TARGET_OPT_EC --wp-status 2>/dev/null |
+      grep -q "write protect is enabled"
+  fi
+}
+
+is_write_protection_disabled() {
+  [ "${FLAGS_update_main}" = ${FLAGS_TRUE} ] && ! is_mainfw_write_protected ||
+    return $FLAGS_FALSE
+
+  [ "${FLAGS_update_ec}" = ${FLAGS_TRUE} ] && ! is_ecfw_write_protected ||
+    return $FLAGS_FALSE
+
+  return $FLAGS_TRUE
 }
 
 clear_update_cookies() {
@@ -263,68 +338,90 @@ clear_update_cookies() {
 
 # Startup
 mode_startup() {
-  debug_msg "Updating at startup is deprecated for current system."
-  # We may still have trouble updating some systems' RO, if their S3 resume runs
-  # through the RO path (ex, most x86).  That's only a problem during
-  # development, since in production the RO section is, well, read-only. If
-  # we're willing to force a reboot after updating RO, we're ok.
-  ( cros_set_startup_update_tries 0 ) >/dev/null 2>&1 || true
+  if [ "${FLAGS_update_ec}" = ${FLAGS_TRUE} ]; then
+    if need_update_ec; then
+      # EC image already prepared in need_update_ec
+      is_ecfw_write_protected || update_ecfw "$SLOT_EC_RO"
+      update_ecfw "$SLOT_EC_RW"
+    fi
+    cros_set_startup_update_tries 0
+    cros_reboot
+  else
+    cros_set_startup_update_tries 0
+  fi
 }
 
 # Update Engine - Current Boot Successful (chromeos_setgoodkernel)
 mode_bootok() {
-  # TODO(hungte) Quick check by startup_update_tries or VBLOCK preamble
-
   local mainfw_act="$(cros_get_prop mainfw_act)"
-  # Copy firmware to the spare slot.
-  # flashrom will check if we really need to update the bits
+  # Copy main firmware to the spare slot.
   if [ "$mainfw_act" = "A" ]; then
     dup2_mainfw "$SLOT_A" "$SLOT_B"
   elif [ "$mainfw_act" = "B" ]; then
     dup2_mainfw "$SLOT_B" "$SLOT_A"
   else
-    err_die "bootok: unexpected active firmware ($mainfw_act)..."
+    # Recovery mode, or non-chrome.
+    err_die "bootok: abnormal active firmware ($mainfw_act)..."
   fi
   cros_set_fwb_tries 0
+
+  if [ "${FLAGS_update_ec}" = ${FLAGS_TRUE} ] &&
+     [ "$(cros_get_prop ecfw_act)" = "RO" ]; then
+    verbose_msg "EC was boot by RO and may need an update/recovery."
+    cros_set_startup_update_tries 6
+  fi
 }
 
 # Update Engine - Received Update
 mode_autoupdate() {
   # Quick check if we need to update
   local need_update=0
-  if [ "$TARGET_FWID" != "$FWID" ]; then
+  if [ "${FLAGS_force}" = ${FLAGS_TRUE} ]; then
     need_update=1
+  else
+    # Check main firmware
+    if [ "${FLAGS_update_main}" = ${FLAGS_TRUE} ]; then
+      if [ "$TARGET_FWID" != "$FWID" ] || need_update_main_vblock; then
+        need_update=1
+      else
+        FLAGS_update_main=$FLAGS_FALSE
+      fi
+    fi
+    # Check EC firmware
+    if [ "${FLAGS_update_ec}" = ${FLAGS_TRUE} ]; then
+      if [ "$TARGET_ECID" != "$ECID" ]; then
+        need_update=1
+      else
+        FLAGS_update_ec=$FLAGS_FALSE
+      fi
+    fi
   fi
 
-  # TODO(hungte) Remove the need_update=1 which forces updating when VBLOCK key
-  # version by crossystem is ready. Quick check is reliable only if VBLOCK key
-  # and FWID both match.
-  need_update=1
-
-  if [ "$need_update" -eq 0 ] && [ "${FLAGS_force}" != "${FLAGS_TRUE}" ]; then
-    verbose_msg "Your system is already installed with latest firmware."
+  if [ "$need_update" -eq 0 ]; then
+    verbose_msg "Latest firmware already installed. No need to update."
     return
   fi
 
-  local mainfw_act="$(cros_get_prop mainfw_act)"
-  if [ "$mainfw_act" = "B" ]; then
-    err_die_need_reboot "Done (retry update next boot)"
-  elif [ "$mainfw_act" != "A" ]; then
-    err_die "autoupdate: unexpected active firmware ($mainfw_act)..."
+  if [ "${FLAGS_update_main}" = "${FLAGS_TRUE}" ]; then
+    local mainfw_act="$(cros_get_prop mainfw_act)"
+    if [ "$mainfw_act" = "B" ]; then
+      err_die_need_reboot "Done (retry update next boot)"
+    elif [ "$mainfw_act" != "A" ]; then
+      err_die "autoupdate: unexpected active firmware ($mainfw_act)..."
+    fi
+
+    prepare_main_image
+    prepare_main_current_image
+    check_compatible_keys
+    update_mainfw "$SLOT_B" "$FWSRC_NORMAL"
+    cros_set_fwb_tries 6
   fi
 
-  prepare_main_image
-  prepare_main_current_image
-
-  # Check whole RW_SECTION to decide if we need to update.
-  if is_equal_slot "$TYPE_MAIN" "$SLOT_A" "$FWSRC_NORMAL"; then
-    verbose_msg "RW Section is the same, no need to update."
-    return
+  # Don't call need_update_ec because it will freeze the keyboard.
+  if [ "${FLAGS_update_ec}" = "${FLAGS_TRUE}" ]; then
+    cros_set_startup_update_tries 6
+    verbose_msg "Done (EC update will occur at Startup)"
   fi
-
-  check_compatible_keys
-  update_mainfw "$SLOT_B" "$FWSRC_NORMAL"
-  cros_set_fwb_tries 6
 }
 
 # Transition to Developer Mode
@@ -348,21 +445,39 @@ mode_tonormal() {
 
 # Recovery Installer
 mode_recovery() {
-  if ! is_mainfw_write_protected; then
-    verbose_msg "mode_recovery: update RO+RW"
-    preserve_vpd
-    preserve_bmpfv
-    update_mainfw
-  else
-    # TODO(hungte) check if FMAP is not changed
-    verbose_msg "mode_recovery: update main/RW:A,B,SHARED"
-    prepare_main_image
-    prepare_main_current_image
-    check_compatible_keys
-    update_mainfw "$SLOT_A" "$FWSRC_NORMAL"
-    update_mainfw "$SLOT_B" "$FWSRC_NORMAL"
-    update_mainfw "$SLOT_RW_SHARED"
+  # TODO(hungte) Add flags to control RO updating, not is_*_write_protected.
+
+  local prefix="mode_recovery"
+  [ "${FLAGS_mode}" = "recovery" ] || prefix="${FLAGS_mode}(recovery)"
+  if [ "${FLAGS_update_main}" = ${FLAGS_TRUE} ]; then
+    if ! is_mainfw_write_protected; then
+      verbose_msg "$prefix: update RO+RW"
+      preserve_vpd
+      preserve_bmpfv
+      update_mainfw
+    else
+      # TODO(hungte) check if FMAP is not changed
+      verbose_msg "$prefix: update main/RW:A,B,SHARED"
+      prepare_main_image
+      prepare_main_current_image
+      check_compatible_keys
+      update_mainfw "$SLOT_A" "$FWSRC_NORMAL"
+      update_mainfw "$SLOT_B" "$FWSRC_NORMAL"
+      update_mainfw "$SLOT_RW_SHARED"
+    fi
   fi
+
+  if [ "${FLAGS_update_ec}" = ${FLAGS_TRUE} ]; then
+    prepare_ec_image
+    if ! is_ecfw_write_protected; then
+      verbose_msg "$prefix: update ec/RO+RW"
+      update_ecfw
+    else
+      verbose_msg "$prefix: update ec/RW"
+      update_ecfw "$SLOT_EC_RW"
+    fi
+  fi
+
   clear_update_cookies
 }
 
@@ -370,33 +485,34 @@ mode_recovery() {
 mode_factory_install() {
   # Everything executed here must assume the system may be not using ChromeOS
   # firmware.
-  if is_mainfw_write_protected; then
-    # TODO(hungte) check if we really need to stop user by comparing firmware
-    # image, bit-by-bit.
+  is_write_protection_disabled ||
     err_die "You need to first disable hardware write protection switch."
+
+  if [ "${FLAGS_update_main}" = ${FLAGS_TRUE} ]; then
+    # We may preserve bitmap here, just like recovery mode. However if there's
+    # some issue (or incompatible stuff) found in bitmap, we will need a method
+    # to update the bitmaps.
+    preserve_vpd || verbose_msg "Warning: cannot preserve VPD."
+    update_mainfw
   fi
-  preserve_vpd || verbose_msg "Warning: cannot preserve VPD."
-  # We may preserve bitmap here, just like recovery mode. However if there's
-  # some issue (or incompatible stuff) found in bitmap, we will need a method to
-  # update the bitmaps.
-  update_mainfw
-  clear_update_cookies || true
+  if [ "${FLAGS_update_ec}" = ${FLAGS_TRUE} ]; then
+    update_ecfw
+  fi
+  clear_update_cookies
 }
 
 # Factory Wipe
 mode_factory_final() {
-  verbose_msg "Factory finalization is complete."
-  # For two-stop firmware, we have nothing to do in finalization stage.
+  cros_set_prop dev_boot_usb=0
   clear_update_cookies
 }
 
 # Updates for incompatible RW firmware (need to update RO)
 mode_incompatible_update() {
-  if is_mainfw_write_protected; then
-    # TODO(hungte) check if we really need to stop user by comparing
-    # RO firmware image, bit-by-bit.
+  # TODO(hungte) check if we really need to stop user by comparing RO firmware
+  # image, bit-by-bit.
+  is_write_protection_disabled ||
     err_die "You need to first disable hardware write protection switch."
-  fi
   mode_recovery
 }
 
@@ -405,15 +521,21 @@ mode_incompatible_update() {
 
 main_check_rw_compatible() {
   local is_compatible="${FLAGS_TRUE}"
-  if [ "${FLAGS_check_rw_compatible}" = "${FLAGS_FALSE}" ]; then
+  if [ "${FLAGS_check_rw_compatible}" = ${FLAGS_FALSE} ]; then
     verbose_msg "Bypassed RW compatbility check. You're on your own."
     return $is_compatible
   fi
 
   if [ -n "${TARGET_UNSTABLE}" ]; then
     debug_msg "Current image is tagged as UNSTABLE."
-    if [ "$FWID" != "$TARGET_FWID" ]; then
-      verbose_msg "Found unstable firmware $TARGET_FWID. Current: $FWID."
+    if [ "${FLAGS_update_main}" = ${FLAGS_TRUE} ] &&
+       [ "$FWID" != "$TARGET_FWID" ]; then
+      verbose_msg "Found unstable main firmware $TARGET_FWID. Current: $FWID."
+      is_compatible="${FLAGS_FALSE}"
+    fi
+    if [ "${FLAGS_update_ec}" = ${FLAGS_TRUE} ] &&
+       [ "$ECID" != "$TARGET_ECID" ]; then
+      verbose_msg "Found unstable EC firmware $TARGET_ECID. Current: $ECID."
       is_compatible="${FLAGS_FALSE}"
     fi
   fi
@@ -461,23 +583,30 @@ main() {
   acquire_lock
 
   # factory compatibility
-  if [ "${FLAGS_factory}" = "${FLAGS_TRUE}" ] ||
+  if [ "${FLAGS_factory}" = ${FLAGS_TRUE} ] ||
      [ "${FLAGS_mode}" = "factory" ]; then
     FLAGS_mode=factory_install
   fi
 
   verbose_msg "Starting $TARGET_PLATFORM firmware updater v3 (${FLAGS_mode})..."
-  verbose_msg " - Updater package: [$TARGET_FWID]"
-  verbose_msg " - Current system:  [$FWID]"
+  verbose_msg " - Updater package: [$TARGET_FWID / $TARGET_ECID]"
+  verbose_msg " - Current system:  [$FWID / $ECID]"
   # quick check and setup for basic envoronments
-  if [ -n "$HWID" ]; then
+  if [ ! -s "$IMAGE_MAIN" ]; then
+    FLAGS_update_main=${FLAGS_FALSE}
+    verbose_msg "No main firmware bundled in updater, ignored."
+  elif [ -n "$HWID" ]; then
     # always preserve HWID for current system, if available.
     preserve_hwid
     debug_msg "preserved HWID as: $HWID."
   fi
+  if [ ! -s "$IMAGE_EC" ]; then
+    FLAGS_update_ec=${FLAGS_FALSE}
+    debug_msg "No EC firmware bundled in updater, ignored."
+  fi
 
   # Check platform except in factory_install mode.
-  if [ "${FLAGS_check_platform}" = "${FLAGS_TRUE}" ] &&
+  if [ "${FLAGS_check_platform}" = ${FLAGS_TRUE} ] &&
      [ "${FLAGS_mode}" != "factory_install" ] &&
      [ -n "$TARGET_PLATFORM" ] &&
      [ "$PLATFORM" != "$TARGET_PLATFORM" ]; then
