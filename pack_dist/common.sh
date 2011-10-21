@@ -8,7 +8,7 @@ SCRIPT_BASE="$(dirname "$0")"
 if [ -s "$SCRIPT_BASE/shflags" ]; then
   . "$SCRIPT_BASE/shflags"
 else
-  . /usr/lib/shflags
+  . /usr/share/misc/shflags
 fi
 . "$SCRIPT_BASE/crosutil.sh"
 . "$SCRIPT_BASE/crosfw.sh"
