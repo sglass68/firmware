@@ -316,11 +316,13 @@ is_ecfw_write_protected() {
 }
 
 is_write_protection_disabled() {
-  [ "${FLAGS_update_main}" = ${FLAGS_TRUE} ] && ! is_mainfw_write_protected ||
-    return $FLAGS_FALSE
+  if [ "${FLAGS_update_main}" = ${FLAGS_TRUE} ]; then
+    is_mainfw_write_protected && return $FLAGS_FALSE || true
+  fi
 
-  [ "${FLAGS_update_ec}" = ${FLAGS_TRUE} ] && ! is_ecfw_write_protected ||
-    return $FLAGS_FALSE
+  if [ "${FLAGS_update_ec}" = ${FLAGS_TRUE} ]; then
+    is_ecfw_write_protected && return $FLAGS_FALSE || true
+  fi
 
   return $FLAGS_TRUE
 }
