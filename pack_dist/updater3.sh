@@ -258,7 +258,7 @@ need_update_main_vblock() {
   prepare_main_current_image
 
   # Compare VBLOCK from current A slot and target B slot (normal firmware).
-  is_equal_slot "$TYPE_MAIN" "VBLOCK_A" "VBLOCK_B"
+  ! is_equal_slot "$TYPE_MAIN" "VBLOCK_A" "VBLOCK_B"
 }
 
 need_update_ec() {
