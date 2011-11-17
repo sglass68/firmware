@@ -335,6 +335,14 @@ clear_update_cookies() {
       debug_msg "clear_update_cookies: there were some errors, ignored."
 }
 
+enable_dev_boot() {
+  cros_set_prop dev_boot_usb=1 dev_boot_custom=1
+}
+
+disable_dev_boot() {
+  cros_set_prop dev_boot_usb=0 dev_boot_custom=0
+}
+
 # ----------------------------------------------------------------------------
 # Core logic in different modes
 
@@ -428,10 +436,11 @@ mode_autoupdate() {
 
 # Transition to Developer Mode
 mode_todev() {
-  cros_set_prop dev_boot_usb=1
+  enable_dev_boot
   echo "
-  Booting from USB device is enabled.  Insert bootable media into USB / SDCard
-  slot and press Ctrl-U in developer screen to boot your own image.
+  Booting any self-signed kernel from SSD/USB/SDCard slot is enabled.
+  Insert bootable media into USB / SDCard slot and press Ctrl-U in developer
+  screen to boot your own image.
   "
   clear_update_cookies
 }
@@ -440,7 +449,7 @@ mode_todev() {
 mode_tonormal() {
   # This is optional because whenever you turn off developer switch, the
   # dev_boot_usb is also cleared by firmware.
-  cros_set_prop dev_boot_usb=0
+  disable_dev_boot
   echo "Booting from USB device is disabled."
   clear_update_cookies
 }
@@ -500,12 +509,13 @@ mode_factory_install() {
   if [ "${FLAGS_update_ec}" = ${FLAGS_TRUE} ]; then
     update_ecfw
   fi
+  enable_dev_boot
   clear_update_cookies
 }
 
 # Factory Wipe
 mode_factory_final() {
-  cros_set_prop dev_boot_usb=0
+  disable_dev_boot
   clear_update_cookies
 }
 
