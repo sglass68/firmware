@@ -336,11 +336,16 @@ clear_update_cookies() {
 }
 
 enable_dev_boot() {
-  cros_set_prop dev_boot_usb=1 dev_boot_custom=1
+  cros_set_prop dev_boot_usb=1 dev_boot_signed_only=0
 }
 
 disable_dev_boot() {
-  cros_set_prop dev_boot_usb=0 dev_boot_custom=0
+  # The firmware will decide and reset default values of dev_boot_usb and
+  # dev_boot_signed_only on reoot when user turned off developer switch (i.e.,
+  # normal mode). It's safe to set dev_boot_usb to zero here, but
+  # dev_boot_signed_only may expect different default values, so we leave it
+  # untouched and let firmware decide.
+  cros_set_prop dev_boot_usb=0
 }
 
 # ----------------------------------------------------------------------------
