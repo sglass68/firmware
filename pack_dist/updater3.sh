@@ -189,17 +189,25 @@ preserve_hwid() {
   silent_invoke "gbb_utility -s --hwid='$HWID' $IMAGE_MAIN"
 }
 
-preserve_bmpfv() {
+preserve_gbb() {
   if [ -z "$HWID" ]; then
-    debug_msg "preserve_bmpfv: Running on non-ChromeOS firmware system. Skip."
+    debug_msg "preserve_gbb: Running on non-ChromeOS firmware system. Skip."
     return
   fi
-  debug_msg "Preseving main firmware images..."
-  [ -s "$IMAGE_MAIN" ] || err_die "preserve_bmpfv: no main firmware."
+  debug_msg "Preseving main firmware GBB data..."
+  [ -s "$IMAGE_MAIN" ] || err_die "preserve_gbb: no main firmware."
+  # Preserves bitmap volume
   silent_invoke "flashrom $TARGET_OPT_MAIN -i GBB:_gbb.bin -r _temp.rom"
   silent_invoke "gbb_utility -g --bmpfv=_bmpfv.bin _gbb.bin"
-  [ -s "_bmpfv.bin" ] || err_die "preserve_bmpfv: invalid bmpfv"
   silent_invoke "gbb_utility -s --bmpfv=_bmpfv.bin $IMAGE_MAIN"
+  [ -s "_bmpfv.bin" ] || err_die "preserve_gbb: invalid bmpfv"
+  # Preseves flags (--flags output format: "flags: 0x0000001")
+  local flags="$(gbb_utility -g --flags _gbb.bin 2>/dev/null |
+                 sed -nr 's/^flags: ([x0-9]+)/\1/p')"
+  debug_msg "Current firmware flags: $flags"
+  if [ -n "$flags" ]; then
+    silent_invoke "gbb_utility -s --flags=$((flags)) $IMAGE_MAIN"
+  fi
 }
 
 # Compares two slots from current and target folder.
@@ -469,7 +477,7 @@ mode_recovery() {
     if ! is_mainfw_write_protected; then
       verbose_msg "$prefix: update RO+RW"
       preserve_vpd
-      preserve_bmpfv
+      preserve_gbb
       update_mainfw
     else
       # TODO(hungte) check if FMAP is not changed
