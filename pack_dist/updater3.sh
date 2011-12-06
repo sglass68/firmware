@@ -343,6 +343,13 @@ clear_update_cookies() {
       debug_msg "clear_update_cookies: there were some errors, ignored."
 }
 
+silent_sh() {
+  # Calls given commands and ignores any error (mostly for to factory
+  # installation, when the firmwaere is still non-Chrome).
+  ( "$@" ) >/dev/null 2>&1 ||
+    debug_msg "Failed calling: $@"
+}
+
 enable_dev_boot() {
   cros_set_prop dev_boot_usb=1 dev_boot_signed_only=0
 }
@@ -522,13 +529,13 @@ mode_factory_install() {
   if [ "${FLAGS_update_ec}" = ${FLAGS_TRUE} ]; then
     update_ecfw
   fi
-  enable_dev_boot
+  silent_sh enable_dev_boot
   clear_update_cookies
 }
 
 # Factory Wipe
 mode_factory_final() {
-  disable_dev_boot
+  silent_sh disable_dev_boot
   clear_update_cookies
 }
 
