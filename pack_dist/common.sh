@@ -185,7 +185,7 @@ alert_incompatible_rootkey() {
 }
 
 alert_incompatible_tpmkey() {
-  alert"
+  alert "
   Incompatible firmware image (Rollback - older than keys stored in TPM).
 
   Please update with latest recovery image and firmware, or restart a
