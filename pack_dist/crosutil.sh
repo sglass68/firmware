@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# Copyright (c) 2010 The Chromium OS Authors. All rights reserved.
+# Copyright (c) 2011 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -9,10 +9,15 @@
 # ----------------------------------------------------------------------------
 # ChromeOS Specific Utilities
 
+# Retrieves MD5 hash of a given file.
+cros_get_file_hash() {
+  md5sum -b "$1" 2>/dev/null | sed 's/ .*//'
+}
+
 # Compares two files on Chrome OS (there may be no cmp/diff)
 cros_compare_file() {
-  local hash1="$(md5sum -b "$1" 2>/dev/null | sed 's/ .*//')"
-  local hash2="$(md5sum -b "$2" 2>/dev/null | sed 's/ .*//')"
+  local hash1="$(cros_get_file_hash "$1")"
+  local hash2="$(cros_get_file_hash "$2")"
   debug_msg "cros_compare_file($1, $2): $hash1, $hash2)"
   [ -n "$hash1" ] && [ "$hash1" = "$hash2" ]
 }
@@ -93,6 +98,25 @@ cros_is_hardware_write_protected() {
   return $ret
 }
 
+# Reports the information from given key file.
+cros_report_key() {
+  local key_file="$1"
+  local key_hash="$(vbutil_key --unpack "$key_file" |
+                    sed -nr 's/^Key sha1sum: *([^ ]*)$/\1/p')"
+  local label=""
+  case "$key_hash" in
+    b11d74edd286c144e1135b49e7f0bc20cf041f10 )
+      label="DEV-signed rootkey"
+      ;;
+    "" )
+      label="Unknown (failed to unpack key)"
+      ;;
+    * )
+      ;;
+  esac
+  echo "$key_hash $label"
+}
+
 # Checks if the root keys (from Google Binary Block) are the same.
 cros_check_same_root_keys() {
   check_param "cros_check_same_root_keys(current, target)" "$@"
@@ -109,7 +133,11 @@ cros_check_same_root_keys() {
     # to workaround key paddings...
     cat $keyfile1 | sed 's/\xff*$//g; s/\x00*$//g;' >$keyfile1_strip
     cat $keyfile2 | sed 's/\xff*$//g; s/\x00*$//g;' >$keyfile2_strip
-    cros_compare_file "$keyfile1_strip" "$keyfile2_strip" || ret=$FLAGS_FALSE
+    if ! cros_compare_file "$keyfile1_strip" "$keyfile2_strip"; then
+      ret=$FLAGS_FALSE
+      alert "Current key: $(cros_report_key "$keyfile1")"
+      alert "Target  key: $(cros_report_key "$keyfile2")"
+    fi
   else
     debug_msg "warning: cannot get rootkey from $1"
     ret=$FLAGS_ERROR
@@ -164,7 +192,7 @@ cros_check_tpm_key_version() {
   debug_msg "fw_key_version: $fw_key_version"
 
   if [ "$tpm_fwver" -gt "$fw_key_version" ]; then
-    debug_msg "Firmware ($fw_key_version) will be rejected by TPM ($tpm_fwver)."
+    alert "Firmware ($fw_key_version) will be rejected by TPM ($tpm_fwver)."
     return $FLAGS_FALSE
   fi
   return $FLAGS_TRUE
