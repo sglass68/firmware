@@ -28,7 +28,7 @@ DEFINE_boolean remove_inactive_updaters ${FLAGS_TRUE} \
 DEFINE_boolean unstable ${FLAGS_FALSE} "Mark as unstable firmware (update RO)"
 
 # embedded tools
-DEFINE_string tools "flashrom mosys crossystem gbb_utility" \
+DEFINE_string tools "flashrom mosys crossystem gbb_utility vpd dump_fmap" \
   "List of tool programs to be bundled into updater"
 DEFINE_string tool_base "" \
   "Default source locations for tools programs (delimited by colon)"

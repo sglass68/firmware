@@ -181,7 +181,7 @@ update_ecfw() {
 # Note this will change $IMAGE_MAIN so any processing to the file (ex,
 # prepare_main_image) must be invoked AFTER this call.
 preserve_vpd() {
-  crosfw_dupe_vpd "-i RO_VPD -i RW_VPD" "$IMAGE_MAIN" ""
+  crosfw_dupe_vpd "RO_VPD RW_VPD" "$IMAGE_MAIN" ""
 }
 
 preserve_hwid() {

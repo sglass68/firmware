@@ -59,8 +59,11 @@ crosfw_dupe_vpd() {
   local input="$3"
   debug_msg "crosfw_dupe_vpd: Duplicating VPD... ($vpd_list)"
 
+  # TODO(hungte) Speed up by reading only partitions specified in vpd_list
+  # unless active firmware is nonchrome.
   if [ -z "$input" ]; then
     input="_vpd_temp.bin"
+    debug_msg "Reading active firmware..."
     silent_invoke "flashrom $TARGET_OPT_MAIN -r $input" ||
       err_die "Failed to read current main firmware."
   fi
@@ -74,8 +77,45 @@ crosfw_dupe_vpd() {
     err_die "Incompatible firmware image size ($size_input != $size_output)."
   fi
 
+  # Build command for VPD list
+  local vpd_list_cmd="" vpd_name=""
+  local is_trusted_vpd=1
   local param="dummy:emulate=VARIABLE_SIZE,image=$output,size=$size_input"
-  silent_invoke "flashrom -p $param $vpd_list -w $input" ||
-   err_die "Failed to dupe VPD. Please check target firmware image."
+
+  if dump_fmap "$input" >/dev/null 2>&1; then
+    # Trust the FMAP in input
+    debug_msg "Using VPD location from input FMAP"
+    is_trusted_vpd=
+    local tmpdir="_dupe_vpd.tmp"
+    local input_path="$(readlink -f "$input")"
+    (mkdir "$tmpdir"; cd "$tmpdir"; dump_fmap -x "$input_path") >/dev/null 2>&1
+    for vpd_name in $vpd_list; do
+      vpd_list_cmd="$vpd_list_cmd -i $vpd_name:$tmpdir/$vpd_name"
+    done
+  else
+    debug_msg "Using VPD location from target FMAP"
+    for vpd_name in $vpd_list; do
+      vpd_list_cmd="$vpd_list_cmd -i $vpd_name"
+    done
+  fi
+
+  debug_msg "Preserving VPD: -p $param $vpd_list_cmd"
+  if ! silent_invoke "flashrom -p $param $vpd_list_cmd -w $input"; then
+    if [ -n "$is_trusted_vpd" ]; then
+      err_die "Failed to dupe VPD. Please check target firmware image."
+    else
+      alert "Warning: corrupted VPD in current firmware - reset."
+    fi
+  fi
+
+  # Check if VPD is valid. Reset if required.
+  debug_msg "Checking VPD partitions..."
+  for vpd_name in $vpd_list; do
+    if ! silent_invoke "vpd -i $vpd_name -f $output"; then
+      alert "Warning: corrupted VPD ($vpd_name) - Reset."
+      silent_invoke "vpd -O -i $vpd_name -f $output"
+    fi
+  done
+
   debug_msg "crosfw_dupe_vpd: $output updated."
 }
