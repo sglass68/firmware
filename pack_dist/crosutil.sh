@@ -215,3 +215,10 @@ cros_is_ro_normal_boot() {
   local vdat_flags="$(cros_get_prop vdat_flags 2>/dev/null)"
   [ "$((vdat_flags & VBSD_LF_USE_RO_NORMAL))" -gt "0" ]
 }
+
+# Clears ChromeOS related NVData (usually stored on NVRAM/CMOS, storing firmware
+# related settings and cookies).
+cros_clear_nvdata() {
+  mosys nvram clear >/dev/null 2>&1 ||
+    alert " - (NVData not cleared)."
+}

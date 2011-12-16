@@ -339,7 +339,8 @@ clear_update_cookies() {
   # Always success because the system may not have crossystem ready yet if we're
   # trying to recover a broken firmware or after transition from legacy firmware
   ( cros_set_fwb_tries 0
-    cros_set_startup_update_tries 0 ) >/dev/null 2>&1 ||
+    cros_set_startup_update_tries 0
+    cros_set_prop recovery_request=0 ) >/dev/null 2>&1 ||
       debug_msg "clear_update_cookies: there were some errors, ignored."
 }
 
@@ -585,6 +586,7 @@ mode_factory_install() {
   if [ "${FLAGS_update_ec}" = "${FLAGS_TRUE}" ]; then
     update_ecfw
   fi
+  cros_clear_nvdata
   clear_update_cookies
 }
 
