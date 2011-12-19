@@ -72,7 +72,9 @@ if [ -f "$LAYOUT_MAIN" ]; then
   TARGET_OPT_MAIN="$TARGET_OPT_MAIN -l $LAYOUT_MAIN"
 fi
 if [ -f "$LAYOUT_EC" ]; then
-  TARGET_OPT_EC="$TARGET_OPT_EC -l $LAYOUT_EC"
+  # TODO(hungte) --ignore-fmap may be removed issue chrome-os-partner:7260 has
+  # been fixed in flashrom.
+  TARGET_OPT_EC="$TARGET_OPT_EC -l $LAYOUT_EC --ignore-fmap"
 fi
 
 # ----------------------------------------------------------------------------
