@@ -150,6 +150,8 @@ if [ "$bios_bin" != "" ]; then
 fi
 if [ "$ec_bin" != "" ]; then
   ec_version="$(extract_frid "$ec_bin" "$FLAGS_ec_version")"
+  # Since mosys r430, trailing spaces reported by mosys is always scrubbed.
+  ec_version="$(echo "$ec_version" | sed 's/ *$//')"
   cp -pf "$ec_bin" "$tmpbase/ec.bin" || err_die "cannot get EC image"
   echo "EC image:     $(md5sum -b "$ec_bin")" >> "$version_file"
   [ "$ec_version" = "IGNORE" ] ||
