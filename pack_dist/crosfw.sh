@@ -17,6 +17,7 @@ DIR_TARGET="_target"
 # Parametes for flashrom command
 TARGET_OPT_MAIN="-p internal:bus=spi"
 TARGET_OPT_EC="-p internal:bus=lpc"
+WRITE_OPT="--fast-verify"
 
 # Unpacks target image, in full image and unpacked form.
 crosfw_unpack_image() {

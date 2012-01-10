@@ -128,13 +128,14 @@ update_mainfw() {
   # TODO(hungte) verify if slot is valid.
   [ -s "$IMAGE_MAIN" ] || die "missing firmware image: $IMAGE_MAIN"
   if [ "$slot" = "" ]; then
-    invoke "flashrom $TARGET_OPT_MAIN -w $IMAGE_MAIN"
+    invoke "flashrom $TARGET_OPT_MAIN $WRITE_OPT -w $IMAGE_MAIN"
   elif [ "$source_type" = "" ]; then
-    invoke "flashrom $TARGET_OPT_MAIN -i $slot -w $IMAGE_MAIN"
+    invoke "flashrom $TARGET_OPT_MAIN $WRITE_OPT -w $IMAGE_MAIN -i $slot"
   else
     local section_file="$DIR_TARGET/$TYPE_MAIN/$source_type"
     [ -s "$section_file" ] || die "update_mainfw: missing $section_file"
-    invoke "flashrom $TARGET_OPT_MAIN -i $slot:$section_file -w $IMAGE_MAIN"
+    slot="$slot:$section_file"
+    invoke "flashrom $TARGET_OPT_MAIN $WRITE_OPT -w $IMAGE_MAIN -i $slot"
   fi
 }
 
@@ -154,7 +155,8 @@ dup2_mainfw() {
   if [ -s "$temp_from" ] && cros_compare_file "$temp_from" "$temp_to"; then
     debug_msg "dup2_mainfw: slot content is the same, no need to copy."
   else
-    invoke "flashrom $TARGET_OPT_MAIN -i $slot_to:$temp_from -w $temp_image"
+    slot="$slot_to:$temp_from"
+    invoke "flashrom $TARGET_OPT_MAIN $WRITE_OPT -w $temp_image -i $slot"
   fi
 }
 
@@ -169,9 +171,9 @@ update_ecfw() {
   # TODO(hungte) verify if slot is valid.
   [ -s "$IMAGE_EC" ] || die "missing firmware image: $IMAGE_EC"
   if [ -n "$slot" ]; then
-    invoke "flashrom $TARGET_OPT_EC -i $slot -w $IMAGE_EC"
+    invoke "flashrom $TARGET_OPT_EC $WRITE_OPT -w $IMAGE_EC -i $slot"
   else
-    invoke "flashrom $TARGET_OPT_EC -w $IMAGE_EC"
+    invoke "flashrom $TARGET_OPT_EC $WRITE_OPT -w $IMAGE_EC"
   fi
 }
 

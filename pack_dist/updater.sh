@@ -57,16 +57,10 @@ FWSRC_DEVELOPER="$SLOT_A"
 
 # Folders for preparing and unpacking firmware
 # Layout: DIR_[TYPE]/[TYPE]/[SECTION], DIR_[TYPE]/[IMAGE]
-DIR_CURRENT="_current"
-DIR_TARGET="_target"
 TYPE_MAIN="main"
 TYPE_EC="ec"
 IMAGE_MAIN="bios.bin"
 IMAGE_EC="ec.bin"
-
-# Parametes for flashrom command
-TARGET_OPT_MAIN="-p internal:bus=spi"
-TARGET_OPT_EC="-p internal:bus=lpc"
 
 # Determine if the target image is "two-stop" design.
 TARGET_IS_TWO_STOP=""
