@@ -59,7 +59,7 @@ do_cleanup() {
   fi
 }
 
-err_die() {
+die() {
   if [ -n "$1" ]; then
     echo "ERROR: $1" >&2
   fi
@@ -96,13 +96,13 @@ extract_frid() {
 trap do_cleanup EXIT
 
 # check tool: we need uuencode to create the shell ball.
-has_command shar || err_die "You need shar (sharutils)"
-has_command uuencode || err_die "You need uuencode (sharutils)"
+has_command shar || die "You need shar (sharutils)"
+has_command uuencode || die "You need uuencode (sharutils)"
 
 # check required basic files
 for X in "$main_script" "$stub_file"; do
   if [ ! -r "$X" ]; then
-    err_die "Cannot find required file: $X"
+    die "Cannot find required file: $X"
   fi
 done
 
@@ -110,7 +110,7 @@ done
 flashrom_bin=""
 for X in $FLAGS_tools; do
   if ! find_tool "$X" >/dev/null; then
-    err_die "Cannot find tool program to bundle: $X"
+    die "Cannot find tool program to bundle: $X"
   fi
   if [ "$X" = "flashrom" ]; then
     flashrom_bin="$(find_tool $X)"
@@ -123,11 +123,11 @@ bios_version="IGNORE"
 ec_bin="${FLAGS_ec_image}"
 ec_version="${FLAGS_ec_version}"
 if [ "$bios_bin" = "" -a "$ec_bin" = "" ]; then
-  err_die "must assign at least one of BIOS or EC image."
+  die "must assign at least one of BIOS or EC image."
 fi
 
 # create temporary folder to store files
-tmpbase="$(mktemp -d)" || err_die "Cannot create temporary folder."
+tmpbase="$(mktemp -d)" || die "Cannot create temporary folder."
 version_file="$tmpbase/VERSION"
 if [ -n "$flashrom_bin" ]; then
   flashrom_ver="$(
@@ -143,7 +143,7 @@ echo "" >>"$version_file"
 # copy firmware image files
 if [ "$bios_bin" != "" ]; then
   bios_version="$(extract_frid "$bios_bin" "IGNORE")"
-  cp -pf "$bios_bin" "$tmpbase/bios.bin" || err_die "cannot get BIOS image"
+  cp -pf "$bios_bin" "$tmpbase/bios.bin" || die "cannot get BIOS image"
   echo "BIOS image:   $(md5sum -b "$bios_bin")" >> "$version_file"
   [ "$bios_version" = "IGNORE" ] ||
     echo "BIOS version: $bios_version" >> "$version_file"
@@ -152,7 +152,7 @@ if [ "$ec_bin" != "" ]; then
   ec_version="$(extract_frid "$ec_bin" "$FLAGS_ec_version")"
   # Since mosys r430, trailing spaces reported by mosys is always scrubbed.
   ec_version="$(echo "$ec_version" | sed 's/ *$//')"
-  cp -pf "$ec_bin" "$tmpbase/ec.bin" || err_die "cannot get EC image"
+  cp -pf "$ec_bin" "$tmpbase/ec.bin" || die "cannot get EC image"
   echo "EC image:     $(md5sum -b "$ec_bin")" >> "$version_file"
   [ "$ec_version" = "IGNORE" ] ||
     echo "EC version:   $ec_version" >>"$version_file"
@@ -160,12 +160,12 @@ fi
 
 # copy tool programs and main resources from pack_dist.
 # WARNING: do not put any files with dot in prefix ( eg: .blah )
-cp -pf "$SHFLAGS_FILE" "$tmpbase"/. || err_die "cannot copy shflags"
+cp -pf "$SHFLAGS_FILE" "$tmpbase"/. || die "cannot copy shflags"
 for X in $FLAGS_tools; do
-  cp -pf "$(find_tool "$X")" "$tmpbase"/. || err_die "cannot copy $X"
+  cp -pf "$(find_tool "$X")" "$tmpbase"/. || die "cannot copy $X"
   chmod a+rx "$tmpbase/$X"
 done
-cp -rfp "$pack_dist"/* "$tmpbase" || err_die "cannot copy pack_dist folder"
+cp -rfp "$pack_dist"/* "$tmpbase" || die "cannot copy pack_dist folder"
 
 # remove inactive updater scripts
 if [ "${FLAGS_remove_inactive_updaters}" = $FLAGS_TRUE ]; then
@@ -183,11 +183,11 @@ extra_list="$(echo "${FLAGS_extra}" | tr ':' '\n')"
 for extra in $extra_list; do
   if [ -d "$extra" ]; then
     cp -r "$extra"/* "$tmpbase" ||
-      err_die "cannot copy extra files from folder $extra"
+      die "cannot copy extra files from folder $extra"
     echo "Extra files from folder: $extra" >> "$version_file"
   elif [ "$extra" != "" ]; then
     cp -r "$extra" "$tmpbase" ||
-      err_die "Cannot copy extra files $extra"
+      die "Cannot copy extra files $extra"
     echo "Extra file: $extra" >> "$version_file"
   fi
 done
@@ -213,7 +213,7 @@ sed -in "
   s/REPLACE_SCRIPT/${FLAGS_script}/;
   " "$output"
 sh "$output" --sb_repack "$tmpbase" ||
-  err_die "Failed to archive firmware package"
+  die "Failed to archive firmware package"
 
 # provide more information since output is not stdout
 chmod a+rx "$output"

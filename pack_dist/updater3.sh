@@ -126,14 +126,14 @@ update_mainfw() {
   local source_type="$2"
   debug_msg "invoking: update_mainfw($@)"
   # TODO(hungte) verify if slot is valid.
-  [ -s "$IMAGE_MAIN" ] || err_die "missing firmware image: $IMAGE_MAIN"
+  [ -s "$IMAGE_MAIN" ] || die "missing firmware image: $IMAGE_MAIN"
   if [ "$slot" = "" ]; then
     invoke "flashrom $TARGET_OPT_MAIN -w $IMAGE_MAIN"
   elif [ "$source_type" = "" ]; then
     invoke "flashrom $TARGET_OPT_MAIN -i $slot -w $IMAGE_MAIN"
   else
     local section_file="$DIR_TARGET/$TYPE_MAIN/$source_type"
-    [ -s "$section_file" ] || err_die "update_mainfw: missing $section_file"
+    [ -s "$section_file" ] || die "update_mainfw: missing $section_file"
     invoke "flashrom $TARGET_OPT_MAIN -i $slot:$section_file -w $IMAGE_MAIN"
   fi
 }
@@ -167,7 +167,7 @@ update_ecfw() {
   # Syntax: update_mainfw
   #    Write complete MAIN_TARGET_IMAGE
   # TODO(hungte) verify if slot is valid.
-  [ -s "$IMAGE_EC" ] || err_die "missing firmware image: $IMAGE_EC"
+  [ -s "$IMAGE_EC" ] || die "missing firmware image: $IMAGE_EC"
   if [ -n "$slot" ]; then
     invoke "flashrom $TARGET_OPT_EC -i $slot -w $IMAGE_EC"
   else
@@ -185,7 +185,7 @@ preserve_vpd() {
 }
 
 preserve_hwid() {
-  [ -s "$IMAGE_MAIN" ] || err_die "preserve_hwid: no main firmware."
+  [ -s "$IMAGE_MAIN" ] || die "preserve_hwid: no main firmware."
   silent_invoke "gbb_utility -s --hwid='$HWID' $IMAGE_MAIN"
 }
 
@@ -195,7 +195,7 @@ preserve_gbb() {
     return
   fi
   debug_msg "Preseving main firmware GBB data..."
-  [ -s "$IMAGE_MAIN" ] || err_die "preserve_gbb: no main firmware."
+  [ -s "$IMAGE_MAIN" ] || die "preserve_gbb: no main firmware."
   silent_invoke "flashrom $TARGET_OPT_MAIN -i GBB:_gbb.bin -r _temp.rom"
   # Preseves flags (--flags output format: "flags: 0x0000001")
   local flags="$(gbb_utility -g --flags _gbb.bin 2>/dev/null |
@@ -210,7 +210,7 @@ preserve_gbb() {
 is_equal_slot() {
   check_param "is_equal_slot(type, slot, ...)" "$@"
   local type_name="$1" slot_name="$2" slot2_name="$3"
-  [ "$#" -lt 4 ] || err_die "is_equal_slot: internal error"
+  [ "$#" -lt 4 ] || die "is_equal_slot: internal error"
   [ -n "$slot2_name" ] || slot2_name="$slot_name"
   local current="$DIR_CURRENT/$type_name/$slot_name"
   local target="$DIR_TARGET/$type_name/$slot2_name"
@@ -227,7 +227,7 @@ check_compatible_keys() {
   fi
   if ! cros_check_same_root_keys "$current_image" "$target_image"; then
     alert_incompatible_rootkey
-    err_die "Incompatible Rootkey."
+    die "Incompatible Rootkey."
   fi
 
   # Get RW firmware information
@@ -235,12 +235,12 @@ check_compatible_keys() {
   fw_info="$(cros_get_rw_firmware_info "$DIR_TARGET/$TYPE_MAIN/VBLOCK_A" \
                                        "$DIR_TARGET/$TYPE_MAIN/FW_MAIN_A" \
                                        "$target_image")" || fw_info=""
-  [ -n "$fw_info" ] || err_die "Failed to get RW firmware information"
+  [ -n "$fw_info" ] || die "Failed to get RW firmware information"
 
   # Check TPM
   if ! cros_check_tpm_key_version "$fw_info"; then
     alert_incompatible_tpmkey
-    err_die "Incompatible TPM Key."
+    die "Incompatible TPM Key."
   fi
 
   # Warn for RO-normal updates
@@ -388,7 +388,7 @@ mode_bootok() {
     dup2_mainfw "$SLOT_B" "$SLOT_A"
   else
     # Recovery mode, or non-chrome.
-    err_die "bootok: abnormal active firmware ($mainfw_act)..."
+    die "bootok: abnormal active firmware ($mainfw_act)..."
   fi
   cros_set_fwb_tries 0
 
@@ -432,9 +432,9 @@ mode_autoupdate() {
   if [ "${FLAGS_update_main}" = "${FLAGS_TRUE}" ]; then
     local mainfw_act="$(cros_get_prop mainfw_act)"
     if [ "$mainfw_act" = "B" ]; then
-      err_die_need_reboot "Done (retry update next boot)"
+      die_need_reboot "Done (retry update next boot)"
     elif [ "$mainfw_act" != "A" ]; then
-      err_die "autoupdate: unexpected active firmware ($mainfw_act)..."
+      die "autoupdate: unexpected active firmware ($mainfw_act)..."
     fi
 
     prepare_main_image
@@ -514,7 +514,7 @@ mode_factory_install() {
   # Everything executed here must assume the system may be not using ChromeOS
   # firmware.
   is_write_protection_disabled ||
-    err_die "You need to first disable hardware write protection switch."
+    die "You need to first disable hardware write protection switch."
 
   if [ "${FLAGS_update_main}" = ${FLAGS_TRUE} ]; then
     # We may preserve bitmap here, just like recovery mode. However if there's
@@ -542,7 +542,7 @@ mode_incompatible_update() {
   # TODO(hungte) check if we really need to stop user by comparing RO firmware
   # image, bit-by-bit.
   is_write_protection_disabled ||
-    err_die "You need to first disable hardware write protection switch."
+    die "You need to first disable hardware write protection switch."
   mode_recovery
 }
 
@@ -602,7 +602,7 @@ drop_lock() {
 
 acquire_lock() {
   if [ -r "$LOCK_FILE" ]; then
-    err_die "Firmware Updater already running ($LOCK_FILE). Please retry later."
+    die "Firmware Updater already running ($LOCK_FILE). Please retry later."
   fi
   touch "$LOCK_FILE"
   # Clean up on regular or error exits.
@@ -681,11 +681,11 @@ main() {
       ;;
 
     "" )
-      err_die "Please assign updater mode by --mode option."
+      die "Please assign updater mode by --mode option."
       ;;
 
     * )
-      err_die "Unknown mode: ${FLAGS_mode}"
+      die "Unknown mode: ${FLAGS_mode}"
       ;;
   esac
   verbose_msg "Firmware update (${FLAGS_mode}) completed."

@@ -27,7 +27,7 @@ crosfw_unpack_image() {
   cp -f "$image_name" "$DIR_TARGET/$image_name"
   ( cd "$DIR_TARGET/$type_name";
     dump_fmap -x "../$image_name" >/dev/null 2>&1) ||
-    err_die "Invalid firmware image (missing FMAP) in $image_name."
+    die "Invalid firmware image (missing FMAP) in $image_name."
 }
 
 # Unpacks image from current system EEPROM, in full and/or unpacked form.
@@ -65,16 +65,16 @@ crosfw_dupe_vpd() {
     input="_vpd_temp.bin"
     debug_msg "Reading active firmware..."
     silent_invoke "flashrom $TARGET_OPT_MAIN -r $input" ||
-      err_die "Failed to read current main firmware."
+      die "Failed to read current main firmware."
   fi
   local size_input="$(cros_get_file_size "$input")"
   local size_output="$(cros_get_file_size "$output")"
 
   if [ -z "$size_input" ] || [ "$size_input" = "0" ]; then
-    err_die "Invalid current main firmware. Abort."
+    die "Invalid current main firmware. Abort."
   fi
   if [ "$size_input" != "$size_output" ]; then
-    err_die "Incompatible firmware image size ($size_input != $size_output)."
+    die "Incompatible firmware image size ($size_input != $size_output)."
   fi
 
   # Build command for VPD list
@@ -102,7 +102,7 @@ crosfw_dupe_vpd() {
   debug_msg "Preserving VPD: -p $param $vpd_list_cmd"
   if ! silent_invoke "flashrom -p $param $vpd_list_cmd -w $input"; then
     if [ -n "$is_trusted_vpd" ]; then
-      err_die "Failed to dupe VPD. Please check target firmware image."
+      die "Failed to dupe VPD. Please check target firmware image."
     else
       alert "Warning: corrupted VPD in current firmware - reset."
     fi

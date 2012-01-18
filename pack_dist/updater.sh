@@ -137,14 +137,14 @@ update_mainfw() {
   local source_type="$2"
   debug_msg "invoking: update_mainfw($@)"
   # TODO(hungte) verify if slot is valid.
-  [ -s "$IMAGE_MAIN" ] || err_die "missing firmware image: $IMAGE_MAIN"
+  [ -s "$IMAGE_MAIN" ] || die "missing firmware image: $IMAGE_MAIN"
   if [ "$slot" = "" ]; then
     invoke "flashrom $TARGET_OPT_MAIN -w $IMAGE_MAIN"
   elif [ "$source_type" = "" ]; then
     invoke "flashrom $TARGET_OPT_MAIN -i $slot -w $IMAGE_MAIN"
   else
     local section_file="$DIR_TARGET/$TYPE_MAIN/$source_type"
-    [ -s "$section_file" ] || err_die "update_mainfw: missing $section_file"
+    [ -s "$section_file" ] || die "update_mainfw: missing $section_file"
     invoke "flashrom $TARGET_OPT_MAIN -i $slot:$section_file -w $IMAGE_MAIN"
   fi
 }
@@ -178,7 +178,7 @@ update_ecfw() {
   # Syntax: update_mainfw
   #    Write complete MAIN_TARGET_IMAGE
   # TODO(hungte) verify if slot is valid.
-  [ -s "$IMAGE_EC" ] || err_die "missing firmware image: $IMAGE_EC"
+  [ -s "$IMAGE_EC" ] || die "missing firmware image: $IMAGE_EC"
   if [ -n "$slot" ]; then
     invoke "flashrom $TARGET_OPT_EC -i $slot -w $IMAGE_EC"
   else
@@ -204,32 +204,32 @@ preserve_vpd() {
   local temp_file="_vpd_temp.bin"
   local vpd_list="-i RO_VPD -i RW_VPD"
   silent_invoke "flashrom $TARGET_OPT_MAIN -r $temp_file" ||
-    err_die "Failed to read current main firmware."
+    die "Failed to read current main firmware."
   local size_current="$(cros_get_file_size "$temp_file")"
   local size_target="$(cros_get_file_size "$IMAGE_MAIN")"
   if [ -z "$size_current" ] || [ "$size_current" = "0" ]; then
-    err_die "Invalid current main firmware. Abort."
+    die "Invalid current main firmware. Abort."
   fi
   if [ "$size_current" != "$size_target" ]; then
-    err_die "Incompatible firmware image size ($size_current != $size_target)."
+    die "Incompatible firmware image size ($size_current != $size_target)."
   fi
 
   local param="dummy:emulate=VARIABLE_SIZE,image=$IMAGE_MAIN,size=$size_current"
   silent_invoke "flashrom -p $param $vpd_list -w $temp_file" ||
-   err_die "Failed to preserve VPD. Please check target firmware image."
+   die "Failed to preserve VPD. Please check target firmware image."
   debug_msg "preserve_vpd: $IMAGE_MAIN updated."
 }
 
 preserve_hwid() {
-  [ -s "$IMAGE_MAIN" ] || err_die "preserve_hwid: no main firmware."
+  [ -s "$IMAGE_MAIN" ] || die "preserve_hwid: no main firmware."
   silent_invoke "gbb_utility -s --hwid='$HWID' $IMAGE_MAIN"
 }
 
 preserve_bmpfv() {
-  [ -s "$IMAGE_MAIN" ] || err_die "preserve_bmpfv: no main firmware."
+  [ -s "$IMAGE_MAIN" ] || die "preserve_bmpfv: no main firmware."
   silent_invoke "flashrom $TARGET_OPT_MAIN -i GBB:_gbb.bin -r _temp.rom"
   silent_invoke "gbb_utility -g --bmpfv=_bmpfv.bin _gbb.bin"
-  [ -s "_bmpfv.bin" ] || err_die "preserve_bmpfv: invalid bmpfv"
+  [ -s "_bmpfv.bin" ] || die "preserve_bmpfv: invalid bmpfv"
   silent_invoke "gbb_utility -s --bmpfv=_bmpfv.bin $IMAGE_MAIN"
 }
 
@@ -252,7 +252,7 @@ check_compatible_keys() {
   fi
   if ! cros_check_same_root_keys "$current_image" "$target_image"; then
     alert_incompatible_rootkey
-    err_die "Incompatible Rootkey."
+    die "Incompatible Rootkey."
   fi
 
   # Get RW firmware information
@@ -260,12 +260,12 @@ check_compatible_keys() {
   fw_info="$(cros_get_rw_firmware_info "$DIR_TARGET/$TYPE_MAIN/VBLOCK_A" \
                                        "$DIR_TARGET/$TYPE_MAIN/FW_MAIN_A" \
                                        "$target_image")" || fw_info=""
-  [ -n "$fw_info" ] || err_die "Failed to get RW firmware information"
+  [ -n "$fw_info" ] || die "Failed to get RW firmware information"
 
   # Check TPM
   if ! cros_check_tpm_key_version "$fw_info"; then
     alert_incompatible_tpmkey
-    err_die "Incompatible TPM Key."
+    die "Incompatible TPM Key."
   fi
 }
 
@@ -310,7 +310,7 @@ prepare_image() {
   cp -f "$image_name" "$DIR_TARGET/$image_name"
   ( cd "$DIR_TARGET/$type_name";
     dump_fmap -x "../$image_name" >/dev/null 2>&1) ||
-    err_die "Invalid firmware image (missing FMAP) in $image_name."
+    die "Invalid firmware image (missing FMAP) in $image_name."
 }
 
 # Prepares images from current system EEPROM, in full and/or unpacked form.
@@ -480,7 +480,7 @@ mode_bootok() {
     elif [ "$mainfw_act" = "B" ]; then
       dup2_mainfw "$SLOT_B" "$SLOT_A"
     else
-      err_die "bootok: unexpected active firmware ($mainfw_act)..."
+      die "bootok: unexpected active firmware ($mainfw_act)..."
     fi
   fi
   cros_set_fwb_tries 0
@@ -528,9 +528,9 @@ mode_autoupdate() {
     fi
     local mainfw_act="$(cros_get_prop mainfw_act)"
     if [ "$mainfw_act" = "B" ]; then
-      err_die_need_reboot "Done (retry update next boot)"
+      die_need_reboot "Done (retry update next boot)"
     elif [ "$mainfw_act" != "A" ]; then
-      err_die "autoupdate: unexpected active firmware ($mainfw_act)..."
+      die "autoupdate: unexpected active firmware ($mainfw_act)..."
     fi
     local fwsrc="$FWSRC_NORMAL"
     if [ "$(cros_get_prop mainfw_type)" = "developer" ]; then
@@ -564,11 +564,11 @@ mode_todev() {
 
   crossystem dev_boot_usb=1 || true
   if [ "${FLAGS_update_main}" != "${FLAGS_TRUE}" ]; then
-    err_die "Cannot switch to developer mode due to missing main firmware"
+    die "Cannot switch to developer mode due to missing main firmware"
   fi
   if [ "${FLAGS_force}" != "${FLAGS_TRUE}" ] &&
      [ "$(cros_get_fwb_tries)" != "0" ]; then
-    err_die "
+    die "
     It seems a firmware autoupdate is in progress.
     Re-run with --force to proceed with developer firmware transition.
     Or you can reboot and retry, in which case you should get updated
@@ -600,7 +600,7 @@ mode_tonormal() {
 
   crossystem dev_boot_usb=0 || true
   if [ "${FLAGS_update_main}" != "${FLAGS_TRUE}" ]; then
-    err_die "Cannot switch to normal mode due to missing main firmware"
+    die "Cannot switch to normal mode due to missing main firmware"
   fi
   prepare_main_image
   prepare_main_current_image
@@ -657,7 +657,7 @@ mode_factory_install() {
   if is_mainfw_write_protected || is_ecfw_write_protected; then
     # TODO(hungte) check if we really need to stop user by comparing firmware
     # image, bit-by-bit.
-    err_die "You need to first disable hardware write protection switch."
+    die "You need to first disable hardware write protection switch."
   fi
   if [ "${FLAGS_update_main}" = "${FLAGS_TRUE}" ]; then
     preserve_vpd
@@ -687,7 +687,7 @@ mode_incompatible_update() {
   if is_mainfw_write_protected || is_ecfw_write_protected; then
     # TODO(hungte) check if we really need to stop user by comparing
     # firmware image, bit-by-bit.
-    err_die "You need to first disable hardware write protection switch."
+    die "You need to first disable hardware write protection switch."
   fi
   FLAGS_update_ro_main=$FLAGS_TRUE
   FLAGS_update_ro_ec=$FLAGS_TRUE
@@ -766,7 +766,7 @@ drop_lock() {
 
 acquire_lock() {
   if [ -r "$LOCK_FILE" ]; then
-    err_die "Firmware Updater already running ($LOCK_FILE). Please retry later."
+    die "Firmware Updater already running ($LOCK_FILE). Please retry later."
   fi
   touch "$LOCK_FILE"
   # Clean up on regular or error exits.
@@ -854,10 +854,10 @@ main() {
       mode_"${FLAGS_mode}"
       ;;
     "" )
-      err_die "Please assign updater mode by --mode option."
+      die "Please assign updater mode by --mode option."
       ;;
     * )
-      err_die "Unknown mode: ${FLAGS_mode}"
+      die "Unknown mode: ${FLAGS_mode}"
       ;;
   esac
   verbose_msg "Firmware update (${FLAGS_mode}) completed."

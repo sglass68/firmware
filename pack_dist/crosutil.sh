@@ -18,19 +18,19 @@ cros_get_file_hash() {
 cros_compare_file() {
   local hash1="$(cros_get_file_hash "$1")"
   local hash2="$(cros_get_file_hash "$2")"
-  debug_msg "cros_compare_file($1, $2): $hash1, $hash2)"
+  debug_msg "cros_compare_file($1, $2): $hash1, $hash2"
   [ -n "$hash1" ] && [ "$hash1" = "$hash2" ]
 }
 
 # Gets file size.
 cros_get_file_size() {
-  [ -e "$1" ] || err_die "cros_get_file_size: invalid file: $1"
+  [ -e "$1" ] || die "cros_get_file_size: invalid file: $1"
   stat -c "%s" "$1" 2>/dev/null
 }
 
 # Gets a Chrome OS system property (must exist).
 cros_get_prop() {
-  crossystem "$@" || err_die "cannot get crossystem property: $@"
+  crossystem "$@" || die "cannot get crossystem property: $@"
 }
 
 # Sets a Chrome OS system property.
@@ -39,7 +39,7 @@ cros_set_prop() {
     alert "dry_run: cros_set_prop $@"
     return ${FLAGS_TRUE}
   fi
-  crossystem "$@" || err_die "cannot SET crossystem property: $@"
+  crossystem "$@" || die "cannot SET crossystem property: $@"
 }
 
 # Queries a Chrome OS system property, return error if not available.
@@ -129,7 +129,7 @@ cros_check_same_root_keys() {
   # current(1) may not contain root key, but target(2) MUST have a root key
   if silent_invoke "gbb_utility -g --rootkey=$keyfile1 $1" 2>/dev/null; then
     silent_invoke "gbb_utility -g --rootkey=$keyfile2 $2" ||
-      err_die "Cannot find ChromeOS GBB RootKey in $2."
+      die "Cannot find ChromeOS GBB RootKey in $2."
     # to workaround key paddings...
     cat $keyfile1 | sed 's/\xff*$//g; s/\x00*$//g;' >$keyfile1_strip
     cat $keyfile2 | sed 's/\xff*$//g; s/\x00*$//g;' >$keyfile2_strip
@@ -184,7 +184,7 @@ cros_check_tpm_key_version() {
     echo "$fw_info" | sed -n '/^ *Firmware version:/s/.*:[ \t]*//p')"
   debug_msg "firmware_version: $firmware_version"
   if [ -z "$data_key_version" ] || [ -z "$firmware_version" ]; then
-    err_die "Cannot verify firmware key version from target image."
+    die "Cannot verify firmware key version from target image."
   fi
 
   local fw_key_version="$((
@@ -220,5 +220,5 @@ cros_is_ro_normal_boot() {
 # related settings and cookies).
 cros_clear_nvdata() {
   mosys nvram clear >/dev/null 2>&1 ||
-    alert " - (NVData not cleared)."
+    debug_msg " - (NVData not cleared)."
 }

@@ -137,14 +137,14 @@ update_mainfw() {
   local source_type="$2"
   debug_msg "invoking: update_mainfw($@)"
   # TODO(hungte) verify if slot is valid.
-  [ -s "$IMAGE_MAIN" ] || err_die "missing firmware image: $IMAGE_MAIN"
+  [ -s "$IMAGE_MAIN" ] || die "missing firmware image: $IMAGE_MAIN"
   if [ "$slot" = "" ]; then
     invoke "flashrom $TARGET_OPT_MAIN -w $IMAGE_MAIN"
   elif [ "$source_type" = "" ]; then
     invoke "flashrom $TARGET_OPT_MAIN -i $slot -w $IMAGE_MAIN"
   else
     local section_file="$DIR_TARGET/$TYPE_MAIN/$source_type"
-    [ -s "$section_file" ] || err_die "update_mainfw: missing $section_file"
+    [ -s "$section_file" ] || die "update_mainfw: missing $section_file"
     invoke "flashrom $TARGET_OPT_MAIN -i $slot:$section_file -w $IMAGE_MAIN"
   fi
 }
@@ -158,7 +158,7 @@ update_ecfw() {
   # Syntax: update_mainfw
   #    Write complete MAIN_TARGET_IMAGE
   # TODO(hungte) verify if slot is valid.
-  [ -s "$IMAGE_EC" ] || err_die "missing firmware image: $IMAGE_EC"
+  [ -s "$IMAGE_EC" ] || die "missing firmware image: $IMAGE_EC"
   if [ -n "$slot" ]; then
     invoke "flashrom $TARGET_OPT_EC -i $slot -w $IMAGE_EC"
   else
@@ -170,7 +170,7 @@ update_ecfw() {
 # Helper functions
 
 preserve_hwid() {
-  [ -s "$IMAGE_MAIN" ] || err_die "preserve_hwid: no main firmware."
+  [ -s "$IMAGE_MAIN" ] || die "preserve_hwid: no main firmware."
   silent_invoke "gbb_utility -s --hwid='$HWID' $IMAGE_MAIN"
 }
 
@@ -180,12 +180,12 @@ preserve_gbb() {
     return
   fi
   debug_msg "Preseving main firmware GBB data..."
-  [ -s "$IMAGE_MAIN" ] || err_die "preserve_gbb: no main firmware."
+  [ -s "$IMAGE_MAIN" ] || die "preserve_gbb: no main firmware."
   # Preserves bitmap volume
   silent_invoke "flashrom $TARGET_OPT_MAIN -i GBB:_gbb.bin -r _temp.rom"
   silent_invoke "gbb_utility -g --bmpfv=_bmpfv.bin _gbb.bin"
   silent_invoke "gbb_utility -s --bmpfv=_bmpfv.bin $IMAGE_MAIN"
-  [ -s "_bmpfv.bin" ] || err_die "preserve_gbb: invalid bmpfv"
+  [ -s "_bmpfv.bin" ] || die "preserve_gbb: invalid bmpfv"
   # Preseves flags (--flags output format: "flags: 0x0000001")
   local flags="$(gbb_utility -g --flags _gbb.bin 2>/dev/null |
                  sed -nr 's/^flags: ([x0-9]+)/\1/p')"
@@ -204,7 +204,7 @@ check_compatible_keys() {
   silent_invoke "flashrom $TARGET_OPT_MAIN -i GBB:_gbb.bin -r _temp.rom"
   if ! cros_check_same_root_keys "_gbb.bin" "$IMAGE_MAIN"; then
     alert_incompatible_rootkey
-    err_die "Incompatible Rootkey."
+    die "Incompatible Rootkey."
   fi
 }
 
@@ -357,7 +357,7 @@ mode_factory_install() {
   # Everything executed here must assume the system may be not using ChromeOS
   # firmware.
   is_write_protection_disabled ||
-    err_die "You need to first disable hardware write protection switch."
+    die "You need to first disable hardware write protection switch."
 
   if [ "${FLAGS_update_main}" = ${FLAGS_TRUE} ]; then
     # We may preserve bitmap here, just like recovery mode. However if there's
@@ -381,7 +381,7 @@ mode_incompatible_update() {
   # TODO(hungte) check if we really need to stop user by comparing RO firmware
   # image, bit-by-bit.
   is_write_protection_disabled ||
-    err_die "You need to first disable hardware write protection switch."
+    die "You need to first disable hardware write protection switch."
   mode_recovery
 }
 
@@ -441,7 +441,7 @@ drop_lock() {
 
 acquire_lock() {
   if [ -r "$LOCK_FILE" ]; then
-    err_die "Firmware Updater already running ($LOCK_FILE). Please retry later."
+    die "Firmware Updater already running ($LOCK_FILE). Please retry later."
   fi
   touch "$LOCK_FILE"
   # Clean up on regular or error exits.
@@ -520,11 +520,11 @@ main() {
       ;;
 
     "" )
-      err_die "Please assign updater mode by --mode option."
+      die "Please assign updater mode by --mode option."
       ;;
 
     * )
-      err_die "Unknown mode: ${FLAGS_mode}"
+      die "Unknown mode: ${FLAGS_mode}"
       ;;
   esac
   verbose_msg "Firmware update (${FLAGS_mode}) completed."

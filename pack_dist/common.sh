@@ -22,22 +22,22 @@ alert() {
 }
 
 # Reports error message and exit(1)
-# NOTE: top level script does not exit if call to err_die is inside a
+# NOTE: top level script does not exit if call to die is inside a
 # sub-shell (ex: (func-call), $(func-call)) or if-blocks.
-err_die() {
+die() {
   alert "ERROR: $*"
   exit 1
 }
 
-# Alias for err_die.
-die() {
-  err_die "$@"
+# Alias for die, backward compatibility for custom scripts in board overlay
+err_die() {
+  die "$@"
 }
 
 # Reports error message and exit(2)
-# NOTE: top level script does not exit if call to err_die is inside a
+# NOTE: top level script does not exit if call to die is inside a
 # sub-shell (ex: (func-call), $(func-call)) or if-blocks.
-err_die_need_reboot() {
+die_need_reboot() {
   alert "ERROR: $*"
   exit 3
 }
@@ -81,9 +81,9 @@ check_param() {
     i=$(($i + 1))
   done
   if [ $has_wild_arg = 1 ]; then
-    [ $# -ge $i ] || err_die "$original_format: need $i+ params (got $#): $@"
+    [ $# -ge $i ] || die "$original_format: need $i+ params (got $#): $@"
   else
-    [ $# -eq $i ] || err_die "$original_format: need $i params (got $#): $@"
+    [ $# -eq $i ] || die "$original_format: need $i params (got $#): $@"
   fi
 
   # check if we have any empty parameters
@@ -93,7 +93,7 @@ check_param() {
     # forr params started with 'opt_', allow it to be empty.
     if [ -z "$param" -a "${param_name##opt_*}" != "" ]; then
       shift # remove the invoke command name
-      err_die "check_param: $original_format: " \
+      die "check_param: $original_format: " \
               "param '$param_name' is empty: '$@'"
     fi
     i=$(($i + 1))
@@ -119,7 +119,7 @@ silent_invoke() {
 # Prints a verbose message before calling silent_invoke.
 invoke() {
   verbose_msg " * invoke: $@"
-  silent_invoke "$@" || err_die "Execution FAILED."
+  silent_invoke "$@" || die "Execution FAILED."
 }
 
 alert_write_protection() {
