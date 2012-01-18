@@ -736,6 +736,9 @@ main() {
   verbose_msg " - Updater package: [$TARGET_FWID / $TARGET_ECID]"
   verbose_msg " - Current system:  [$FWID / $ECID]"
 
+  local wpmsg="$(cros_report_wp_status $FLAGS_update_main $FLAGS_update_ec)"
+  verbose_msg " - Write protection: $wpmsg"
+
   case "${FLAGS_mode}" in
     # Modes which can attempt to update RO if RO+RW are not compatible.
     startup | recovery )

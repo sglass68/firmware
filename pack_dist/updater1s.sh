@@ -219,8 +219,7 @@ is_mainfw_write_protected() {
   elif ! cros_is_hardware_write_protected; then
     false
   else
-    flashrom $TARGET_OPT_MAIN --wp-status 2>/dev/null |
-      grep -q "write protect is enabled"
+    cros_is_software_write_protected "$TARGET_OPT_MAIN"
   fi
 }
 
@@ -231,8 +230,7 @@ is_ecfw_write_protected() {
   elif ! cros_is_hardware_write_protected; then
     false
   else
-    flashrom $TARGET_OPT_EC --wp-status 2>/dev/null |
-      grep -q "write protect is enabled"
+    cros_is_software_write_protected "$TARGET_OPT_EC"
   fi
 }
 
@@ -460,6 +458,7 @@ main() {
   verbose_msg "Starting $TARGET_PLATFORM firmware updater v1s ($FLAGS_mode)..."
   verbose_msg " - Updater package: [$TARGET_FWID / $TARGET_ECID]"
   verbose_msg " - Current system:  [$FWID / $ECID]"
+
   # quick check and setup for basic envoronments
   if [ ! -s "$IMAGE_MAIN" ]; then
     FLAGS_update_main=${FLAGS_FALSE}
@@ -473,6 +472,9 @@ main() {
     FLAGS_update_ec=${FLAGS_FALSE}
     debug_msg "No EC firmware bundled in updater, ignored."
   fi
+
+  local wpmsg="$(cros_report_wp_status $FLAGS_update_main $FLAGS_update_ec)"
+  verbose_msg " - Write protection: $wpmsg"
 
   # Check platform except in factory_install mode.
   if [ "${FLAGS_check_platform}" = ${FLAGS_TRUE} ] &&

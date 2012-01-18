@@ -92,10 +92,34 @@ cros_is_hardware_write_protected() {
   # targets. NOTE: if wpsw_cur gives error, we should treat like "protected"
   # so the test uses "!= 0" instead of "= 1".
   if [ "$(cros_query_prop wpsw_cur)" != "0" ]; then
-    verbose_msg "Hardware write protection is enabled!"
+    debug_msg "Hardware write protection is enabled!"
     ret=${FLAGS_TRUE}
   fi
   return $ret
+}
+
+# Returns if the software write-protection register is enabled.
+cros_is_software_write_protected() {
+  local opt="$1"
+  flashrom $opt --wp-status 2>/dev/null |
+    grep -q "write protect is enabled"
+}
+
+# Reports write protection status
+cros_report_wp_status() {
+  local test_main="$1" test_ec="$2"
+  local wp_hw="off" wp_sw_main="off" wp_sw_ec="off"
+  cros_is_hardware_write_protected && wp_hw="ON"
+  local message="Hardware: $wp_hw, Software:"
+  if [ "$test_main" = $FLAGS_TRUE ]; then
+    cros_is_software_write_protected "$TARGET_OPT_MAIN" && wp_sw_main="ON"
+    message="$message Main=$wp_sw_main"
+  fi
+  if [ "$test_ec" = $FLAGS_TRUE ]; then
+    cros_is_software_write_protected "$TARGET_OPT_EC" && wp_sw_ec="ON"
+    message="$message EC=$wp_sw_ec"
+  fi
+  echo "$message"
 }
 
 # Reports the information from given key file.

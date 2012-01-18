@@ -621,6 +621,7 @@ main() {
   verbose_msg "Starting $TARGET_PLATFORM firmware updater v3 (${FLAGS_mode})..."
   verbose_msg " - Updater package: [$TARGET_FWID / $TARGET_ECID]"
   verbose_msg " - Current system:  [$FWID / $ECID]"
+
   # quick check and setup for basic envoronments
   if [ ! -s "$IMAGE_MAIN" ]; then
     FLAGS_update_main=${FLAGS_FALSE}
@@ -634,6 +635,9 @@ main() {
     FLAGS_update_ec=${FLAGS_FALSE}
     debug_msg "No EC firmware bundled in updater, ignored."
   fi
+
+  local wpmsg="$(cros_report_wp_status $FLAGS_update_main $FLAGS_update_ec)"
+  verbose_msg " - Write protection: $wpmsg"
 
   # Check platform except in factory_install mode.
   if [ "${FLAGS_check_platform}" = ${FLAGS_TRUE} ] &&
