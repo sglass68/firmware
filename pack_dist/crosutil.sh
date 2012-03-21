@@ -216,7 +216,9 @@ cros_check_tpm_key_version() {
   debug_msg "fw_key_version: $fw_key_version"
 
   if [ "$tpm_fwver" -gt "$fw_key_version" ]; then
-    alert "Firmware ($fw_key_version) will be rejected by TPM ($tpm_fwver)."
+    fw_key_version="$(printf "0x%x" $fw_key_version)"
+    tpm_fwver="$(printf "0x%x" $tpm_fwver)"
+    alert "Firmware key ($fw_key_version) will be rejected by TPM ($tpm_fwver)."
     return $FLAGS_FALSE
   fi
   return $FLAGS_TRUE
