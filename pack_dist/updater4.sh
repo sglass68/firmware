@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# Copyright (c) 2011 The Chromium OS Authors. All rights reserved.
+# Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 #
@@ -18,11 +18,8 @@
 #
 # Temporary files should be named as "_*" to prevent confliction
 
-# Updater for firmware v3 (two-stop)
-# This is designed for x86/arm platform, with following assumption:
-# 1. Perform updates even if active firmware is "developer mode"
-# 2. Sleep/suspend (S3) after RO update may fail system (due to ACPI/ASL code
-#    dependency), but that only happens on internal developer's dogfood devices
+# Updater for firmware v4 (two-stop main, chromeos-ec)
+# This is designed for x86/arm platform, using chromeos-ec.
 
 SCRIPT_BASE="$(dirname "$0")"
 . "$SCRIPT_BASE/common.sh"
@@ -55,7 +52,7 @@ SLOT_A="RW_SECTION_A"
 SLOT_B="RW_SECTION_B"
 SLOT_RO="RO_SECTION"
 SLOT_RW_SHARED="RW_SHARED"
-SLOT_EC_RO="EC_RO"
+SLOT_EC_RO="RO_SECTION"
 SLOT_EC_RW="EC_RW"
 
 FWSRC_NORMAL="$SLOT_B"
@@ -368,10 +365,11 @@ disable_dev_boot() {
 # Startup
 mode_startup() {
   if [ "${FLAGS_update_ec}" = ${FLAGS_TRUE} ]; then
-    if need_update_ec; then
-      # EC image already prepared in need_update_ec
-      is_ecfw_write_protected || update_ecfw "$SLOT_EC_RO"
+    # TODO(hungte) Fix this when chromeos-ec has defined proper update flow.
+    if is_ecfw_write_protected; then
       update_ecfw "$SLOT_EC_RW"
+    else
+      update_ecfw
     fi
     cros_set_startup_update_tries 0
     cros_reboot
@@ -396,9 +394,14 @@ mode_bootok() {
 
   if [ "${FLAGS_update_ec}" = ${FLAGS_TRUE} ] &&
      [ "$(cros_get_prop ecfw_act)" = "RO" ]; then
-    verbose_msg "EC was boot by RO and may need an update/recovery."
-    cros_set_startup_update_tries 6
+    # TODO(hungte) Uncomment following procedure when crossystem supports
+    # ecfw_act correctly (crosbug.com/p/9569).
+    # verbose_msg "EC was boot by RO and may need an update/recovery."
+    # cros_set_startup_update_tries 6
+    verbose_msg "RO EC detected and ignored (crosbug.com/p/9569)."
   fi
+  # TODO(hungte) Remove next line (set tries to zero) when ecfw_act is fixed.
+  cros_set_startup_update_tries 0
 }
 
 # Update Engine - Received Update

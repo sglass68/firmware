@@ -396,6 +396,10 @@ mode_bootok() {
 
   if [ "${FLAGS_update_ec}" = ${FLAGS_TRUE} ] &&
      [ "$(cros_get_prop ecfw_act)" = "RO" ]; then
+    # TODO(hungte) We need to handle one special case in future: user boot with
+    # recovery button pressed and then never hard-reset device, and then EC will
+    # always be in RO until we rewrite the EC firmware (i.e., next startup
+    # update).
     verbose_msg "EC was boot by RO and may need an update/recovery."
     cros_set_startup_update_tries 6
   fi
