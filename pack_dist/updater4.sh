@@ -18,7 +18,7 @@
 #
 # Temporary files should be named as "_*" to prevent confliction
 
-# Updater for firmware v4 (two-stop main, chromeos-ec)
+# Updater for firmware v4 (two-stop main, chromeos-ec, with MTD support).
 # This is designed for x86/arm platform, using chromeos-ec.
 
 SCRIPT_BASE="$(dirname "$0")"
@@ -62,6 +62,12 @@ TYPE_MAIN="main"
 TYPE_EC="ec"
 IMAGE_MAIN="bios.bin"
 IMAGE_EC="ec.bin"
+
+# For platforms using SPI with kernel-driver support (ex, MTD), define the
+# device name (ex, /dev/mtd0), param, and erase command (ex, mtderase).
+DEVICE_MAIN=""
+DEVICE_MAIN_WRITE_PARAM=""
+DEVICE_MAIN_ERASE_COMMAND=""
 
 # ----------------------------------------------------------------------------
 # Global Variables
@@ -125,7 +131,12 @@ update_mainfw() {
   # TODO(hungte) verify if slot is valid.
   [ -s "$IMAGE_MAIN" ] || die "missing firmware image: $IMAGE_MAIN"
   if [ "$slot" = "" ]; then
-    invoke "flashrom $TARGET_OPT_MAIN $WRITE_OPT -w $IMAGE_MAIN"
+    if [ -n "$DEVICE_MAIN" ]; then
+      invoke "$DEVICE_MAIN_ERASE_COMMAND"
+      invoke "dd if=$IMAGE_MAIN of=$DEVICE_MAIN $DEVICE_MAIN_WRITE_PARAM"
+    else
+      invoke "flashrom $TARGET_OPT_MAIN $WRITE_OPT -w $IMAGE_MAIN"
+    fi
   elif [ "$source_type" = "" ]; then
     invoke "flashrom $TARGET_OPT_MAIN $WRITE_OPT -w $IMAGE_MAIN -i $slot"
   else
@@ -623,7 +634,7 @@ main() {
     FLAGS_mode=factory_install
   fi
 
-  verbose_msg "Starting $TARGET_PLATFORM firmware updater v3 (${FLAGS_mode})..."
+  verbose_msg "Starting $TARGET_PLATFORM firmware updater v4 (${FLAGS_mode})..."
   verbose_msg " - Updater package: [$TARGET_FWID / $TARGET_ECID]"
   verbose_msg " - Current system:  [$FWID / $ECID]"
 
