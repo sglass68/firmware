@@ -375,18 +375,8 @@ disable_dev_boot() {
 
 # Startup
 mode_startup() {
-  if [ "${FLAGS_update_ec}" = ${FLAGS_TRUE} ]; then
-    # TODO(hungte) Fix this when chromeos-ec has defined proper update flow.
-    if is_ecfw_write_protected; then
-      update_ecfw "$SLOT_EC_RW"
-    else
-      update_ecfw
-    fi
-    cros_set_startup_update_tries 0
-    cros_reboot
-  else
-    cros_set_startup_update_tries 0
-  fi
+  # ChromeOS-EC do not need to be updated at startup time.
+  cros_set_startup_update_tries 0
 }
 
 # Update Engine - Current Boot Successful (chromeos_setgoodkernel)
