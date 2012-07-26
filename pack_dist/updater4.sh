@@ -18,8 +18,8 @@
 #
 # Temporary files should be named as "_*" to prevent confliction
 
-# Updater for firmware v4 (two-stop main, chromeos-ec, with MTD support).
-# This is designed for x86/arm platform, using chromeos-ec.
+# Updater for firmware v4 (two-stop main, chromeos-ec).
+# This is designed for x86/arm platform, using chromeos-ec (software sync).
 
 SCRIPT_BASE="$(dirname "$0")"
 . "$SCRIPT_BASE/common.sh"
@@ -52,7 +52,7 @@ SLOT_A="RW_SECTION_A"
 SLOT_B="RW_SECTION_B"
 SLOT_RO="RO_SECTION"
 SLOT_RW_SHARED="RW_SHARED"
-SLOT_EC_RO="RO_SECTION"
+SLOT_EC_RO="EC_RO"
 SLOT_EC_RW="EC_RW"
 
 FWSRC_NORMAL="$SLOT_B"
@@ -62,12 +62,6 @@ TYPE_MAIN="main"
 TYPE_EC="ec"
 IMAGE_MAIN="bios.bin"
 IMAGE_EC="ec.bin"
-
-# For platforms using SPI with kernel-driver support (ex, MTD), define the
-# device name (ex, /dev/mtd0), param, and erase command (ex, mtderase).
-DEVICE_MAIN=""
-DEVICE_MAIN_WRITE_PARAM=""
-DEVICE_MAIN_ERASE_COMMAND=""
 
 # ----------------------------------------------------------------------------
 # Global Variables
@@ -131,12 +125,7 @@ update_mainfw() {
   # TODO(hungte) verify if slot is valid.
   [ -s "$IMAGE_MAIN" ] || die "missing firmware image: $IMAGE_MAIN"
   if [ "$slot" = "" ]; then
-    if [ -n "$DEVICE_MAIN" ]; then
-      invoke "$DEVICE_MAIN_ERASE_COMMAND"
-      invoke "dd if=$IMAGE_MAIN of=$DEVICE_MAIN $DEVICE_MAIN_WRITE_PARAM"
-    else
-      invoke "flashrom $TARGET_OPT_MAIN $WRITE_OPT -w $IMAGE_MAIN"
-    fi
+    invoke "flashrom $TARGET_OPT_MAIN $WRITE_OPT -w $IMAGE_MAIN"
   elif [ "$source_type" = "" ]; then
     invoke "flashrom $TARGET_OPT_MAIN $WRITE_OPT -w $IMAGE_MAIN -i $slot"
   else
@@ -393,16 +382,7 @@ mode_bootok() {
   fi
   cros_set_fwb_tries 0
 
-  if [ "${FLAGS_update_ec}" = ${FLAGS_TRUE} ] &&
-     [ "$(cros_get_prop ecfw_act)" = "RO" ]; then
-    # TODO(hungte) Uncomment following procedure when crossystem supports
-    # ecfw_act correctly (crosbug.com/p/9569).
-    # verbose_msg "EC was boot by RO and may need an update/recovery."
-    # cros_set_startup_update_tries 6
-    verbose_msg "RO EC detected and ignored (crosbug.com/p/9569)."
-  fi
-  # TODO(hungte) Remove next line (set tries to zero) when ecfw_act is fixed.
-  cros_set_startup_update_tries 0
+  # EC firmware is managed by software sync (main firmware).
 }
 
 # Update Engine - Received Update
@@ -450,11 +430,7 @@ mode_autoupdate() {
     cros_set_fwb_tries 6
   fi
 
-  # Don't call need_update_ec because it will freeze the keyboard.
-  if [ "${FLAGS_update_ec}" = "${FLAGS_TRUE}" ]; then
-    cros_set_startup_update_tries 6
-    verbose_msg "Done (EC update will occur at Startup)"
-  fi
+  # EC updates will be handled by EC software sync.
 }
 
 # Transition to Developer Mode
