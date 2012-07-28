@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Copyright (c) 2011 The Chromium OS Authors. All rights reserved.
+# Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -162,7 +162,10 @@ fi
 # WARNING: do not put any files with dot in prefix ( eg: .blah )
 cp -pf "$SHFLAGS_FILE" "$tmpbase"/. || die "cannot copy shflags"
 for X in $FLAGS_tools; do
-  cp -pf "$(find_tool "$X")" "$tmpbase"/. || die "cannot copy $X"
+  # Use static version if available.
+  tool_file="$(find_tool "$X")"
+  [ -e "$tool_file"_s ] && tool_file="$tool_file"_s
+  cp -pf "$tool_file" "$tmpbase/$X" || die "cannot copy $X"
   chmod a+rx "$tmpbase/$X"
 done
 cp -rfp "$pack_dist"/* "$tmpbase" || die "cannot copy pack_dist folder"
