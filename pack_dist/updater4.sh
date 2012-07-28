@@ -478,11 +478,11 @@ mode_recovery() {
   fi
 
   if [ "${FLAGS_update_ec}" = ${FLAGS_TRUE} ]; then
-    prepare_ec_image
     if ! is_ecfw_write_protected; then
       verbose_msg "$prefix: update ec/RO+RW"
       update_ecfw
     else
+      prepare_ec_image
       verbose_msg "$prefix: update ec/RW"
       update_ecfw "$SLOT_EC_RW"
     fi
