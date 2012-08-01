@@ -427,7 +427,12 @@ mode_autoupdate() {
     prepare_main_current_image
     check_compatible_keys
     update_mainfw "$SLOT_B" "$FWSRC_NORMAL"
-    cros_set_fwb_tries 6
+    if [ "$ECID" != "$TARGET_ECID" ]; then
+      # EC software sync may need extra reboots.
+      cros_set_fwb_tries 8
+    else
+      cros_set_fwb_tries 6
+    fi
   fi
 
   # EC updates will be handled by EC software sync.
