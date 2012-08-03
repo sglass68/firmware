@@ -73,6 +73,7 @@ ECINFO="$(mosys -k ec info 2>/dev/null)" || ECINFO=""
 # Compare following values with TARGET_FWID, TARGET_ECID, TARGET_PLATFORM
 # (should be passed by wrapper as environment variables)
 FWID="$(crossystem fwid 2>/dev/null)" || FWID=""
+RO_FWID="$(crossystem ro_fwid 2>/dev/null)" || RO_FWID=""
 ECID="$(eval "$ECINFO"; echo "$fw_version")"
 PLATFORM="$(mosys platform name 2>/dev/null)" || PLATFORM=""
 
@@ -604,10 +605,12 @@ main() {
      [ "${FLAGS_mode}" = "factory" ]; then
     FLAGS_mode=factory_install
   fi
+  local ro_type=""
+  cros_is_ro_normal_boot && ro_type="$ro_type[RO_NORMAL]"
 
   verbose_msg "Starting $TARGET_PLATFORM firmware updater v4 (${FLAGS_mode})..."
   verbose_msg " - Updater package: [$TARGET_FWID / $TARGET_ECID]"
-  verbose_msg " - Current system:  [$FWID / $ECID]"
+  verbose_msg " - Current system:  [RO:$RO_FWID $ro_type, ACT:$FWID / $ECID]"
 
   # quick check and setup for basic envoronments
   if [ ! -s "$IMAGE_MAIN" ]; then

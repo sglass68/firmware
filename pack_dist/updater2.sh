@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# Copyright (c) 2011 The Chromium OS Authors. All rights reserved.
+# Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 #
@@ -78,6 +78,7 @@ ECINFO="$(mosys -k ec info 2>/dev/null)" || ECINFO=""
 # Compare following values with TARGET_FWID, TARGET_ECID, TARGET_PLATFORM
 # (should be passed by wrapper as environment variables)
 FWID="$(crossystem fwid 2>/dev/null)" || FWID=""
+RO_FWID="$(crossystem ro_fwid 2>/dev/null)" || RO_FWID=""
 ECID="$(eval "$ECINFO"; echo "$fw_version")"
 PLATFORM="$(mosys platform name 2>/dev/null)" || PLATFORM=""
 
@@ -389,7 +390,8 @@ mode_bootok() {
     cros_set_fwb_tries 0
     return
   fi
-  # TODO(hungte) check if WP disabled and FRID does not match embedded firmware
+  # TODO(hungte) check if WP disabled and RO_FWID does not match embedded
+  # firmware
 
   if [ "$(cros_get_prop ecfw_act)" = "RO" ]; then
     verbose_msg "EC was boot by RO and may need an update/recovery."
@@ -730,7 +732,7 @@ main() {
   fi
 
   verbose_msg " - Updater package: [$TARGET_FWID / $TARGET_ECID]"
-  verbose_msg " - Current system:  [$FWID / $ECID]"
+  verbose_msg " - Current system:  [RO:$RO_FWID, ACT:$FWID / $ECID]"
 
   local wpmsg="$(cros_report_wp_status $FLAGS_update_main $FLAGS_update_ec)"
   verbose_msg " - Write protection: $wpmsg"

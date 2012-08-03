@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# Copyright (c) 2011 The Chromium OS Authors. All rights reserved.
+# Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 #
@@ -87,6 +87,7 @@ ECINFO="$(mosys -k ec info 2>/dev/null)" || ECINFO=""
 # Compare following values with TARGET_FWID, TARGET_ECID, TARGET_PLATFORM
 # (should be passed by wrapper as environment variables)
 FWID="$(crossystem fwid 2>/dev/null)" || FWID=""
+RO_FWID="$(crossystem ro_fwid 2>/dev/null)" || RO_FWID=""
 ECID="$(eval "$ECINFO"; echo "$fw_version")"
 PLATFORM="$(mosys platform name 2>/dev/null)" || PLATFORM=""
 
@@ -458,7 +459,7 @@ main() {
 
   verbose_msg "Starting $TARGET_PLATFORM firmware updater v1s ($FLAGS_mode)..."
   verbose_msg " - Updater package: [$TARGET_FWID / $TARGET_ECID]"
-  verbose_msg " - Current system:  [$FWID / $ECID]"
+  verbose_msg " - Current system:  [RO:$RO_FWID, ACT:$FWID / $ECID]"
 
   # quick check and setup for basic envoronments
   if [ ! -s "$IMAGE_MAIN" ]; then
