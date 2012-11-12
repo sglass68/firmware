@@ -433,23 +433,8 @@ main_check_rw_compatible() {
   return $is_compatible
 }
 
-LOCK_FILE="/tmp/chromeos-firmwareupdate-running"
-
-drop_lock() {
-  rm -f "$LOCK_FILE"
-}
-
-acquire_lock() {
-  if [ -r "$LOCK_FILE" ]; then
-    die "Firmware Updater already running ($LOCK_FILE). Please retry later."
-  fi
-  touch "$LOCK_FILE"
-  # Clean up on regular or error exits.
-  trap drop_lock EXIT
-}
-
 main() {
-  acquire_lock
+  cros_acquire_lock
 
   # factory compatibility
   if [ "${FLAGS_factory}" = ${FLAGS_TRUE} ] ||

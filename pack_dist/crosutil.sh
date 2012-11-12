@@ -304,3 +304,34 @@ cros_setup_path() {
 
   debug_msg "Using programs in system."
 }
+
+# Reset lock file variable.
+LOCK_FILE=""
+
+cros_acquire_lock() {
+  LOCK_FILE="${1:-/tmp/chromeos-firmwareupdate-running}"
+  debug_msg "cros_acquire_lock: Set lock file to $LOCK_FILE."
+  # TODO(hungte) Use flock to help locking in better way.
+  if [ -r "$LOCK_FILE" ]; then
+    local pid="$(cat "$LOCK_FILE")"
+    if [ -z "$pid" ]; then
+      # For legacy updaters or corrupted systems, PID is empty.
+      die "Firmware Updater already running ($LOCK_FILE) with unknown process."
+    else
+      ps "$pid" >/dev/null 2>&1 &&
+        die "
+          Firmware Updater already running ($LOCK_FILE).
+          Please wait for process $pid to finish and retry later."
+    fi
+    alert "Warning: Removing expired session lock: $LOCK_FILE ($pid)"
+  fi
+  echo "$PPID" >"$LOCK_FILE"
+  # Clean up on regular or error exits.
+  trap cros_release_lock EXIT
+}
+
+cros_release_lock() {
+  if [ -n "$LOCK_FILE" ]; then
+    rm -f "$LOCK_FILE" || alert "Warning: failed to release $LOCK_FILE."
+  fi
+}
