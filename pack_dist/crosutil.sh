@@ -142,6 +142,16 @@ cros_report_wp_status() {
     cros_is_software_write_protected "$TARGET_OPT_MAIN" && wp_sw_main="ON"
     message="$message Main=$wp_sw_main"
   fi
+
+  # On many 3rd party EC implementations, checking write protection
+  # (--wp-status) may hang device for up to 2~3 seconds, so we want to prevent
+  # querying WP status in modes that does not touch EC.
+  case "$FLAGS_mode" in
+    autoupdate | bootok | todev )
+      test_ec=$FLAGS_FALSE
+      ;;
+  esac
+
   if [ "$test_ec" = $FLAGS_TRUE ]; then
     cros_is_software_write_protected "$TARGET_OPT_EC" && wp_sw_ec="ON"
     message="$message EC=$wp_sw_ec"
