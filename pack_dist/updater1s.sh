@@ -357,7 +357,7 @@ mode_factory_install() {
   # Everything executed here must assume the system may be not using ChromeOS
   # firmware.
   is_write_protection_disabled ||
-    die "You need to first disable hardware write protection switch."
+    die_need_ro_update "You need to first disable hardware write protection."
 
   if [ "${FLAGS_update_main}" = ${FLAGS_TRUE} ]; then
     # We may preserve bitmap here, just like recovery mode. However if there's
@@ -381,7 +381,7 @@ mode_incompatible_update() {
   # TODO(hungte) check if we really need to stop user by comparing RO firmware
   # image, bit-by-bit.
   is_write_protection_disabled ||
-    die "You need to first disable hardware write protection switch."
+    die_need_ro_update "You need to first disable hardware write protection."
   mode_recovery
 }
 

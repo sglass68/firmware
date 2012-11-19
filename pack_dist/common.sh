@@ -34,12 +34,20 @@ err_die() {
   die "$@"
 }
 
-# Reports error message and exit(2)
+# Reports error message and exit(3)
 # NOTE: top level script does not exit if call to die is inside a
 # sub-shell (ex: (func-call), $(func-call)) or if-blocks.
 die_need_reboot() {
   alert "ERROR: $*"
   exit 3
+}
+
+# Reports error message and exit(4)
+# NOTE: top level script does not exit if call to die is inside a
+# sub-shell (ex: (func-call), $(func-call)) or if-blocks.
+die_need_ro_update() {
+  alert "ERROR: $*"
+  exit 4
 }
 
 # Prints a message if in verbose mode

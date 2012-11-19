@@ -575,7 +575,7 @@ mode_factory_install() {
   if is_mainfw_write_protected || is_ecfw_write_protected; then
     # TODO(hungte) check if we really need to stop user by comparing firmware
     # image, bit-by-bit.
-    die "You need to first disable hardware write protection switch."
+    die_need_ro_update "You need to first disable hardware write protection."
   fi
   if [ "${FLAGS_update_main}" = "${FLAGS_TRUE}" ]; then
     preserve_vpd
@@ -602,7 +602,7 @@ mode_incompatible_update() {
   if is_mainfw_write_protected || is_ecfw_write_protected; then
     # TODO(hungte) check if we really need to stop user by comparing
     # firmware image, bit-by-bit.
-    die "You need to first disable hardware write protection switch."
+    die_need_ro_update "You need to first disable hardware write protection."
   fi
   FLAGS_update_ro_main=$FLAGS_TRUE
   FLAGS_update_ro_ec=$FLAGS_TRUE
