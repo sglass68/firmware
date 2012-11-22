@@ -113,14 +113,34 @@ cros_reboot() {
 
 # Returns if the hardware write-protection switch is enabled.
 cros_is_hardware_write_protected() {
-  local ret=${FLAGS_FALSE}
+  local ret=""
   # In current design, hardware write protection is one single switch for all
-  # targets. NOTE: if wpsw_cur gives error, we should treat like "protected"
-  # so the test uses "!= 0" instead of "= 1".
-  if [ "$(cros_query_prop wpsw_cur)" != "0" ]; then
-    debug_msg "Hardware write protection is enabled!"
-    ret=${FLAGS_TRUE}
-  fi
+  # targets (BIOS & EC). On some platforms, wpsw_cur is not availble and only
+  # wpsw_boot can be trusted. NOTE: if wpsw_* all gives error, we should treat
+  # wpsw as "protected", just to be safe.
+  case "$(cros_query_prop wpsw_cur)" in
+    "0" )
+      ret=$FLAGS_FALSE
+      ;;
+    "1" )
+      ret=$FLAGS_TRUE
+      ;;
+  esac
+  [ "$ret" = "" ] && case "$(cros_query_prop wpsw_boot)" in
+    "0" )
+      alert "Warning: wpsw_cur is not availble, using wpsw_boot (0)"
+      ret=$FLAGS_FALSE
+      ;;
+    "1" )
+      alert "Warning: wpsw_cur is not availble, using wpsw_boot (1)"
+      ret=$FLAGS_FALSE
+      ;;
+    * )
+      # All wp* failed.
+      alert "Warning: wpsw_boot/cur all failed. Assuming HW write protected."
+      ret=$FLAGS_TRUE
+      ;;
+  esac
   return $ret
 }
 
