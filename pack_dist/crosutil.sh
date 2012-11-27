@@ -133,7 +133,7 @@ cros_is_hardware_write_protected() {
       ;;
     "1" )
       alert "Warning: wpsw_cur is not availble, using wpsw_boot (1)"
-      ret=$FLAGS_FALSE
+      ret=$FLAGS_TRUE
       ;;
     * )
       # All wp* failed.
