@@ -107,8 +107,14 @@ cros_reboot() {
     alert "Rebooting from updater is disabled."
     return ${FLAGS_TRUE}
   fi
-  sync; sync; sync
+  sync
+  # For systems with low speed disk storage, more few seconds for hardware to
+  # complete I/O.
+  sleep 1
   reboot
+  # 'reboot' command terminates immediately, so we must block here to prevent
+  # further execution.
+  sleep 1d
 }
 
 # Returns if the hardware write-protection switch is enabled.
