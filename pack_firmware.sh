@@ -38,7 +38,7 @@ DEFINE_string bios_version "(deprecated)" "Please don't use this."
 
 # Parse command line
 FLAGS "$@" || exit 1
-eval set -- "${FLAGS_ARGV}"
+eval set -- "${FLAGS_ARGV}" || exit 1
 
 # we need following tools to be inside a package:
 #  - $FLAGS_tools: native binary tools
