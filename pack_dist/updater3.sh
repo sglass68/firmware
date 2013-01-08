@@ -64,6 +64,7 @@ FWSRC_DEVELOPER="$SLOT_A"
 TYPE_MAIN="main"
 TYPE_EC="ec"
 IMAGE_MAIN="bios.bin"
+IMAGE_MAIN_RW="bios_rw.bin"  # Optional image.
 IMAGE_EC="ec.bin"
 
 # ----------------------------------------------------------------------------

@@ -17,6 +17,7 @@ SHFLAGS_FILE="$script_base/lib/shflags/shflags"
 
 # DEFINE_string name default_value description flag
 DEFINE_string bios_image "" "Path of input BIOS firmware image" "b"
+DEFINE_string bios_rw_image "" "Path of input BIOS RW firmware image" "w"
 DEFINE_string ec_image "" "Path of input EC firmware image" "e"
 DEFINE_string ec_version "IGNORE" "Version of input EC firmware image"
 DEFINE_string platform "" "Platform name to check for firmware"
@@ -93,6 +94,23 @@ extract_frid() {
   rm -rf "$tmpdir" 2>/dev/null
 }
 
+check_rw_firmware() {
+  local image_file="$(readlink -f "$1")"
+  local tmpdir="$(mktemp -d)"
+  local preamble_flags="$(
+    cd "$tmpdir"
+    dump_fmap -x "$image_file" >/dev/null 2>&1 || true
+    gbb_utility --rootkey=rootkey.bin GBB >/dev/null 2>&1 || true
+    vbutil_firmware --verify VBLOCK_A --signpubkey rootkey.bin --fv FW_MAIN_A |
+      grep  "^ *Preamble flags:" |
+      sed 's/^ *Preamble flags:[t \t]*//' || true)"
+  rm -rf "$tmpdir" 2>/dev/null
+  [ -z "$preamble_flags" ] &&
+    die "Failed to detect RW firmware preamble flags."
+  [ "$((preamble_flags & 0x01))" = 1 ] &&
+    die "Firmware image ($image_file) is NOT a RW-firmware."
+}
+
 trap do_cleanup EXIT
 
 # check tool: we need uuencode to create the shell ball.
@@ -120,6 +138,7 @@ done
 # check input: fail if no any images were assigned
 bios_bin="${FLAGS_bios_image}"
 bios_version="IGNORE"
+bios_rw_bin="${FLAGS_bios_rw_image}"
 ec_bin="${FLAGS_ec_image}"
 ec_version="${FLAGS_ec_version}"
 if [ "$bios_bin" = "" -a "$ec_bin" = "" ]; then
@@ -140,19 +159,32 @@ flashrom(8): $(md5sum -b "$flashrom_bin")
 fi
 echo "" >>"$version_file"
 
+# Image file must follow names defined in pack_dist/updater*.sh:
+IMAGE_MAIN="bios.bin"
+IMAGE_MAIN_RW="bios_rw.bin"
+IMAGE_EC="ec.bin"
+
 # copy firmware image files
 if [ "$bios_bin" != "" ]; then
   bios_version="$(extract_frid "$bios_bin" "IGNORE")"
-  cp -pf "$bios_bin" "$tmpbase/bios.bin" || die "cannot get BIOS image"
+  cp -pf "$bios_bin" "$tmpbase/$IMAGE_MAIN" || die "cannot get BIOS image"
   echo "BIOS image:   $(md5sum -b "$bios_bin")" >> "$version_file"
   [ "$bios_version" = "IGNORE" ] ||
     echo "BIOS version: $bios_version" >> "$version_file"
+fi
+if [ "$bios_rw_bin" != "" ]; then
+  check_rw_firmware "$bios_rw_bin"
+  bios_rw_version="$(extract_frid "$bios_rw_bin" "IGNORE")"
+  cp -pf "$bios_rw_bin" "$tmpbase/$IMAGE_MAIN_RW" || die "cannot get RW BIOS"
+  echo "BIOS (RW) image:   $(md5sum -b "$bios_rw_bin")" >> "$version_file"
+  [ "$bios_rw_version" = "IGNORE" ] ||
+    echo "BIOS (RW) version: $bios_rw_version" >>"$version_file"
 fi
 if [ "$ec_bin" != "" ]; then
   ec_version="$(extract_frid "$ec_bin" "$FLAGS_ec_version")"
   # Since mosys r430, trailing spaces reported by mosys is always scrubbed.
   ec_version="$(echo "$ec_version" | sed 's/ *$//')"
-  cp -pf "$ec_bin" "$tmpbase/ec.bin" || die "cannot get EC image"
+  cp -pf "$ec_bin" "$tmpbase/$IMAGE_EC" || die "cannot get EC image"
   echo "EC image:     $(md5sum -b "$ec_bin")" >> "$version_file"
   [ "$ec_version" = "IGNORE" ] ||
     echo "EC version:   $ec_version" >>"$version_file"
