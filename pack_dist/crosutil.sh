@@ -257,9 +257,7 @@ cros_check_tpm_key_version() {
 
   local tpm_fwver="$(cros_query_prop tpm_fwver)"
   if [ -z "$tpm_fwver" ]; then
-    alert "Warning: failed to retrieve TPM information."
-    # TODO(hungte) what now?
-    return "$FLAGS_ERROR"
+    die "Failed to retrieve TPM information."
   fi
   tpm_fwver="$((tpm_fwver))"
   debug_msg "tpm_fwver: $tpm_fwver"
