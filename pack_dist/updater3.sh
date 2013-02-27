@@ -448,7 +448,14 @@ mode_autoupdate() {
   if [ "${FLAGS_update_main}" = "${FLAGS_TRUE}" ]; then
     local mainfw_act="$(cros_get_prop mainfw_act)"
     if [ "$mainfw_act" = "B" ]; then
-      die_need_reboot "Done (retry update next boot)"
+      # mainfw_act is only updated at system reboot; if two updates (both with
+      # firmware updates) are pushed in a row, next update will be executed
+      # while mainfw_act is still B. Since we don't use RW BIOS directly when
+      # updater is running, it should be safe to update in this case.
+      prepare_main_current_image
+      is_equal_slot "$TYPE_MAIN" "$SLOT_A" "$SLOT_B" &&
+        alert "Installing updates while mainfw_act is B (should be safe)." ||
+        die_need_reboot "Done (retry update next boot)"
     elif [ "$mainfw_act" != "A" ]; then
       die "autoupdate: unexpected active firmware ($mainfw_act)..."
     fi
