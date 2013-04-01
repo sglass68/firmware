@@ -86,7 +86,8 @@ PLATFORM="$(mosys platform name 2>/dev/null)" || PLATFORM=""
 
 DEFINE_string mode "" \
  "Updater mode ( startup | bootok | autoupdate | todev | tonormal |"\
-" recovery | factory_install | factory_final | incompatible_update )" "m"
+" recovery | factory_install | factory_final | incompatible_update |"\
+" fast_version_check )" "m"
 DEFINE_boolean debug $FLAGS_FALSE "Enable debug messages." "d"
 DEFINE_boolean verbose $FLAGS_TRUE "Enable verbose messages." "v"
 DEFINE_boolean dry_run $FLAGS_FALSE "Enable dry-run mode." ""
@@ -544,6 +545,18 @@ mode_incompatible_update() {
   mode_recovery
 }
 
+# Checks if current system firmware version number is different than the one
+# bundled in updater. Note root/recovery keys, TPM version, vblock key versions,
+# and firmware integrity are all unchecked.
+mode_fast_version_check() {
+  if [ -n "$IMAGE_MAIN" -a "$RO_FWID" != "$TARGET_FWID" ]; then
+    die "Main FWID: $RO_FWID != $TARGET_FWID"
+  fi
+  if [ -n "$IMAGE_EC" -a "$ECID" != "$TARGET_ECID" ]; then
+    die "EC FWID: $ECID != $TARGET_ECID"
+  fi
+}
+
 # ----------------------------------------------------------------------------
 # Main Entry
 
@@ -664,7 +677,7 @@ main() {
     # updater.  They either copy RW firmware between EEPROM slots, or copy both
     # RO+RW from the shellball.  Either way, RO+RW compatibility is assured.
     startup | bootok | todev | tonormal | factory_install | factory_final | \
-      incompatible_update )
+      incompatible_update | fast_version_check )
       debug_msg "mode without incompatible checks: ${FLAGS_mode}"
       mode_"${FLAGS_mode}"
       ;;
