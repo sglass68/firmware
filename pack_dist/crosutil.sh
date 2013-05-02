@@ -369,3 +369,46 @@ cros_release_lock() {
     rm -f "$LOCK_FILE" || alert "Warning: failed to release $LOCK_FILE."
   fi
 }
+
+# Utility function to override RW firmware image by version.
+# Example: cros_override_rw_firmware_by_version "$RO_FWID" "$TARGET_FWID"
+cros_override_rw_firmware_by_version() {
+  local current_id="$1"
+  local min_ro_id="$2"
+  local is_factory=""
+
+  # RW update only happens in autoupdate and recovery (without WP) modes.
+  case "$FLAGS_mode" in
+    startup | bootok | todev | tonormal | factory_final | factory_install | \
+      incompatible_update )
+      return
+      ;;
+    recovery )
+      # For recovery mode, if WP is not enabled, we will work in
+      # factory/incompatible update mode.
+      is_mainfw_write_protected || return
+      ;;
+    autoupdate )
+      true
+      ;;
+    * )
+      debug_msg "Warning: unknown mode for RW version test: $FLAGS_mode"
+      return
+  esac
+
+  debug_msg "cros_override_rw_firmware_by_version($current_id, $min_ro_id)"
+  if cros_version_greater_than "$min_ro_id" "$current_id"; then
+    is_mainfw_write_protected || alert "
+      You are updating a device with deprecated RO firmware $current_id.
+      For safety concern, we don't push RO updates by default.
+      If you are willing to take the RISK OF BRICKING DEVICE, you can manually
+      invoke firmware updater (and make sure write protection is disabled) as:
+
+       chromeos-firmwareupdate --mode=incompatible_update
+      "
+    [ -s "$IMAGE_MAIN_RW" ] && cp -f "$IMAGE_MAIN_RW" "$IMAGE_MAIN" &&
+      preserve_hwid &&
+      alert "Updating with RW firmware (slower boot time)." ||
+      die "Failed to load RW firmware. Can't update."
+  fi
+}
