@@ -27,6 +27,8 @@ DEFINE_string extra "" "Directory list (separated by :) of files to be merged"
 DEFINE_boolean remove_inactive_updaters ${FLAGS_TRUE} \
   "Remove inactive updater scripts"
 DEFINE_boolean unstable ${FLAGS_FALSE} "Mark as unstable firmware (update RO)"
+DEFINE_boolean create_bios_rw_image ${FLAGS_FALSE} \
+  "Resign and generate a BIOS RW image"
 
 # embedded tools
 DEFINE_string tools "flashrom mosys crossystem gbb_utility vpd dump_fmap" \
@@ -94,7 +96,7 @@ extract_frid() {
   rm -rf "$tmpdir" 2>/dev/null
 }
 
-check_rw_firmware() {
+get_preamble_flags() {
   local image_file="$(readlink -f "$1")"
   local tmpdir="$(mktemp -d)"
   local preamble_flags="$(
@@ -105,10 +107,44 @@ check_rw_firmware() {
       grep  "^ *Preamble flags:" |
       sed 's/^ *Preamble flags:[t \t]*//' || true)"
   rm -rf "$tmpdir" 2>/dev/null
+  echo "$preamble_flags"
+}
+
+set_preamble_flags() {
+  # TODO(hungte) Check if input file is also using dev keys.
+  local input_file="$(readlink -f "$1")"
+  local output_file="$(readlink -f "$2")"
+  local preamble_flags="$3"
+  local keydir="/usr/share/vboot/devkeys"
+  resign_firmwarefd.sh "$input_file" "$output_file" \
+    "$keydir/firmware_data_key.vbprivk" \
+    "$keydir/firmware.keyblock" \
+    "$keydir/dev_firmware_data_key.vbprivk" \
+    "$keydir/dev_firmware.keyblock" \
+    "$keydir/kernel_subkey.vbpubk" \
+    0 "$preamble_flags"
+}
+
+check_rw_firmware() {
+  local preamble_flags="$(get_preamble_flags "$1")"
   [ -z "$preamble_flags" ] &&
-    die "Failed to detect RW firmware preamble flags."
+    die "Failed to detect firmware preamble flags."
   [ "$((preamble_flags & 0x01))" = 1 ] &&
     die "Firmware image ($image_file) is NOT a RW-firmware."
+}
+
+create_rw_firmware() {
+  local ro_image_file="$1"
+  local rw_image_file="$2"
+  local preamble_flags="$(get_preamble_flags "$ro_image_file")"
+  [ -z "$preamble_flags" ] &&
+    die "Failed to detect firmware preamble flags."
+  [ "$((preamble_flags & 0x01))" = 0 ] &&
+    die "Firmware image ($ro_image_file) is NOT a RO_NORMAL firmware."
+  set_preamble_flags "$ro_image_file" "$rw_image_file" \
+    "$((preamble_flags ^ 0x01))" ||
+    die "Failed to resign and create RW image from RO image ($ro_image_file)."
+  echo "RW firmware image created: $rw_image_file"
 }
 
 trap do_cleanup EXIT
@@ -172,10 +208,15 @@ if [ "$bios_bin" != "" ]; then
   [ "$bios_version" = "IGNORE" ] ||
     echo "BIOS version: $bios_version" >> "$version_file"
 fi
+if [ -z "$bios_rw_bin" -a "$FLAGS_create_bios_rw_image" = "$FLAGS_TRUE" ]; then
+  bios_rw_bin="$tmpbase/$IMAGE_MAIN_RW"
+  create_rw_firmware "$bios_bin" "$bios_rw_bin"
+fi
 if [ "$bios_rw_bin" != "" ]; then
   check_rw_firmware "$bios_rw_bin"
   bios_rw_version="$(extract_frid "$bios_rw_bin" "IGNORE")"
-  cp -pf "$bios_rw_bin" "$tmpbase/$IMAGE_MAIN_RW" || die "cannot get RW BIOS"
+  [ "$bios_rw_bin" = "$tmpbase/$IMAGE_MAIN_RW" ] ||
+    cp -pf "$bios_rw_bin" "$tmpbase/$IMAGE_MAIN_RW" || die "cannot get RW BIOS"
   echo "BIOS (RW) image:   $(md5sum -b "$bios_rw_bin")" >> "$version_file"
   [ "$bios_rw_version" = "IGNORE" ] ||
     echo "BIOS (RW) version: $bios_rw_version" >>"$version_file"
