@@ -442,6 +442,7 @@ mode_autoupdate() {
     if [ "$ECID" != "$TARGET_ECID" ]; then
       # EC software sync may need extra reboots.
       cros_set_fwb_tries 8
+      verbose_msg "On reboot EC update may occur."
     else
       cros_set_fwb_tries 6
     fi
