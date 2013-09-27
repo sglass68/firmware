@@ -421,3 +421,23 @@ cros_override_rw_firmware_by_version() {
       die "Failed to load RW firmware. Can't update."
   fi
 }
+
+cros_check_mp_firmware() {
+  if [ -n "$MP_FWID" ] && cros_version_greater_than "$MP_FWID" "$RO_FWID"; then
+    alert "One-time full update from Before-MP (MP=$MP_FWID) firmware."
+    return $FLAGS_FALSE
+  fi
+  if [ -n "$MP_ECID" ] && cros_version_greater_than "$MP_ECID" "$ECID"; then
+    alert "One-time full update from Before-MP (MP=$MP_ECID) EC."
+    return $FLAGS_FALSE
+  fi
+  if [ -n "$EARLY_MP_FULLUPDATE" ]; then
+    # Try to update RO+RW if write protection is not enabled.
+    if cros_version_greater_than "$TARGET_FWID" "$RO_FWID" &&
+       !is_mainfw_write_protected; then
+      alert "One-time full update from Early-MP firmware."
+      return $FLAGS_FALSE
+    fi
+  fi
+  true
+}

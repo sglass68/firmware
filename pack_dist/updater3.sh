@@ -613,6 +613,7 @@ main_check_rw_compatible() {
     debug_msg "Checking customized RW compatibility..."
     "$CUSTOMIZATION_RW_COMPATIBLE_CHECK" || is_compatible="${FLAGS_ERROR}"
   fi
+  cros_check_mp_firmware || is_compatible="${FLAGS_ERROR}"
 
   case "$is_compatible" in
     "${FLAGS_FALSE}" )
