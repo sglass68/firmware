@@ -439,7 +439,13 @@ mode_autoupdate() {
     prepare_main_current_image
     check_compatible_keys
     update_mainfw "$SLOT_B" "$FWSRC_NORMAL"
-    if [ "$ECID" != "$TARGET_ECID" ]; then
+
+    # Try to determine EC software sync by checking $ECID. We can't rely on
+    # $TARGET_ECID, $FLAGS_update_ec or $IMAGE_EC because in future there may be
+    # no EC binary blobs in updater (integrated inside main firmware image).
+    # Note since $ECID uses mosys, devices not using ChromeOS EC may still
+    # report an ID (but they should use updater v3 instead).
+    if [ -n "$ECID" -a "$ECID" != "$TARGET_ECID" ]; then
       # EC software sync may need extra reboots.
       cros_set_fwb_tries 8
       verbose_msg "On reboot EC update may occur."
@@ -619,8 +625,16 @@ main() {
   cros_is_ro_normal_boot && ro_type="$ro_type[RO_NORMAL]"
 
   verbose_msg "Starting $TARGET_PLATFORM firmware updater v4 (${FLAGS_mode})..."
-  verbose_msg " - Updater package: [$TARGET_FWID / $TARGET_ECID]"
-  verbose_msg " - Current system:  [RO:$RO_FWID $ro_type, ACT:$FWID / $ECID]"
+  local package_info="$TARGET_FWID"
+  local current_info="RO:$RO_FWID $ro_type, ACT:$FWID"
+  if [ -n "${TARGET_ECID%IGNORE}" ]; then
+    package_info="$package_info / EC:$TARGET_ECID"
+  fi
+  if [ -n "$ECID" ]; then
+    current_info="$current_info / EC:$ECID"
+  fi
+  verbose_msg " - Updater package: [$package_info]"
+  verbose_msg " - Current system:  [$current_info]"
 
   # quick check and setup for basic envoronments
   if [ ! -s "$IMAGE_MAIN" ]; then
