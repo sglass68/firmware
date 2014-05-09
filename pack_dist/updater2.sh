@@ -115,75 +115,6 @@ DEFINE_boolean check_platform $FLAGS_TRUE \
 DEFINE_boolean factory $FLAGS_FALSE "Equivalent to --mode=factory_install"
 
 # ----------------------------------------------------------------------------
-# General Updater
-
-# Update Main Firmware (BIOS, SPI)
-update_mainfw() {
-  # Syntax: update_mainfw SLOT FIRMWARE_SOURCE_TYPE
-  #    Write assigned type (normal/developer) of firmware source into
-  #    assigned slot (returns directly if the target is already filled
-  #    with correct data)
-  # Syntax: update_mainfw SLOT
-  #    Write assigned slot from MAIN_TARGET_IMAGE.
-  # Syntax: update_mainfw
-  #    Write complete MAIN_TARGET_IMAGE
-
-  local slot="$1"
-  local source_type="$2"
-  debug_msg "invoking: update_mainfw($@)"
-  # TODO(hungte) verify if slot is valid.
-  [ -s "$IMAGE_MAIN" ] || die "missing firmware image: $IMAGE_MAIN"
-  if [ "$slot" = "" ]; then
-    invoke "flashrom $TARGET_OPT_MAIN $WRITE_OPT -w $IMAGE_MAIN"
-  elif [ "$source_type" = "" ]; then
-    invoke "flashrom $TARGET_OPT_MAIN $WRITE_OPT -w $IMAGE_MAIN -i $slot"
-  else
-    local section_file="$DIR_TARGET/$TYPE_MAIN/$source_type"
-    [ -s "$section_file" ] || die "update_mainfw: missing $section_file"
-    slot="$slot:$section_file"
-    invoke "flashrom $TARGET_OPT_MAIN $WRITE_OPT -w $IMAGE_MAIN -i $slot"
-  fi
-}
-
-dup2_mainfw() {
-  # Syntax: dup2_mainfw SLOT_FROM SLOT_TO
-  #    Duplicates a slot to another place on system live firmware
-  local slot_from="$1" slot_to="$2"
-  # Writing in flashrom, even if there's nothing to write, is still much slower
-  # than reading because it needs to read + verify whole image. So we should
-  # only write firmware on if there's something changed.
-  local temp_from="_dup2_temp_from"
-  local temp_to="_dup2_temp_to"
-  local temp_image="_dup2_temp_image"
-  debug_msg "invoking: dup2_mainfw($@)"
-  local opt_read_slots="-i $slot_from:$temp_from -i $slot_to:$temp_to"
-  invoke "flashrom $TARGET_OPT_MAIN $opt_read_slots -r $temp_image"
-  if [ -s "$temp_from" ] && cros_compare_file "$temp_from" "$temp_to"; then
-    debug_msg "dup2_mainfw: slot content is the same, no need to copy."
-  else
-    slot="$slot_to:$temp_from"
-    invoke "flashrom $TARGET_OPT_MAIN $WRITE_OPT -w $temp_image -i $slot"
-  fi
-}
-
-# Update EC Firmware (LPC)
-update_ecfw() {
-  local slot="$1"
-  debug_msg "invoking: update_ecfw($@)"
-  # Syntax: update_mainfw SLOT
-  #    Update assigned slot with proper firmware.
-  # Syntax: update_mainfw
-  #    Write complete MAIN_TARGET_IMAGE
-  # TODO(hungte) verify if slot is valid.
-  [ -s "$IMAGE_EC" ] || die "missing firmware image: $IMAGE_EC"
-  if [ -n "$slot" ]; then
-    invoke "flashrom $TARGET_OPT_EC $WRITE_OPT -w $IMAGE_EC -i $slot"
-  else
-    invoke "flashrom $TARGET_OPT_EC $WRITE_OPT -w $IMAGE_EC"
-  fi
-}
-
-# ----------------------------------------------------------------------------
 # Helper functions
 
 # Note this will change $IMAGE_MAIN so any processing to the file (ex,
@@ -210,20 +141,11 @@ preserve_bmpfv() {
   silent_invoke "gbb_utility -s --bmpfv=_bmpfv.bin $IMAGE_MAIN"
 }
 
-# Compares two slots from current and target folder.
-is_equal_slot() {
-  check_param "is_equal_slot(type, slot)" "$@"
-  local type_name="$1" slot_name="$2"
-  local current="$DIR_CURRENT/$type_name/$slot_name"
-  local target="$DIR_TARGET/$type_name/$slot_name"
-  cros_compare_file "$current" "$target"
-}
-
 # Verifies if current system is installed with compatible rootkeys
 check_compatible_keys() {
   local current_image="$DIR_CURRENT/$IMAGE_MAIN"
   local target_image="$DIR_TARGET/$IMAGE_MAIN"
-  if [ "${FLAGS_check_keys}" = "${FLAGS_FALSE}" ]; then
+  if [ "${FLAGS_check_keys}" = ${FLAGS_FALSE} ]; then
     debug_msg "check_compatible_keys: ignored."
     return $FLAGS_TRUE
   fi
@@ -266,18 +188,16 @@ need_update_ec() {
   prepare_ec_image
   prepare_ec_current_image
   if [ "${FLAGS_update_ro_ec}" = "${FLAGS_TRUE}" ] &&
-     ! is_equal_slot "$TYPE_EC" "$SLOT_EC_RO"; then
+     ! crosfw_is_equal_slot "$TYPE_EC" "$SLOT_EC_RO"; then
       debug_msg "EC RO needs update."
       return $FLAGS_TRUE
   fi
-  if ! is_equal_slot "$TYPE_EC" "$SLOT_EC_RW"; then
+  if ! crosfw_is_equal_slot "$TYPE_EC" "$SLOT_EC_RW"; then
       debug_msg "EC RW needs update."
       return $FLAGS_TRUE
   fi
   return $FLAGS_FALSE
 }
-
-
 
 prepare_main_image() {
   crosfw_unpack_image "$TYPE_MAIN" "$IMAGE_MAIN" "$TARGET_OPT_MAIN"
@@ -331,23 +251,23 @@ mode_startup() {
     # We can allow updating multiple sections at once, but that may lead system
     # into unknown state if crashed during the large update, so let's update
     # step-by-step.
-    update_mainfw "$SLOT_RO"
+    crosfw_update_main "$SLOT_RO"
     if [ "$(cros_get_prop mainfw_type)" = "developer" ]; then
-      update_mainfw "$SLOT_A" "$FWSRC_DEVELOPER"
+      crosfw_update_main "$SLOT_A" "$FWSRC_DEVELOPER"
     else
-      update_mainfw "$SLOT_A" "$FWSRC_NORMAL"
+      crosfw_update_main "$SLOT_A" "$FWSRC_NORMAL"
     fi
-    update_mainfw "$SLOT_B"
-    update_mainfw "$SLOT_RW_SHARED"
+    crosfw_update_main "$SLOT_B"
+    crosfw_update_main "$SLOT_RW_SHARED"
   fi
 
   if [ "${FLAGS_update_ec}" = ${FLAGS_TRUE} ]; then
     prepare_ec_image
     if [ "${FLAGS_update_ro_ec}" = "${FLAGS_TRUE}" ]; then
       alert_write_protection
-      update_ecfw "$SLOT_EC_RO"
+      crosfw_update_ec "$SLOT_EC_RO"
     fi
-    update_ecfw "$SLOT_EC_RW"
+    crosfw_update_ec "$SLOT_EC_RW"
   fi
 
   cros_set_startup_update_tries 0
@@ -378,9 +298,9 @@ mode_bootok() {
     # Copy firmware to the spare slot.
     # flashrom will check if we really need to update the bits
     if [ "$mainfw_act" = "A" ]; then
-      dup2_mainfw "$SLOT_A" "$SLOT_B"
+      crosfw_dup2_mainfw "$SLOT_A" "$SLOT_B"
     elif [ "$mainfw_act" = "B" ]; then
-      dup2_mainfw "$SLOT_B" "$SLOT_A"
+      crosfw_dup2_mainfw "$SLOT_B" "$SLOT_A"
     else
       die "bootok: unexpected active firmware ($mainfw_act)..."
     fi
@@ -445,7 +365,7 @@ mode_autoupdate() {
     prepare_main_image
     prepare_main_current_image
     check_compatible_keys
-    update_mainfw "$SLOT_B" "$fwsrc"
+    crosfw_update_main "$SLOT_B" "$fwsrc"
     cros_set_fwb_tries 6
   fi
 
@@ -478,7 +398,7 @@ mode_todev() {
   prepare_main_image
   prepare_main_current_image
   check_compatible_keys
-  update_mainfw "$SLOT_A" "$FWSRC_DEVELOPER"
+  crosfw_update_main "$SLOT_A" "$FWSRC_DEVELOPER"
 
   # Make sure we run developer firmware on next reboot.
   clear_update_cookies
@@ -494,7 +414,7 @@ mode_tonormal() {
   prepare_main_image
   prepare_main_current_image
   check_compatible_keys
-  update_mainfw "$SLOT_A" "$FWSRC_NORMAL"
+  crosfw_update_main "$SLOT_A" "$FWSRC_NORMAL"
   clear_update_cookies
   cros_reboot
 }
@@ -508,9 +428,9 @@ mode_recovery() {
       prepare_main_image
       preserve_bmpfv
       # HWID should be already preserved
-      update_mainfw
+      crosfw_update_main
       if ! is_developer_firmware; then
-        update_mainfw "$SLOT_A" "$FWSRC_NORMAL"
+        crosfw_update_main "$SLOT_A" "$FWSRC_NORMAL"
       fi
     else
       verbose_msg "mode_recovery: update main/RW:A,B,SHARED"
@@ -518,12 +438,12 @@ mode_recovery() {
       prepare_main_current_image
       check_compatible_keys
       if is_developer_firmware; then
-        update_mainfw "$SLOT_A" "$FWSRC_DEVELOPER"
+        crosfw_update_main "$SLOT_A" "$FWSRC_DEVELOPER"
       else
-        update_mainfw "$SLOT_A" "$FWSRC_NORMAL"
+        crosfw_update_main "$SLOT_A" "$FWSRC_NORMAL"
       fi
-      update_mainfw "$SLOT_B" "$FWSRC_NORMAL"
-      update_mainfw "$SLOT_RW_SHARED"
+      crosfw_update_main "$SLOT_B" "$FWSRC_NORMAL"
+      crosfw_update_main "$SLOT_RW_SHARED"
     fi
   fi
 
@@ -531,10 +451,10 @@ mode_recovery() {
     prepare_ec_image
     if ! is_ecfw_write_protected; then
       verbose_msg "mode_recovery: update ec/RO+RW"
-      update_ecfw
+      crosfw_update_ec
     else
       verbose_msg "mode_recovery: update ec/RW"
-      update_ecfw "$SLOT_EC_RW"
+      crosfw_update_ec "$SLOT_EC_RW"
     fi
   fi
 
@@ -550,10 +470,10 @@ mode_factory_install() {
   fi
   if [ "${FLAGS_update_main}" = "${FLAGS_TRUE}" ]; then
     preserve_vpd
-    update_mainfw
+    crosfw_update_main
   fi
   if [ "${FLAGS_update_ec}" = "${FLAGS_TRUE}" ]; then
-    update_ecfw
+    crosfw_update_ec
   fi
   cros_clear_nvdata
   clear_update_cookies
@@ -563,7 +483,7 @@ mode_factory_install() {
 mode_factory_final() {
   # To prevent theat factory has installed a more recent version of firmware,
   # don't use the firmware from bundled image. Use the one from current system.
-  dup2_mainfw "$SLOT_B" "$SLOT_A"
+  crosfw_dup2_mainfw "$SLOT_B" "$SLOT_A"
   crossystem dev_boot_usb=0 || true
   clear_update_cookies
 }

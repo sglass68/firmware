@@ -19,6 +19,10 @@ TARGET_OPT_MAIN="-p host"
 TARGET_OPT_EC="-p ec"
 WRITE_OPT="--fast-verify"
 
+# Overrides this with any function name to perform special tasks when EC is
+# updated (Ex, notify EC to check battery firmware updates)
+CUSTOMIZATION_EC_POST_UPDATE=""
+
 # Unpacks target image, in full image and unpacked form.
 crosfw_unpack_image() {
   check_param "crosfw_unpack_image(type, image, target_opt)" "$@"
@@ -141,4 +145,85 @@ is_ecfw_write_protected() {
     cros_is_hardware_write_protected &&
       cros_is_software_write_protected "$TARGET_OPT_EC"
   fi
+}
+
+crosfw_dup2_mainfw() {
+  # Syntax: crosfw_dup2_mainfw SLOT_FROM SLOT_TO
+  #    Duplicates a slot to another place on system live firmware
+  local slot_from="$1" slot_to="$2"
+  # Writing in flashrom, even if there's nothing to write, is still much slower
+  # than reading because it needs to read + verify whole image. So we should
+  # only write firmware on if there's something changed.
+  local temp_from="_dup2_temp_from"
+  local temp_to="_dup2_temp_to"
+  local temp_image="_dup2_temp_image"
+  debug_msg "invoking: crosfw_dup2_mainfw($@)"
+  local opt_read_slots="-i $slot_from:$temp_from -i $slot_to:$temp_to"
+  invoke "flashrom $TARGET_OPT_MAIN $opt_read_slots -r $temp_image"
+  if [ -s "$temp_from" ] && cros_compare_file "$temp_from" "$temp_to"; then
+    debug_msg "crosfw_dup2_mainfw: slot content is the same, no need to copy."
+  else
+    slot="$slot_to:$temp_from"
+    invoke "flashrom $TARGET_OPT_MAIN $WRITE_OPT -w $temp_image -i $slot"
+  fi
+}
+
+# Compares two slots from current and target folder.
+crosfw_is_equal_slot() {
+  check_param "crosfw_is_equal_slot(type, slot, ...)" "$@"
+  local type_name="$1" slot_name="$2" slot2_name="$3"
+  [ "$#" -lt 4 ] || die "crosfw_is_equal_slot: internal error"
+  [ -n "$slot2_name" ] || slot2_name="$slot_name"
+  local current="$DIR_CURRENT/$type_name/$slot_name"
+  local target="$DIR_TARGET/$type_name/$slot2_name"
+  cros_compare_file "$current" "$target"
+}
+
+# ----------------------------------------------------------------------------
+# General Updater
+
+# Update Main Firmware (BIOS, AP)
+crosfw_update_main() {
+  # Syntax: crosfw_update_main SLOT FIRMWARE_SOURCE_TYPE
+  #    Write assigned type (normal/developer) of firmware source into
+  #    assigned slot (returns directly if the target is already filled
+  #    with correct data)
+  # Syntax: crosfw_update_main SLOT
+  #    Write assigned slot from MAIN_TARGET_IMAGE.
+  # Syntax: crosfw_update_main
+  #    Write complete MAIN_TARGET_IMAGE
+
+  local slot="$1"
+  local source_type="$2"
+  debug_msg "invoking: crosfw_update_main($@)"
+  # TODO(hungte) verify if slot is valid.
+  [ -s "$IMAGE_MAIN" ] || die "missing firmware image: $IMAGE_MAIN"
+  if [ "$slot" = "" ]; then
+    invoke "flashrom $TARGET_OPT_MAIN $WRITE_OPT -w $IMAGE_MAIN"
+  elif [ "$source_type" = "" ]; then
+    invoke "flashrom $TARGET_OPT_MAIN $WRITE_OPT -w $IMAGE_MAIN -i $slot"
+  else
+    local section_file="$DIR_TARGET/$TYPE_MAIN/$source_type"
+    [ -s "$section_file" ] || die "crosfw_update_main: missing $section_file"
+    slot="$slot:$section_file"
+    invoke "flashrom $TARGET_OPT_MAIN $WRITE_OPT -w $IMAGE_MAIN -i $slot"
+  fi
+}
+
+# Update Embedded Controller Firmware
+crosfw_update_ec() {
+  local slot="$1"
+  debug_msg "invoking: crosfw_update_ec($@)"
+  # Syntax: crosfw_update_ec SLOT
+  #    Update assigned slot with proper firmware.
+  # Syntax: crosfw_update_ec
+  #    Write complete MAIN_TARGET_IMAGE
+  # TODO(hungte) verify if slot is valid.
+  [ -s "$IMAGE_EC" ] || die "missing firmware image: $IMAGE_EC"
+  if [ -n "$slot" ]; then
+    invoke "flashrom $TARGET_OPT_EC $WRITE_OPT -w $IMAGE_EC -i $slot"
+  else
+    invoke "flashrom $TARGET_OPT_EC $WRITE_OPT -w $IMAGE_EC"
+  fi
+  [ -z "$CUSTOMIZATION_EC_POST_UPDATE" ] || "$CUSTOMIZATION_EC_POST_UPDATE"
 }

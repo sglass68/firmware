@@ -118,54 +118,6 @@ DEFINE_boolean check_platform $FLAGS_TRUE \
 DEFINE_boolean factory $FLAGS_FALSE "Equivalent to --mode=factory_install"
 
 # ----------------------------------------------------------------------------
-# General Updater
-
-# Update Main Firmware (BIOS, SPI)
-update_mainfw() {
-  # Syntax: update_mainfw SLOT FIRMWARE_SOURCE_TYPE
-  #    Write assigned type (normal/developer) of firmware source into
-  #    assigned slot (returns directly if the target is already filled
-  #    with correct data)
-  # Syntax: update_mainfw SLOT
-  #    Write assigned slot from MAIN_TARGET_IMAGE.
-  # Syntax: update_mainfw
-  #    Write complete MAIN_TARGET_IMAGE
-
-  local slot="$1"
-  local source_type="$2"
-  debug_msg "invoking: update_mainfw($@)"
-  # TODO(hungte) verify if slot is valid.
-  [ -s "$IMAGE_MAIN" ] || die "missing firmware image: $IMAGE_MAIN"
-  if [ "$slot" = "" ]; then
-    invoke "flashrom $TARGET_OPT_MAIN $WRITE_OPT -w $IMAGE_MAIN"
-  elif [ "$source_type" = "" ]; then
-    invoke "flashrom $TARGET_OPT_MAIN $WRITE_OPT -w $IMAGE_MAIN -i $slot"
-  else
-    local section_file="$DIR_TARGET/$TYPE_MAIN/$source_type"
-    [ -s "$section_file" ] || die "update_mainfw: missing $section_file"
-    slot="$slot:$section_file"
-    invoke "flashrom $TARGET_OPT_MAIN $WRITE_OPT -w $IMAGE_MAIN -i $slot"
-  fi
-}
-
-# Update EC Firmware (LPC)
-update_ecfw() {
-  local slot="$1"
-  debug_msg "invoking: update_ecfw($@)"
-  # Syntax: update_mainfw SLOT
-  #    Update assigned slot with proper firmware.
-  # Syntax: update_mainfw
-  #    Write complete MAIN_TARGET_IMAGE
-  # TODO(hungte) verify if slot is valid.
-  [ -s "$IMAGE_EC" ] || die "missing firmware image: $IMAGE_EC"
-  if [ -n "$slot" ]; then
-    invoke "flashrom $TARGET_OPT_EC $WRITE_OPT -w $IMAGE_EC -i $slot"
-  else
-    invoke "flashrom $TARGET_OPT_EC $WRITE_OPT -w $IMAGE_EC"
-  fi
-}
-
-# ----------------------------------------------------------------------------
 # Helper functions
 
 preserve_hwid() {
@@ -239,8 +191,8 @@ mode_startup() {
   if [ "${FLAGS_update_ec}" = ${FLAGS_TRUE} ]; then
     if need_update_ec; then
       # EC image already prepared in need_update_ec
-      is_ecfw_write_protected || update_ecfw "$SLOT_EC_RO"
-      update_ecfw "$SLOT_EC_RW"
+      is_ecfw_write_protected || crosfw_update_ec "$SLOT_EC_RO"
+      crosfw_update_ec "$SLOT_EC_RW"
     else
       alert "No need to update EC firmware ($ECID)."
     fi
@@ -302,25 +254,25 @@ mode_recovery() {
     if ! is_mainfw_write_protected; then
       verbose_msg "$prefix: update RO+RW"
       preserve_gbb
-      update_mainfw
+      crosfw_update_main
     else
       # TODO(hungte) check if FMAP is not changed
       verbose_msg "$prefix: update main/RW:A,B,SHARED"
       check_compatible_keys
-      update_mainfw "$SLOT_A"
-      update_mainfw "$SLOT_B"
+      crosfw_update_main "$SLOT_A"
+      crosfw_update_main "$SLOT_B"
       # RW_SHARED is temporary not available for v1 platforms.
-      # update_mainfw "$SLOT_RW_SHARED"
+      # crosfw_update_main "$SLOT_RW_SHARED"
     fi
   fi
 
   if [ "${FLAGS_update_ec}" = ${FLAGS_TRUE} ]; then
     if ! is_ecfw_write_protected; then
       verbose_msg "$prefix: update ec/RO+RW"
-      update_ecfw
+      crosfw_update_ec
     else
       verbose_msg "$prefix: update ec/RW"
-      update_ecfw "$SLOT_EC_RW"
+      crosfw_update_ec "$SLOT_EC_RW"
     fi
   fi
 
@@ -338,10 +290,10 @@ mode_factory_install() {
     # We may preserve bitmap here, just like recovery mode. However if there's
     # some issue (or incompatible stuff) found in bitmap, we will need a method
     # to update the bitmaps.
-    update_mainfw
+    crosfw_update_main
   fi
   if [ "${FLAGS_update_ec}" = ${FLAGS_TRUE} ]; then
-    update_ecfw
+    crosfw_update_ec
   fi
   clear_update_cookies
 }

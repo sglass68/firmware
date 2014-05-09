@@ -47,10 +47,6 @@ CUSTOMIZATION_MAIN="updater_custom_main"
 # if RW is not compatible (i.e., need incompatible_update mode)
 CUSTOMIZATION_RW_COMPATIBLE_CHECK=""
 
-# Overrides this with any function name to perform special tasks when EC is
-# updated (Ex, notify EC to check battery firmware updates)
-CUSTOMIZATION_EC_POST_UPDATE=""
-
 # ----------------------------------------------------------------------------
 # Constants
 
@@ -113,76 +109,6 @@ DEFINE_boolean check_platform $FLAGS_TRUE \
 DEFINE_boolean factory $FLAGS_FALSE "Equivalent to --mode=factory_install"
 
 # ----------------------------------------------------------------------------
-# General Updater
-
-# Update Main Firmware (BIOS, SPI)
-update_mainfw() {
-  # Syntax: update_mainfw SLOT FIRMWARE_SOURCE_TYPE
-  #    Write assigned type (normal/developer) of firmware source into
-  #    assigned slot (returns directly if the target is already filled
-  #    with correct data)
-  # Syntax: update_mainfw SLOT
-  #    Write assigned slot from MAIN_TARGET_IMAGE.
-  # Syntax: update_mainfw
-  #    Write complete MAIN_TARGET_IMAGE
-
-  local slot="$1"
-  local source_type="$2"
-  debug_msg "invoking: update_mainfw($@)"
-  # TODO(hungte) verify if slot is valid.
-  [ -s "$IMAGE_MAIN" ] || die "missing firmware image: $IMAGE_MAIN"
-  if [ "$slot" = "" ]; then
-    invoke "flashrom $TARGET_OPT_MAIN $WRITE_OPT -w $IMAGE_MAIN"
-  elif [ "$source_type" = "" ]; then
-    invoke "flashrom $TARGET_OPT_MAIN $WRITE_OPT -w $IMAGE_MAIN -i $slot"
-  else
-    local section_file="$DIR_TARGET/$TYPE_MAIN/$source_type"
-    [ -s "$section_file" ] || die "update_mainfw: missing $section_file"
-    slot="$slot:$section_file"
-    invoke "flashrom $TARGET_OPT_MAIN $WRITE_OPT -w $IMAGE_MAIN -i $slot"
-  fi
-}
-
-dup2_mainfw() {
-  # Syntax: dup2_mainfw SLOT_FROM SLOT_TO
-  #    Duplicates a slot to another place on system live firmware
-  local slot_from="$1" slot_to="$2"
-  # Writing in flashrom, even if there's nothing to write, is still much slower
-  # than reading because it needs to read + verify whole image. So we should
-  # only write firmware on if there's something changed.
-  local temp_from="_dup2_temp_from"
-  local temp_to="_dup2_temp_to"
-  local temp_image="_dup2_temp_image"
-  debug_msg "invoking: dup2_mainfw($@)"
-  local opt_read_slots="-i $slot_from:$temp_from -i $slot_to:$temp_to"
-  invoke "flashrom $TARGET_OPT_MAIN $opt_read_slots -r $temp_image"
-  if [ -s "$temp_from" ] && cros_compare_file "$temp_from" "$temp_to"; then
-    debug_msg "dup2_mainfw: slot content is the same, no need to copy."
-  else
-    slot="$slot_to:$temp_from"
-    invoke "flashrom $TARGET_OPT_MAIN $WRITE_OPT -w $temp_image -i $slot"
-  fi
-}
-
-# Update EC Firmware (LPC)
-update_ecfw() {
-  local slot="$1"
-  debug_msg "invoking: update_ecfw($@)"
-  # Syntax: update_mainfw SLOT
-  #    Update assigned slot with proper firmware.
-  # Syntax: update_mainfw
-  #    Write complete MAIN_TARGET_IMAGE
-  # TODO(hungte) verify if slot is valid.
-  [ -s "$IMAGE_EC" ] || die "missing firmware image: $IMAGE_EC"
-  if [ -n "$slot" ]; then
-    invoke "flashrom $TARGET_OPT_EC $WRITE_OPT -w $IMAGE_EC -i $slot"
-  else
-    invoke "flashrom $TARGET_OPT_EC $WRITE_OPT -w $IMAGE_EC"
-  fi
-  [ -z "$CUSTOMIZATION_EC_POST_UPDATE" ] || "$CUSTOMIZATION_EC_POST_UPDATE"
-}
-
-# ----------------------------------------------------------------------------
 # Helper functions
 
 # Note this will change $IMAGE_MAIN so any processing to the file (ex,
@@ -211,17 +137,6 @@ preserve_gbb() {
   if [ -n "$flags" ]; then
     silent_invoke "gbb_utility -s --flags=$((flags)) $IMAGE_MAIN"
   fi
-}
-
-# Compares two slots from current and target folder.
-is_equal_slot() {
-  check_param "is_equal_slot(type, slot, ...)" "$@"
-  local type_name="$1" slot_name="$2" slot2_name="$3"
-  [ "$#" -lt 4 ] || die "is_equal_slot: internal error"
-  [ -n "$slot2_name" ] || slot2_name="$slot_name"
-  local current="$DIR_CURRENT/$type_name/$slot_name"
-  local target="$DIR_TARGET/$type_name/$slot2_name"
-  cros_compare_file "$current" "$target"
 }
 
 # Verifies if current system is installed with compatible rootkeys
@@ -269,17 +184,18 @@ need_update_main_vblock() {
   prepare_main_current_image
 
   # Compare VBLOCK from current A slot and target B slot (normal firmware).
-  ! is_equal_slot "$TYPE_MAIN" "VBLOCK_A" "VBLOCK_B"
+  ! crosfw_is_equal_slot "$TYPE_MAIN" "VBLOCK_A" "VBLOCK_B"
 }
 
 need_update_ec() {
   prepare_ec_image
   prepare_ec_current_image
-  if ! is_ecfw_write_protected && ! is_equal_slot "$TYPE_EC" "$SLOT_EC_RO"; then
+  if ! is_ecfw_write_protected &&
+     ! crosfw_is_equal_slot "$TYPE_EC" "$SLOT_EC_RO"; then
       debug_msg "EC RO needs update."
       return $FLAGS_TRUE
   fi
-  if ! is_equal_slot "$TYPE_EC" "$SLOT_EC_RW"; then
+  if ! crosfw_is_equal_slot "$TYPE_EC" "$SLOT_EC_RW"; then
       debug_msg "EC RW needs update."
       return $FLAGS_TRUE
   fi
@@ -352,9 +268,9 @@ mode_startup() {
     if need_update_ec; then
       # EC image already prepared in need_update_ec
       if is_ecfw_write_protected; then
-        update_ecfw "$SLOT_EC_RW"
+        crosfw_update_ec "$SLOT_EC_RW"
       else
-        update_ecfw
+        crosfw_update_ec
       fi
     fi
     cros_set_startup_update_tries 0
@@ -369,9 +285,9 @@ mode_bootok() {
   local mainfw_act="$(cros_get_prop mainfw_act)"
   # Copy main firmware to the spare slot.
   if [ "$mainfw_act" = "A" ]; then
-    dup2_mainfw "$SLOT_A" "$SLOT_B"
+    crosfw_dup2_mainfw "$SLOT_A" "$SLOT_B"
   elif [ "$mainfw_act" = "B" ]; then
-    dup2_mainfw "$SLOT_B" "$SLOT_A"
+    crosfw_dup2_mainfw "$SLOT_B" "$SLOT_A"
   else
     # Recovery mode, or non-chrome.
     die "bootok: abnormal active firmware ($mainfw_act)..."
@@ -439,7 +355,7 @@ mode_autoupdate() {
     prepare_main_image
     prepare_main_current_image
     check_compatible_keys
-    update_mainfw "$SLOT_B" "$FWSRC_NORMAL"
+    crosfw_update_main "$SLOT_B" "$FWSRC_NORMAL"
     cros_set_fwb_tries 6
   fi
 
@@ -481,27 +397,27 @@ mode_recovery() {
       verbose_msg "$prefix: update RO+RW"
       preserve_vpd
       preserve_gbb
-      update_mainfw
+      crosfw_update_main
     else
       # TODO(hungte) check if FMAP is not changed
       verbose_msg "$prefix: update main/RW:A,B,SHARED"
       prepare_main_image
       prepare_main_current_image
       check_compatible_keys
-      update_mainfw "$SLOT_A" "$FWSRC_NORMAL"
-      update_mainfw "$SLOT_B" "$FWSRC_NORMAL"
-      update_mainfw "$SLOT_RW_SHARED"
+      crosfw_update_main "$SLOT_A" "$FWSRC_NORMAL"
+      crosfw_update_main "$SLOT_B" "$FWSRC_NORMAL"
+      crosfw_update_main "$SLOT_RW_SHARED"
     fi
   fi
 
   if [ "${FLAGS_update_ec}" = ${FLAGS_TRUE} ]; then
     if ! is_ecfw_write_protected; then
       verbose_msg "$prefix: update ec/RO+RW"
-      update_ecfw
+      crosfw_update_ec
     else
       prepare_ec_image
       verbose_msg "$prefix: update ec/RW"
-      update_ecfw "$SLOT_EC_RW"
+      crosfw_update_ec "$SLOT_EC_RW"
     fi
   fi
 
@@ -520,10 +436,10 @@ mode_factory_install() {
     # some issue (or incompatible stuff) found in bitmap, we will need a method
     # to update the bitmaps.
     preserve_vpd || verbose_msg "Warning: cannot preserve VPD."
-    update_mainfw
+    crosfw_update_main
   fi
   if [ "${FLAGS_update_ec}" = ${FLAGS_TRUE} ]; then
-    update_ecfw
+    crosfw_update_ec
   fi
   cros_clear_nvdata
   silent_sh enable_dev_boot
