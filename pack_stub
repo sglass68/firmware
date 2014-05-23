@@ -118,15 +118,45 @@ prepare_shar_extract() {
   set -- "-c"  # Force shar to overwrite files
 }
 
+find_version_string() {
+  local filename="$1"
+  local pattern="$2"
+  if [ ! -s "$filename" ]; then
+    return
+  fi
+  local version="$( (strings "$filename" | grep "$pattern" | uniq) || echo "")"
+  if [ "$(echo "version" | wc -l)" -ne "1" ]; then
+    version=""
+  fi
+  echo "$version"
+}
+
 # Repacks current file ($SELF) by given source folder.
 perform_shar_repack() {
   local new_source="$1"
   local cut_mark="$(sed -n '/^##CUTHERE##/=' "$SELF")"
   local md5_file="$new_source/VERSION.md5"
+  local fw_ver="$(find_version_string "$new_source/bios.bin" '^Google_')"
+  local ec_ver="$(find_version_string "$new_source/ec.bin" \
+                  '^[a-zA-Z0-9]*_v[0-9\.]*-[a-z0-9]*$')"
 
   [ "$cut_mark" -gt 0 ] || die "File corrupted: $SELF"
   sed -i "$((cut_mark + 1)),\$d" "$SELF" ||
     die "Failed to truncate existing data in $SELF"
+
+  # Try to update firmware version if available.
+  if [ -n "$fw_ver" ]; then
+    sed -i 's/^TARGET_FWID=".*"/TARGET_FWID="'"$fw_ver"'"/' "$SELF" &&
+      echo "Changed TARGET_FWID to $fw_ver"
+    [ -s "$new_source/VERSION" ] &&
+      sed -i "s/^BIOS version: .*/BIOS version: $fw_ver/" "$new_source/VERSION"
+  fi
+  if [ -n "$ec_ver" ]; then
+    sed -i 's/^TARGET_ECID=".*"/TARGET_ECID="'"$ec_ver"'"/' "$SELF" &&
+      echo "Changed TARGET_ECID to $ec_ver"
+    [ -s "$new_source/VERSION" ] &&
+      sed -i "s/^EC version:   .*/EC version:   $ec_ver/" "$new_source/VERSION"
+  fi
 
   # Update checksum data for every files except VERSION*
   (cd "$new_source" &&
