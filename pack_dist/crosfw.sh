@@ -120,3 +120,25 @@ crosfw_dupe_vpd() {
 
   debug_msg "crosfw_dupe_vpd: $output updated."
 }
+
+# Utility to return if main firmware write protection is enabled.
+is_mainfw_write_protected() {
+  if [ -n "$FLAGS_wp" ]; then
+    verbose_msg "Warning: MAIN WP state overridden as ${FLAGS_wp}"
+    "${FLAGS_wp}"
+  else
+    cros_is_hardware_write_protected &&
+      cros_is_software_write_protected "$TARGET_OPT_MAIN"
+  fi
+}
+
+# Utility to return if EC firmware write protection is enabled.
+is_ecfw_write_protected() {
+  if [ -n "$FLAGS_wp" ]; then
+    verbose_msg "Warning: EC WP state overridden as ${FLAGS_wp}"
+    "${FLAGS_wp}"
+  else
+    cros_is_hardware_write_protected &&
+      cros_is_software_write_protected "$TARGET_OPT_EC"
+  fi
+}

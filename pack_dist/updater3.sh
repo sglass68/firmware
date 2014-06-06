@@ -95,6 +95,8 @@ DEFINE_string mode "" \
  "Updater mode ( startup | bootok | autoupdate | todev | tonormal |"\
 " recovery | factory_install | factory_final | incompatible_update |"\
 " fast_version_check )" "m"
+DEFINE_string wp "" "Override write protection state (0/1)." ""
+
 DEFINE_boolean debug $FLAGS_FALSE "Enable debug messages." "d"
 DEFINE_boolean verbose $FLAGS_TRUE "Enable verbose messages." "v"
 DEFINE_boolean dry_run $FLAGS_FALSE "Enable dry-run mode." ""
@@ -106,8 +108,6 @@ DEFINE_boolean update_ec $FLAGS_TRUE "Enable updating Embedded Firmware." ""
 DEFINE_boolean update_main $FLAGS_TRUE "Enable updating Main Firmware." ""
 
 DEFINE_boolean check_keys $FLAGS_TRUE "Check firmware keys before updating." ""
-DEFINE_boolean check_wp $FLAGS_TRUE \
-  "Check if write protection is enabled before updating RO sections" ""
 DEFINE_boolean check_rw_compatible $FLAGS_TRUE \
   "Check if RW firmware is compatible with current RO" ""
 DEFINE_boolean check_platform $FLAGS_TRUE \
@@ -303,30 +303,6 @@ prepare_main_current_image() {
 
 prepare_ec_current_image() {
   crosfw_unpack_current_image "$TYPE_EC" "$IMAGE_EC" "$TARGET_OPT_EC" "$@"
-}
-
-is_mainfw_write_protected() {
-  if [ "$FLAGS_check_wp" = $FLAGS_FALSE ]; then
-    verbose_msg "Warning: write protection checking is bypassed."
-    false
-  elif ! cros_is_hardware_write_protected; then
-    false
-  else
-    flashrom $TARGET_OPT_MAIN --wp-status 2>/dev/null |
-      grep -q "write protect is enabled"
-  fi
-}
-
-is_ecfw_write_protected() {
-  if [ "$FLAGS_check_wp" = $FLAGS_FALSE ]; then
-    verbose_msg "Warning: write protection checking is bypassed."
-    false
-  elif ! cros_is_hardware_write_protected; then
-    false
-  else
-    flashrom $TARGET_OPT_EC --wp-status 2>/dev/null |
-      grep -q "write protect is enabled"
-  fi
 }
 
 is_write_protection_disabled() {
@@ -635,6 +611,7 @@ main_check_rw_compatible() {
 
 main() {
   cros_acquire_lock
+  set_flags_wp || die "Invalid option for --wp: ${FLAGS_wp}"
 
   # factory compatibility
   if [ "${FLAGS_factory}" = ${FLAGS_TRUE} ] ||

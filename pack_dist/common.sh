@@ -108,6 +108,24 @@ check_param() {
   done
 }
 
+set_flags_wp() {
+  case "$FLAGS_wp" in
+    on | ON | true | TRUE | 1)
+      FLAGS_wp=true
+      ;;
+    off | OFF | false | FALSE | 0)
+      FLAGS_wp=false
+      ;;
+    "")
+      FLAGS_wp=
+      ;;
+    *)
+      return ${FLAGS_ERROR}
+      ;;
+  esac
+  return ${FLAGS_TRUE}
+}
+
 # Executes a command, and provide messages if it failed.
 silent_invoke() {
   local ret=$FLAGS_TRUE
