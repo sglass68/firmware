@@ -86,9 +86,6 @@ PLATFORM="$(mosys platform name 2>/dev/null)" || PLATFORM=""
 FLAGS_update_ro_main="$FLAGS_FALSE"
 FLAGS_update_ro_ec="$FLAGS_FALSE"
 
-# TARGET_UNSTABLE is non-zero if the firmware is not stable.
-: ${TARGET_UNSTABLE:=}
-
 # ----------------------------------------------------------------------------
 # Parameters
 
@@ -600,27 +597,12 @@ main_check_rw_compatible() {
   fi
   local is_compatible="${FLAGS_TRUE}"
 
-  if [ -n "${TARGET_UNSTABLE}" ]; then
-    debug_msg "Current image is tagged as UNSTABLE."
-    if [ "${FLAGS_update_main}" = ${FLAGS_TRUE} ] &&
-       [ "$FWID" != "$TARGET_FWID" ]; then
-      debug_msg "Incompatible: $FWID != $TARGET_FWID".
-      is_compatible="${FLAGS_FALSE}"
-    fi
-    if [ "${FLAGS_update_ec}" = ${FLAGS_TRUE} ] &&
-       [ "$ECID" != "$TARGET_ECID" ]; then
-      debug_msg "Incompatible: $ECID != $TARGET_ECID".
-      is_compatible="${FLAGS_FALSE}"
-    fi
-  fi
-
-  if [ "$is_compatible" = "${FLAGS_TRUE}" ]; then
-    if [ -z "$CUSTOMIZATION_RW_COMPATIBLE_CHECK" ]; then
-      debug_msg "No compatibility check rules defined in customization."
-      return $FLAGS_TRUE
-    fi
+  if [ -n "$CUSTOMIZATION_RW_COMPATIBLE_CHECK" ]; then
     debug_msg "Checking customized RW compatibility..."
     "$CUSTOMIZATION_RW_COMPATIBLE_CHECK" || is_compatible="${FLAGS_FALSE}"
+  fi
+  if [ "$is_compatible" = "${FLAGS_TRUE}" ]; then
+    cros_check_stable_firmware || is_compatible="${FLAGS_ERROR}"
   fi
 
   if [ "$is_compatible" = "${FLAGS_TRUE}" ]; then

@@ -78,9 +78,6 @@ RO_FWID="$(crossystem ro_fwid 2>/dev/null)" || RO_FWID=""
 ECID="$(eval "$ECINFO"; echo "$fw_version")"
 PLATFORM="$(mosys platform name 2>/dev/null)" || PLATFORM=""
 
-# TARGET_UNSTABLE is non-zero if the firmware is not stable.
-: ${TARGET_UNSTABLE:=}
-
 # ----------------------------------------------------------------------------
 # Parameters
 
@@ -550,26 +547,14 @@ main_check_rw_compatible() {
     return $is_compatible
   fi
 
-  if [ -n "${TARGET_UNSTABLE}" ]; then
-    debug_msg "Current image is tagged as UNSTABLE."
-    if [ "${FLAGS_update_main}" = ${FLAGS_TRUE} ] &&
-       [ "$FWID" != "$TARGET_FWID" ]; then
-      verbose_msg "Found unstable main firmware $TARGET_FWID. Current: $FWID."
-      is_compatible="${FLAGS_FALSE}"
-    fi
-    if [ "${FLAGS_update_ec}" = ${FLAGS_TRUE} ] &&
-       [ "$ECID" != "$TARGET_ECID" ]; then
-      verbose_msg "Found unstable EC firmware $TARGET_ECID. Current: $ECID."
-      is_compatible="${FLAGS_FALSE}"
-    fi
-  fi
-
   # Try explicit match
   if [ -n "$CUSTOMIZATION_RW_COMPATIBLE_CHECK" ]; then
     debug_msg "Checking customized RW compatibility..."
     "$CUSTOMIZATION_RW_COMPATIBLE_CHECK" || is_compatible="${FLAGS_ERROR}"
   fi
-  cros_check_mp_firmware || is_compatible="${FLAGS_ERROR}"
+  if [ "$is_compatible" = "${FLAGS_TRUE}" ]; then
+    cros_check_stable_firmware || is_compatible="${FLAGS_ERROR}"
+  fi
 
   case "$is_compatible" in
     "${FLAGS_FALSE}" )

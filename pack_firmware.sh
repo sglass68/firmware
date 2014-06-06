@@ -26,15 +26,12 @@ DEFINE_string output "" "Path of output filename" "o"
 DEFINE_string extra "" "Directory list (separated by :) of files to be merged"
 DEFINE_boolean remove_inactive_updaters ${FLAGS_TRUE} \
   "Remove inactive updater scripts"
-DEFINE_boolean unstable ${FLAGS_FALSE} "Mark as unstable firmware (update RO)"
 DEFINE_boolean create_bios_rw_image ${FLAGS_FALSE} \
   "Resign and generate a BIOS RW image"
 
-# MP settings
-DEFINE_string mp_main_version "" "Version of MP main firmware"
-DEFINE_string mp_ec_version "" "Version of MP EC firmware"
-DEFINE_boolean early_mp_fullupdate ${FLAGS_FALSE} \
-  "Fully update (RO+RW) EarlyMP devices."
+# stable settings
+DEFINE_string stable_main_version "" "Version of stable main firmware"
+DEFINE_string stable_ec_version "" "Version of stable EC firmware"
 
 # embedded tools
 DEFINE_string tools "flashrom mosys crossystem gbb_utility vpd dump_fmap" \
@@ -44,6 +41,10 @@ DEFINE_string tool_base "" \
 
 # deprecated parameters
 DEFINE_string bios_version "(deprecated)" "Please don't use this."
+DEFINE_boolean unstable ${FLAGS_FALSE} "(deprecated)"
+DEFINE_boolean early_mp_fullupdate ${FLAGS_FALSE}  "(deprecated)"
+DEFINE_string mp_main_version "" "(deprecated)"
+DEFINE_string mp_ec_version "" "(deprecated)"
 
 # Parse command line
 FLAGS "$@" || exit 1
@@ -285,17 +286,7 @@ chmod -R a+r "$tmpbase"/*
 [ -n "${FLAGS_output}" ] || die "Missing output file."
 output="${FLAGS_output}"
 
-# decide unstable flag (non-empty for unstable).
-unstable=""
-if [ "${FLAGS_unstable}" = "${FLAGS_TRUE}" ]; then
-  unstable="TRUE"
-fi
-
 cp -f "$stub_file" "$output"
-
-early_mp_fullupdate=""
-[ "${FLAGS_early_mp_fullupdate}" = "${FLAGS_TRUE}" ] &&
-  early_mp_fullupdate="TRUE"
 
 # Our substitution strings may contain '/', which will confuse sed
 # Instead, use ascii char 1 (SOH/Start of Heading) as sed delimiter char
@@ -304,11 +295,9 @@ sed -in "
   s${dc}REPLACE_FWID${dc}${bios_version}${dc};
   s${dc}REPLACE_ECID${dc}${ec_version}${dc};
   s${dc}REPLACE_PLATFORM${dc}${FLAGS_platform}${dc};
-  s${dc}REPLACE_UNSTABLE${dc}${unstable}${dc};
   s${dc}REPLACE_SCRIPT${dc}${FLAGS_script}${dc};
-  s${dc}REPLACE_MP_FWID${dc}${FLAGS_mp_main_version}${dc};
-  s${dc}REPLACE_MP_ECID${dc}${FLAGS_mp_ec_version}${dc};
-  s${dc}REPLACE_EARLY_MP_FULLUPDATE${dc}${early_mp_fullupdate}${dc};
+  s${dc}REPLACE_STABLE_FWID${dc}${FLAGS_stable_main_version}${dc};
+  s${dc}REPLACE_STABLE_ECID${dc}${FLAGS_stable_ec_version}${dc};
   " "$output"
 sh "$output" --sb_repack "$tmpbase" ||
   die "Failed to archive firmware package"

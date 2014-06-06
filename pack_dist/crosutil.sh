@@ -422,22 +422,26 @@ cros_override_rw_firmware_by_version() {
   fi
 }
 
-cros_check_mp_firmware() {
-  if [ -n "$MP_FWID" ] && cros_version_greater_than "$MP_FWID" "$RO_FWID"; then
-    alert "One-time full update from Before-MP (MP=$MP_FWID) firmware."
-    return $FLAGS_FALSE
-  fi
-  if [ -n "$MP_ECID" ] && cros_version_greater_than "$MP_ECID" "$ECID"; then
-    alert "One-time full update from Before-MP (MP=$MP_ECID) EC."
-    return $FLAGS_FALSE
-  fi
-  if [ -n "$EARLY_MP_FULLUPDATE" ]; then
-    # Try to update RO+RW if write protection is not enabled.
-    if cros_version_greater_than "$TARGET_FWID" "$RO_FWID" &&
-       !is_mainfw_write_protected; then
-      alert "One-time full update from Early-MP firmware."
+cros_check_stable_firmware() {
+  if [ -n "$FLAGS_update_main" ]; then
+    if is_mainfw_write_protected; then
+      return $FLAGS_TRUE
+    fi
+    if [ -n "$STABLE_FWID" ] &&
+       cros_version_greater_than "$STABLE_FWID" "$RO_FWID"; then
+      alert "One-time RO+RW update from unstable firmware."
       return $FLAGS_FALSE
     fi
   fi
-  true
+  if [ -n "$FLAGS_update_ec" ]; then
+    if is_ecfw_write_protected; then
+      return $FLAGS_TRUE
+    fi
+    if [ -n "$STABLE_ECID" ] &&
+       cros_version_greater_than "$STABLE_ECID" "$ECID"; then
+      alert "One-time RO+RW update from unstable EC firmware."
+      return $FLAGS_FALSE
+    fi
+  fi
+  return $FLAGS_TRUE
 }
