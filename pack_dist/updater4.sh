@@ -63,6 +63,7 @@ TYPE_EC="ec"
 IMAGE_MAIN="bios.bin"
 IMAGE_MAIN_RW="bios_rw.bin"  # optional image.
 IMAGE_EC="ec.bin"
+KEYSET_DIR="keyset"
 
 # ----------------------------------------------------------------------------
 # Global Variables
@@ -93,6 +94,8 @@ DEFINE_boolean dry_run $FLAGS_FALSE "Enable dry-run mode." ""
 DEFINE_boolean force $FLAGS_FALSE "Try to force update." ""
 DEFINE_boolean allow_reboot $FLAGS_TRUE \
   "Allow rebooting system immediately if required."
+DEFINE_string customization_id "" \
+  "Customization ID for keysets." ""
 
 DEFINE_boolean update_ec $FLAGS_TRUE "Enable updating Embedded Firmware." ""
 DEFINE_boolean update_main $FLAGS_TRUE "Enable updating Main Firmware." ""
@@ -333,6 +336,41 @@ disable_dev_boot() {
   # dev_boot_signed_only may expect different default values, so we leave it
   # untouched and let firmware decide.
   cros_set_prop dev_boot_usb=0
+}
+
+load_keyset() {
+  if ! [ -d "$KEYSET_DIR" ]; then
+    debug_msg "No keysets folder."
+    return
+  fi
+  local keyid="$FLAGS_customization_id"
+  if [ -z "$keyid" ]; then
+    debug_msg "No customization ID from command line. Try to read from VPD."
+    keyid="$(vpd -g "customization_id" || echo "")"
+  fi
+  if [ -z "$keyid" ]; then
+    verbose_msg "No customization_id in VPD/command line. Using default keys."
+    return
+  fi
+  # "customization_id" in format LOEMID[-SERIES]. We only want LOEMID for now.
+  keyid="${keyid%%-*}"
+  debug_msg "Keysets detected, using [$keyid]"
+  local rootkey="$KEYSET_DIR/rootkey.$keyid"
+  local vblock_a="$KEYSET_DIR/vblock_A.$keyid"
+  local vblock_b="$KEYSET_DIR/vblock_B.$keyid"
+  if ! [ -s "$rootkey" ]; then
+    die "Failed to load keysets for customization ID [$keyid]."
+  fi
+  # Override keys
+  gbb_utility -s --rootkey="$rootkey" "$IMAGE_MAIN" ||
+    die "Failed to update rootkey from keyset [$keyid]."
+  local size_input="$(cros_get_file_size "$IMAGE_MAIN")"
+  local param="dummy:emulate=VARIABLE_SIZE,image=$IMAGE_MAIN,size=$size_input"
+  local write_list="-i VBLOCK_A:$vblock_a -i VBLOCK_B:$vblock_b"
+  silent_invoke "flashrom -p $param -w $IMAGE_MAIN $write_list" ||
+    die "Failed to update VBLOCK from keyset [$keyid]."
+  # TODO(hungte) Verify key correctness after building new image files.
+  verbose_msg "Firmware keys changed to set [$keyid]."
 }
 
 # ----------------------------------------------------------------------------
@@ -632,6 +670,8 @@ main() {
     debug_msg "starting customized updater main..."
     $CUSTOMIZATION_MAIN
   fi
+
+  load_keyset
 
   case "${FLAGS_mode}" in
     # Modes which update RW firmware only and only in normal mode; these need to
