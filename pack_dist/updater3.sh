@@ -571,9 +571,8 @@ main_check_rw_compatible() {
   if [ -n "$CUSTOMIZATION_RW_COMPATIBLE_CHECK" ]; then
     debug_msg "Checking customized RW compatibility..."
     "$CUSTOMIZATION_RW_COMPATIBLE_CHECK" || is_compatible="${FLAGS_ERROR}"
-  fi
-  if [ "$is_compatible" = "${FLAGS_TRUE}" ]; then
-    cros_check_stable_firmware || is_compatible="${FLAGS_ERROR}"
+  elif [ "$is_compatible" = "${FLAGS_TRUE}" ]; then
+    cros_check_stable_firmware || is_compatible="${FLAGS_FALSE}"
   fi
 
   case "$is_compatible" in

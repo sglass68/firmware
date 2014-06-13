@@ -423,25 +423,25 @@ cros_override_rw_firmware_by_version() {
 }
 
 cros_check_stable_firmware() {
-  if [ -n "$FLAGS_update_main" ]; then
+  debug_msg "cros_check_stable_firmware($STABLE_FWID/$STABLE_ECID)"
+  if [ "$FLAGS_update_main" = "$FLAGS_TRUE" ]; then
     if is_mainfw_write_protected; then
       return $FLAGS_TRUE
-    fi
-    if [ -n "$STABLE_FWID" ] &&
-       cros_version_greater_than "$STABLE_FWID" "$RO_FWID"; then
+    elif [ -z "$STABLE_FWID" ] ||
+         cros_version_greater_than "$STABLE_FWID" "$RO_FWID"; then
       alert "One-time RO+RW update from unstable firmware."
       return $FLAGS_FALSE
     fi
   fi
-  if [ -n "$FLAGS_update_ec" ]; then
+  if [ "$FLAGS_update_ec" = "$FLAGS_TRUE" ]; then
     if is_ecfw_write_protected; then
       return $FLAGS_TRUE
-    fi
-    if [ -n "$STABLE_ECID" ] &&
-       cros_version_greater_than "$STABLE_ECID" "$ECID"; then
+    elif [ -z "$STABLE_ECID" ] ||
+         cros_version_greater_than "$STABLE_ECID" "$ECID"; then
       alert "One-time RO+RW update from unstable EC firmware."
       return $FLAGS_FALSE
     fi
   fi
+  debug_msg "cros_check_stable_firmware: firmware is STABLE."
   return $FLAGS_TRUE
 }

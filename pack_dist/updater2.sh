@@ -597,12 +597,12 @@ main_check_rw_compatible() {
   fi
   local is_compatible="${FLAGS_TRUE}"
 
+  # Try explicit match
   if [ -n "$CUSTOMIZATION_RW_COMPATIBLE_CHECK" ]; then
     debug_msg "Checking customized RW compatibility..."
     "$CUSTOMIZATION_RW_COMPATIBLE_CHECK" || is_compatible="${FLAGS_FALSE}"
-  fi
-  if [ "$is_compatible" = "${FLAGS_TRUE}" ]; then
-    cros_check_stable_firmware || is_compatible="${FLAGS_ERROR}"
+  elif [ "$is_compatible" = "${FLAGS_TRUE}" ]; then
+    cros_check_stable_firmware || is_compatible="${FLAGS_FALSE}"
   fi
 
   if [ "$is_compatible" = "${FLAGS_TRUE}" ]; then
