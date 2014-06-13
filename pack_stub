@@ -159,7 +159,8 @@ perform_shar_repack() {
   # Update checksum data for every files except VERSION*
   (cd "$new_source" &&
    echo "Package Content:" &&
-   md5sum -b ./* | grep -v ' ../VERSION') >"$md5_file"
+   find . -type f '!' -name VERSION.md5 '!' -name VERSION \
+          -exec md5sum -b '{}' '+' ) >"$md5_file"
 
   # Build shar content
   (cd "$new_source" &&
