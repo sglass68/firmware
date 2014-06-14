@@ -4,7 +4,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-SCRIPT_BASE="$(dirname "$0")"
+: ${SCRIPT_BASE:="$(dirname "$0")"}
 if [ -s "$SCRIPT_BASE/shflags" ]; then
   . "$SCRIPT_BASE/shflags"
 else
