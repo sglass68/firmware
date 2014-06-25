@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
+# Copyright (c) 2014 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 #
@@ -18,8 +18,9 @@
 #
 # Temporary files should be named as "_*" to prevent confliction
 
-# Updater for firmware v4 (two-stop main, chromeos-ec).
+# Updater for firmware v5 (chromeos-ec, vboot2).
 # This is designed for x86/arm platform, using chromeos-ec (software sync).
+# Assume SLOT_A and SLOT_B has exactly same contents (and same keyblock).
 
 SCRIPT_BASE="$(dirname "$0")"
 . "$SCRIPT_BASE/common.sh"
@@ -54,9 +55,6 @@ SLOT_RO="RO_SECTION"
 SLOT_RW_SHARED="RW_SHARED"
 SLOT_EC_RO="EC_RO"
 SLOT_EC_RW="EC_RW"
-
-FWSRC_NORMAL="$SLOT_B"
-FWSRC_DEVELOPER="$SLOT_A"
 
 TYPE_MAIN="main"
 TYPE_EC="ec"
@@ -305,18 +303,7 @@ mode_startup() {
 
 # Update Engine - Current Boot Successful (chromeos_setgoodkernel)
 mode_bootok() {
-  local mainfw_act="$(cros_get_prop mainfw_act)"
-  # Copy main firmware to the spare slot.
-  if [ "$mainfw_act" = "A" ]; then
-    crosfw_dup2_mainfw "$SLOT_A" "$SLOT_B"
-  elif [ "$mainfw_act" = "B" ]; then
-    crosfw_dup2_mainfw "$SLOT_B" "$SLOT_A"
-  else
-    # Recovery mode, or non-chrome.
-    die "bootok: abnormal active firmware ($mainfw_act)..."
-  fi
-  cros_set_fwb_tries 0
-
+  cros_set_prop fw_result=success
   # EC firmware is managed by software sync (main firmware).
 }
 
@@ -351,26 +338,24 @@ mode_autoupdate() {
   fi
 
   if [ "${FLAGS_update_main}" = "${FLAGS_TRUE}" ]; then
-    local mainfw_act="$(cros_get_prop mainfw_act)"
-    if [ "$mainfw_act" = "B" ]; then
-      # mainfw_act is only updated at system reboot; if two updates (both with
-      # firmware updates) are pushed in a row, next update will be executed
-      # while mainfw_act is still B. Since we don't use RW BIOS directly when
-      # updater is running, it should be safe to update in this case.
-      debug_msg "mainfw_act=B, checking if we can still update FW B..."
-      prepare_main_current_image
-      cros_compare_file "$DIR_CURRENT/$TYPE_MAIN/$SLOT_A" \
-                        "$DIR_CURRENT/$TYPE_MAIN/$SLOT_B" &&
-        alert "Installing updates while mainfw_act is B (should be safe)." ||
-        die_need_reboot "Done (retry update next boot)"
-    elif [ "$mainfw_act" != "A" ]; then
-      die "autoupdate: unexpected active firmware ($mainfw_act)..."
+    local _mainfw_act="$(cros_get_prop mainfw_act)"
+    local _update_slot
+    local _try_next
+    if [ "$_mainfw_act" = "A" ]; then
+      _update_slot="$SLOT_B"
+      _try_next=B
+    elif [ "$_mainfw_act" = "B" ]; then
+      _update_slot="$SLOT_A"
+      _try_next=A
+    else
+      die "autoupdate: unexpected active firmware ($_mainfw_act)..."
     fi
 
     prepare_main_image
     prepare_main_current_image
     check_compatible_keys
-    crosfw_update_main "$SLOT_B" "$FWSRC_NORMAL"
+    crosfw_update_main "$_update_slot"
+    cros_set_prop fw_try_next=$_try_next
 
     # Try to determine EC software sync by checking $ECID. We can't rely on
     # $TARGET_ECID, $FLAGS_update_ec or $IMAGE_EC because in future there may be
@@ -379,10 +364,10 @@ mode_autoupdate() {
     # report an ID (but they should use updater v3 instead).
     if [ -n "$ECID" -a "$ECID" != "$TARGET_ECID" ]; then
       # EC software sync may need extra reboots.
-      cros_set_fwb_tries 8
+      cros_set_prop fw_try_count=8
       verbose_msg "On reboot EC update may occur."
     else
-      cros_set_fwb_tries 6
+      cros_set_prop fw_try_count=6
     fi
   fi
 
@@ -411,8 +396,6 @@ mode_tonormal() {
 
 # Recovery Installer
 mode_recovery() {
-  # TODO(hungte) Add flags to control RO updating, not is_*_write_protected.
-
   local prefix="mode_recovery"
   [ "${FLAGS_mode}" = "recovery" ] || prefix="${FLAGS_mode}(recovery)"
   if [ "${FLAGS_update_main}" = ${FLAGS_TRUE} ]; then
@@ -427,8 +410,8 @@ mode_recovery() {
       prepare_main_image
       prepare_main_current_image
       check_compatible_keys
-      crosfw_update_main "$SLOT_A" "$FWSRC_NORMAL"
-      crosfw_update_main "$SLOT_B" "$FWSRC_NORMAL"
+      crosfw_update_main "$SLOT_A"
+      crosfw_update_main "$SLOT_B"
       crosfw_update_main "$SLOT_RW_SHARED"
     fi
   fi
