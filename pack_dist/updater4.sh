@@ -80,64 +80,7 @@ ECID="$(eval "$ECINFO"; echo "$fw_version")"
 PLATFORM="$(mosys platform name 2>/dev/null)" || PLATFORM=""
 
 # ----------------------------------------------------------------------------
-# Parameters
-
-DEFINE_string mode "" \
- "Updater mode ( startup | bootok | autoupdate | todev | tonormal |"\
-" recovery | factory_install | factory_final | incompatible_update |"\
-" fast_version_check )" "m"
-DEFINE_string wp "" "Override write protection state (0/1)." ""
-
-DEFINE_boolean debug $FLAGS_FALSE "Enable debug messages." "d"
-DEFINE_boolean verbose $FLAGS_TRUE "Enable verbose messages." "v"
-DEFINE_boolean dry_run $FLAGS_FALSE "Enable dry-run mode." ""
-DEFINE_boolean force $FLAGS_FALSE "Try to force update." ""
-DEFINE_boolean allow_reboot $FLAGS_TRUE \
-  "Allow rebooting system immediately if required."
-DEFINE_string customization_id "" \
-  "Customization ID for keysets." ""
-
-DEFINE_boolean update_ec $FLAGS_TRUE "Enable updating Embedded Firmware." ""
-DEFINE_boolean update_main $FLAGS_TRUE "Enable updating Main Firmware." ""
-
-DEFINE_boolean check_keys $FLAGS_TRUE "Check firmware keys before updating." ""
-DEFINE_boolean check_rw_compatible $FLAGS_TRUE \
-  "Check if RW firmware is compatible with current RO" ""
-DEFINE_boolean check_platform $FLAGS_TRUE \
-  "Bypass firmware updates if the system platform name is different" ""
-# Required for factory compatibility
-DEFINE_boolean factory $FLAGS_FALSE "Equivalent to --mode=factory_install"
-
-# ----------------------------------------------------------------------------
 # Helper functions
-
-# Note this will change $IMAGE_MAIN so any processing to the file (ex,
-# prepare_main_image) must be invoked AFTER this call.
-preserve_vpd() {
-  crosfw_dupe_vpd "RO_VPD RW_VPD" "$IMAGE_MAIN" ""
-}
-
-preserve_hwid() {
-  [ -s "$IMAGE_MAIN" ] || die "preserve_hwid: no main firmware."
-  silent_invoke "gbb_utility -s --hwid='$HWID' $IMAGE_MAIN"
-}
-
-preserve_gbb() {
-  if [ -z "$HWID" ]; then
-    debug_msg "preserve_gbb: Running on non-ChromeOS firmware system. Skip."
-    return
-  fi
-  debug_msg "Preseving main firmware GBB data..."
-  [ -s "$IMAGE_MAIN" ] || die "preserve_gbb: no main firmware."
-  silent_invoke "flashrom $TARGET_OPT_MAIN -i GBB:_gbb.bin -r _temp.rom"
-  # Preseves flags (--flags output format: "flags: 0x0000001")
-  local flags="$(gbb_utility -g --flags _gbb.bin 2>/dev/null |
-                 sed -nr 's/^flags: ([x0-9]+)/\1/p')"
-  debug_msg "Current firmware flags: $flags"
-  if [ -n "$flags" ]; then
-    silent_invoke "gbb_utility -s --flags=$((flags)) $IMAGE_MAIN"
-  fi
-}
 
 # Verifies if current system is installed with compatible rootkeys
 check_compatible_keys() {
@@ -418,8 +361,8 @@ mode_recovery() {
   if [ "${FLAGS_update_main}" = ${FLAGS_TRUE} ]; then
     if ! is_mainfw_write_protected; then
       verbose_msg "$prefix: update RO+RW"
-      preserve_vpd
-      preserve_gbb
+      crosfw_preserve_vpd
+      crosfw_preserve_gbb
       crosfw_update_main
     else
       # TODO(hungte) check if FMAP is not changed
@@ -458,7 +401,7 @@ mode_factory_install() {
     # We may preserve bitmap here, just like recovery mode. However if there's
     # some issue (or incompatible stuff) found in bitmap, we will need a method
     # to update the bitmaps.
-    preserve_vpd || verbose_msg "Warning: cannot preserve VPD."
+    crosfw_preserve_vpd || verbose_msg "Warning: cannot preserve VPD."
     crosfw_update_main
   fi
   if [ "${FLAGS_update_ec}" = ${FLAGS_TRUE} ]; then
@@ -562,7 +505,7 @@ main() {
     verbose_msg "No main firmware bundled in updater, ignored."
   elif [ -n "$HWID" ]; then
     # always preserve HWID for current system, if available.
-    preserve_hwid
+    crosfw_preserve_hwid
     debug_msg "preserved HWID as: $HWID."
   fi
   if [ ! -s "$IMAGE_EC" ]; then

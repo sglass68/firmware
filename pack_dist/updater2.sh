@@ -87,59 +87,13 @@ FLAGS_update_ro_main="$FLAGS_FALSE"
 FLAGS_update_ro_ec="$FLAGS_FALSE"
 
 # ----------------------------------------------------------------------------
-# Parameters
+# Special Parameters
 
-DEFINE_string mode "" \
- "Updater mode ( startup | bootok | autoupdate | todev | tonormal |"\
-" recovery | factory_install | factory_final | incompatible_update )" "m"
-DEFINE_string wp "" "Override write protection state (0/1)." ""
-
-DEFINE_boolean debug $FLAGS_FALSE "Enable debug messages." "d"
-DEFINE_boolean verbose $FLAGS_TRUE "Enable verbose messages." "v"
-DEFINE_boolean dry_run $FLAGS_FALSE "Enable dry-run mode." ""
-DEFINE_boolean force $FLAGS_FALSE "Try to force update." ""
-DEFINE_boolean allow_reboot $FLAGS_TRUE \
-  "Allow rebooting system immediately if required."
-
-DEFINE_boolean update_ec $FLAGS_TRUE "Enable updating for Embedded Firmware." ""
-DEFINE_boolean update_main $FLAGS_TRUE "Enable updating for Main Firmware." ""
-
-DEFINE_boolean check_keys $FLAGS_TRUE "Check firmware keys before updating." ""
-DEFINE_boolean check_rw_compatible $FLAGS_TRUE \
-  "Check if RW firmware is compatible with current RO" ""
 DEFINE_boolean check_devfw $FLAGS_TRUE \
   "Bypass firmware updates if active firmware type is developer" ""
-DEFINE_boolean check_platform $FLAGS_TRUE \
-  "Bypass firmware updates if the system platform name is different" ""
-# Required for factory compatibility
-DEFINE_boolean factory $FLAGS_FALSE "Equivalent to --mode=factory_install"
 
 # ----------------------------------------------------------------------------
 # Helper functions
-
-# Note this will change $IMAGE_MAIN so any processing to the file (ex,
-# prepare_main_image) must be invoked AFTER this call.
-preserve_vpd() {
-  crosfw_dupe_vpd "RO_VPD RW_VPD" "$IMAGE_MAIN" ""
-}
-
-preserve_hwid() {
-  [ -s "$IMAGE_MAIN" ] || die "preserve_hwid: no main firmware."
-  silent_invoke "gbb_utility -s --hwid='$HWID' $IMAGE_MAIN"
-}
-
-preserve_bmpfv() {
-  if [ -z "$HWID" ]; then
-    debug_msg "preserve_bmpfv: Running on non-ChromeOS firmware system. Skip."
-    return
-  fi
-  debug_msg "Preseving main firmware images..."
-  [ -s "$IMAGE_MAIN" ] || die "preserve_bmpfv: no main firmware."
-  silent_invoke "flashrom $TARGET_OPT_MAIN -i GBB:_gbb.bin -r _temp.rom"
-  silent_invoke "gbb_utility -g --bmpfv=_bmpfv.bin _gbb.bin"
-  [ -s "_bmpfv.bin" ] || die "preserve_bmpfv: invalid bmpfv"
-  silent_invoke "gbb_utility -s --bmpfv=_bmpfv.bin $IMAGE_MAIN"
-}
 
 # Verifies if current system is installed with compatible rootkeys
 check_compatible_keys() {
@@ -424,9 +378,9 @@ mode_recovery() {
   if [ "${FLAGS_update_main}" = "${FLAGS_TRUE}" ]; then
     if ! is_mainfw_write_protected; then
       verbose_msg "mode_recovery: update RO+RW"
-      preserve_vpd
+      crosfw_preserve_vpd
       prepare_main_image
-      preserve_bmpfv
+      crosfw_preserve_bmpfv
       # HWID should be already preserved
       crosfw_update_main
       if ! is_developer_firmware; then
@@ -469,7 +423,7 @@ mode_factory_install() {
     die_need_ro_update "You need to first disable hardware write protection."
   fi
   if [ "${FLAGS_update_main}" = "${FLAGS_TRUE}" ]; then
-    preserve_vpd
+    crosfw_preserve_vpd
     crosfw_update_main
   fi
   if [ "${FLAGS_update_ec}" = "${FLAGS_TRUE}" ]; then
@@ -504,6 +458,11 @@ mode_incompatible_update() {
   if [ "${FLAGS_mode}" = "startup" ]; then
     cros_reboot
   fi
+}
+
+mode_fast_version_check() {
+  alert "Not implemented."
+  true
 }
 
 # ----------------------------------------------------------------------------
@@ -567,7 +526,7 @@ main() {
     verbose_msg "No main firmware bundled in updater, ignored."
   elif [ -n "$HWID" ]; then
     # always preserve HWID for current system, if available.
-    preserve_hwid
+    crosfw_preserve_hwid
     debug_msg "preserved HWID as: $HWID."
   fi
   if [ ! -s "$IMAGE_EC" ]; then

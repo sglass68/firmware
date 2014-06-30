@@ -14,6 +14,35 @@ fi
 . "$SCRIPT_BASE/crosfw.sh"
 
 # ----------------------------------------------------------------------------
+# Common Command Line Arguments
+
+DEFINE_string mode "" \
+ "Updater mode ( startup | bootok | autoupdate | todev | tonormal |"\
+" recovery | factory_install | factory_final | incompatible_update |"\
+" fast_version_check )" "m"
+DEFINE_string wp "" "Override write protection state (0/1)." ""
+
+DEFINE_boolean debug $FLAGS_FALSE "Enable debug messages." "d"
+DEFINE_boolean verbose $FLAGS_TRUE "Enable verbose messages." "v"
+DEFINE_boolean dry_run $FLAGS_FALSE "Enable dry-run mode." ""
+DEFINE_boolean force $FLAGS_FALSE "Try to force update." ""
+DEFINE_boolean allow_reboot $FLAGS_TRUE \
+  "Allow rebooting system immediately if required."
+DEFINE_string customization_id "" \
+  "Customization ID for keysets." ""
+
+DEFINE_boolean update_ec $FLAGS_TRUE "Enable updating Embedded Firmware." ""
+DEFINE_boolean update_main $FLAGS_TRUE "Enable updating Main Firmware." ""
+
+DEFINE_boolean check_keys $FLAGS_TRUE "Check firmware keys before updating." ""
+DEFINE_boolean check_rw_compatible $FLAGS_TRUE \
+  "Check if RW firmware is compatible with current RO" ""
+DEFINE_boolean check_platform $FLAGS_TRUE \
+  "Bypass firmware updates if the system platform name is different" ""
+# Required for factory compatibility
+DEFINE_boolean factory $FLAGS_FALSE "Equivalent to --mode=factory_install"
+
+# ----------------------------------------------------------------------------
 # Common Utilities
 
 # Reports some critical message in stderr

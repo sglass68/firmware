@@ -227,3 +227,46 @@ crosfw_update_ec() {
   fi
   [ -z "$CUSTOMIZATION_EC_POST_UPDATE" ] || "$CUSTOMIZATION_EC_POST_UPDATE"
 }
+
+# Note following "preserve" utilities will change $IMAGE_MAIN so any processing
+# to the file (ex, prepare_main_image) must be invoked AFTER this call.
+crosfw_preserve_hwid() {
+  [ -s "$IMAGE_MAIN" ] || die "preserve_hwid: no main firmware."
+  silent_invoke "gbb_utility -s --hwid='$HWID' $IMAGE_MAIN"
+}
+
+crosfw_preserve_vpd() {
+  crosfw_dupe_vpd "RO_VPD RW_VPD" "$IMAGE_MAIN" ""
+}
+
+crosfw_preserve_bmpfv() {
+  if [ -z "$HWID" ]; then
+    debug_msg "crosfw_preserve_bmpfv: Running non-ChromeOS firmware. Skip."
+    return
+  fi
+  debug_msg "Preseving main firmware bitmap volume data..."
+  [ -s "$IMAGE_MAIN" ] || die "crosfw_preserve_bmpfv: no main firmware."
+  # Preserves V1, V2 bitmap volumes.
+  silent_invoke "flashrom $TARGET_OPT_MAIN -i GBB:_gbb.bin -r _temp.rom"
+  silent_invoke "gbb_utility -g --bmpfv=_bmpfv.bin _gbb.bin"
+  [ -s "_bmpfv.bin" ] || die "crosfw_preserve_bmpfv: invalid bmpfv"
+  silent_invoke "gbb_utility -s --bmpfv=_bmpfv.bin $IMAGE_MAIN"
+}
+
+crosfw_preserve_gbb() {
+  if [ -z "$HWID" ]; then
+    debug_msg "crosfw_preserve_gbb: Running non-ChromeOS firmware. Skip."
+    return
+  fi
+  debug_msg "Preseving main firmware GBB data..."
+  [ -s "$IMAGE_MAIN" ] || die "crosfw_preserve_gbb: no main firmware."
+  silent_invoke "flashrom $TARGET_OPT_MAIN -i GBB:_gbb.bin -r _temp.rom"
+
+  # Preseves flags (--flags output format: "flags: 0x0000001")
+  local flags="$(gbb_utility -g --flags _gbb.bin 2>/dev/null |
+                 sed -nr 's/^flags: ([x0-9]+)/\1/p')"
+  debug_msg "Current firmware flags: $flags"
+  if [ -n "$flags" ]; then
+    silent_invoke "gbb_utility -s --flags=$((flags)) $IMAGE_MAIN"
+  fi
+}
