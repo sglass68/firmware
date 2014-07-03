@@ -470,7 +470,7 @@ main() {
   local ro_type=""
   cros_is_ro_normal_boot && ro_type="$ro_type[RO_NORMAL]"
 
-  verbose_msg "Starting $TARGET_PLATFORM firmware updater v4 (${FLAGS_mode})..."
+  verbose_msg "Starting $TARGET_PLATFORM firmware updater v5 (${FLAGS_mode})..."
   local package_info="$TARGET_FWID"
   local current_info="RO:$RO_FWID $ro_type, ACT:$FWID"
   if [ -n "${TARGET_ECID%IGNORE}" ]; then
