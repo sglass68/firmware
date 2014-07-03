@@ -23,6 +23,7 @@
 # 1. Perform updates even if active firmware is "developer mode"
 # 2. Sleep/suspend (S3) after RO update may fail system (due to ACPI/ASL code
 #    dependency), but that only happens on internal developer's dogfood devices
+# Assume SLOT_A and SLOT_B has exactly same contents (and same keyblock).
 
 SCRIPT_BASE="$(dirname "$0")"
 . "$SCRIPT_BASE/common.sh"
@@ -57,9 +58,6 @@ SLOT_RO="RO_SECTION"
 SLOT_RW_SHARED="RW_SHARED"
 SLOT_EC_RO="EC_RO"
 SLOT_EC_RW="EC_RW"
-
-FWSRC_NORMAL="$SLOT_B"
-FWSRC_DEVELOPER="$SLOT_A"
 
 TYPE_MAIN="main"
 TYPE_EC="ec"
@@ -300,7 +298,7 @@ mode_autoupdate() {
     prepare_main_image
     prepare_main_current_image
     check_compatible_keys
-    crosfw_update_main "$SLOT_B" "$FWSRC_NORMAL"
+    crosfw_update_main "$SLOT_B"
     cros_set_fwb_tries 6
   fi
 
@@ -333,8 +331,6 @@ mode_tonormal() {
 
 # Recovery Installer
 mode_recovery() {
-  # TODO(hungte) Add flags to control RO updating, not is_*_write_protected.
-
   local prefix="mode_recovery"
   [ "${FLAGS_mode}" = "recovery" ] || prefix="${FLAGS_mode}(recovery)"
   if [ "${FLAGS_update_main}" = ${FLAGS_TRUE} ]; then
@@ -349,8 +345,8 @@ mode_recovery() {
       prepare_main_image
       prepare_main_current_image
       check_compatible_keys
-      crosfw_update_main "$SLOT_A" "$FWSRC_NORMAL"
-      crosfw_update_main "$SLOT_B" "$FWSRC_NORMAL"
+      crosfw_update_main "$SLOT_A"
+      crosfw_update_main "$SLOT_B"
       crosfw_update_main "$SLOT_RW_SHARED"
     fi
   fi

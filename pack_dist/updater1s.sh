@@ -22,6 +22,7 @@
 # - No partial A/B update for main firmware.
 # - Only supports recoverying and EC AU.
 # - No preserving VPD
+# Assume SLOT_A and SLOT_B has exactly same contents (and same keyblock).
 
 SCRIPT_BASE="$(dirname "$0")"
 . "$SCRIPT_BASE/common.sh"
@@ -56,9 +57,6 @@ SLOT_RO="RO_SECTION"
 SLOT_RW_SHARED="RW_SHARED"
 SLOT_EC_RO="EC_RO"
 SLOT_EC_RW="EC_RW"
-
-FWSRC_NORMAL="$SLOT_B"
-FWSRC_DEVELOPER="$SLOT_A"
 
 TYPE_MAIN="main"
 TYPE_EC="ec"

@@ -20,6 +20,7 @@
 
 # Updater for firmware v4 (two-stop main, chromeos-ec).
 # This is designed for x86/arm platform, using chromeos-ec (software sync).
+# Assume SLOT_A and SLOT_B has exactly same contents (and same keyblock).
 
 SCRIPT_BASE="$(dirname "$0")"
 . "$SCRIPT_BASE/common.sh"
@@ -54,9 +55,6 @@ SLOT_RO="RO_SECTION"
 SLOT_RW_SHARED="RW_SHARED"
 SLOT_EC_RO="EC_RO"
 SLOT_EC_RW="EC_RW"
-
-FWSRC_NORMAL="$SLOT_B"
-FWSRC_DEVELOPER="$SLOT_A"
 
 TYPE_MAIN="main"
 TYPE_EC="ec"
@@ -313,7 +311,7 @@ mode_autoupdate() {
     prepare_main_image
     prepare_main_current_image
     check_compatible_keys
-    crosfw_update_main "$SLOT_B" "$FWSRC_NORMAL"
+    crosfw_update_main "$SLOT_B"
 
     # Try to determine EC software sync by checking $ECID. We can't rely on
     # $TARGET_ECID, $FLAGS_update_ec or $IMAGE_EC because in future there may be
@@ -354,8 +352,6 @@ mode_tonormal() {
 
 # Recovery Installer
 mode_recovery() {
-  # TODO(hungte) Add flags to control RO updating, not is_*_write_protected.
-
   local prefix="mode_recovery"
   [ "${FLAGS_mode}" = "recovery" ] || prefix="${FLAGS_mode}(recovery)"
   if [ "${FLAGS_update_main}" = ${FLAGS_TRUE} ]; then
@@ -370,8 +366,8 @@ mode_recovery() {
       prepare_main_image
       prepare_main_current_image
       check_compatible_keys
-      crosfw_update_main "$SLOT_A" "$FWSRC_NORMAL"
-      crosfw_update_main "$SLOT_B" "$FWSRC_NORMAL"
+      crosfw_update_main "$SLOT_A"
+      crosfw_update_main "$SLOT_B"
       crosfw_update_main "$SLOT_RW_SHARED"
     fi
   fi
