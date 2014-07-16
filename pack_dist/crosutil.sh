@@ -416,7 +416,7 @@ cros_override_rw_firmware_by_version() {
        chromeos-firmwareupdate --mode=incompatible_update
       "
     [ -s "$IMAGE_MAIN_RW" ] && cp -f "$IMAGE_MAIN_RW" "$IMAGE_MAIN" &&
-      preserve_hwid &&
+      crosfw_preserve_hwid &&
       alert "Updating with RW firmware (slower boot time)." ||
       die "Failed to load RW firmware. Can't update."
   fi
