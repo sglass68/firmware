@@ -20,6 +20,8 @@ DEFINE_string bios_image "" "Path of input BIOS firmware image" "b"
 DEFINE_string bios_rw_image "" "Path of input BIOS RW firmware image" "w"
 DEFINE_string ec_image "" "Path of input EC firmware image" "e"
 DEFINE_string ec_version "IGNORE" "Version of input EC firmware image"
+DEFINE_string pd_image "" "Path of input PD firmware image" "p"
+DEFINE_string pd_version "IGNORE" "Version of input PD firmware image"
 DEFINE_string platform "" "Platform name to check for firmware"
 DEFINE_string script "updater.sh" "File name of main script file"
 DEFINE_string output "" "Path of output filename" "o"
@@ -32,6 +34,7 @@ DEFINE_boolean create_bios_rw_image ${FLAGS_FALSE} \
 # stable settings
 DEFINE_string stable_main_version "" "Version of stable main firmware"
 DEFINE_string stable_ec_version "" "Version of stable EC firmware"
+DEFINE_string stable_pd_version "" "Version of stable PD firmware"
 
 # embedded tools
 DEFINE_string tools "flashrom mosys crossystem gbb_utility vpd dump_fmap" \
@@ -189,8 +192,10 @@ bios_version="IGNORE"
 bios_rw_bin="${FLAGS_bios_rw_image}"
 ec_bin="${FLAGS_ec_image}"
 ec_version="${FLAGS_ec_version}"
-if [ "$bios_bin" = "" -a "$ec_bin" = "" ]; then
-  die "must assign at least one of BIOS or EC image."
+pd_bin="${FLAGS_pd_image}"
+pd_version="${FLAGS_pd_version}"
+if [ "$bios_bin" = "" -a "$ec_bin" = "" -a "$pd_bin" = "" ]; then
+  die "must assign at least one of BIOS or EC or PD image."
 fi
 
 # create temporary folder to store files
@@ -211,6 +216,7 @@ echo "" >>"$version_file"
 IMAGE_MAIN="bios.bin"
 IMAGE_MAIN_RW="bios_rw.bin"
 IMAGE_EC="ec.bin"
+IMAGE_PD="pd.bin"
 
 # copy firmware image files
 if [ "$bios_bin" != "" ]; then
@@ -241,6 +247,13 @@ if [ "$ec_bin" != "" ]; then
   echo "EC image:     $(md5sum -b "$ec_bin")" >> "$version_file"
   [ "$ec_version" = "IGNORE" ] ||
     echo "EC version:   $ec_version" >>"$version_file"
+fi
+if [ "$pd_bin" != "" ]; then
+  pd_version="$(extract_frid "$pd_bin" "$FLAGS_pd_version")"
+  cp -pf "$pd_bin" "$tmpbase/$IMAGE_PD" || die "cannot get PD image"
+  echo "PD image:     $(md5sum -b "$pd_bin")" >> "$version_file"
+  [ "$pd_version" = "IGNORE" ] ||
+    echo "PD version:   $pd_version" >>"$version_file"
 fi
 
 # copy tool programs and main resources from pack_dist.
@@ -294,10 +307,12 @@ dc=$'\001'
 sed -in "
   s${dc}REPLACE_FWID${dc}${bios_version}${dc};
   s${dc}REPLACE_ECID${dc}${ec_version}${dc};
+  s${dc}REPLACE_PDID${dc}${pd_version}${dc};
   s${dc}REPLACE_PLATFORM${dc}${FLAGS_platform}${dc};
   s${dc}REPLACE_SCRIPT${dc}${FLAGS_script}${dc};
   s${dc}REPLACE_STABLE_FWID${dc}${FLAGS_stable_main_version}${dc};
   s${dc}REPLACE_STABLE_ECID${dc}${FLAGS_stable_ec_version}${dc};
+  s${dc}REPLACE_STABLE_PDID${dc}${FLAGS_stable_pd_version}${dc};
   " "$output"
 sh "$output" --sb_repack "$tmpbase" ||
   die "Failed to archive firmware package"
