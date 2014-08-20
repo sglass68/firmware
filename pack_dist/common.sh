@@ -32,6 +32,7 @@ DEFINE_string customization_id "" \
   "Customization ID for keysets." ""
 
 DEFINE_boolean update_ec $FLAGS_TRUE "Enable updating Embedded Firmware." ""
+DEFINE_boolean update_pd $FLAGS_TRUE "Enable updating PD Firmware." ""
 DEFINE_boolean update_main $FLAGS_TRUE "Enable updating Main Firmware." ""
 
 DEFINE_boolean check_keys $FLAGS_TRUE "Check firmware keys before updating." ""

@@ -160,8 +160,8 @@ cros_is_software_write_protected() {
 
 # Reports write protection status
 cros_report_wp_status() {
-  local test_main="$1" test_ec="$2"
-  local wp_hw="off" wp_sw_main="off" wp_sw_ec="off"
+  local test_main="$1" test_ec="$2" test_pd="$3"
+  local wp_hw="off" wp_sw_main="off" wp_sw_ec="off" wp_sw_pd="off"
   cros_is_hardware_write_protected && wp_hw="ON"
   local message="Hardware: $wp_hw, Software:"
   if [ "$test_main" = $FLAGS_TRUE ]; then
@@ -181,6 +181,11 @@ cros_report_wp_status() {
   if [ "$test_ec" = $FLAGS_TRUE ]; then
     cros_is_software_write_protected "$TARGET_OPT_EC" && wp_sw_ec="ON"
     message="$message EC=$wp_sw_ec"
+  fi
+
+  if [ "$test_pd" = $FLAGS_TRUE ]; then
+    cros_is_software_write_protected "$TARGET_OPT_PD" && wp_sw_pd="ON"
+    message="$message PD=$wp_sw_pd"
   fi
   echo "$message"
 }
@@ -423,7 +428,7 @@ cros_override_rw_firmware_by_version() {
 }
 
 cros_check_stable_firmware() {
-  debug_msg "cros_check_stable_firmware($STABLE_FWID/$STABLE_ECID)"
+  debug_msg "cros_check_stable_firmware($STABLE_FWID/$STABLE_ECID/$STABLE_PDID)"
   if [ "$FLAGS_update_main" = "$FLAGS_TRUE" ]; then
     if is_mainfw_write_protected; then
       return $FLAGS_TRUE
@@ -439,6 +444,15 @@ cros_check_stable_firmware() {
     elif [ -z "$STABLE_ECID" ] ||
          cros_version_greater_than "$STABLE_ECID" "$ECID"; then
       alert "One-time RO+RW update from unstable EC firmware."
+      return $FLAGS_FALSE
+    fi
+  fi
+  if [ "$FLAGS_update_pd" = "$FLAGS_TRUE" ]; then
+    if is_pdfw_write_protected; then
+      return $FLAGS_TRUE
+    elif [ -z "$STABLE_PDID" ] ||
+         cros_version_greater_than "$STABLE_PDID" "$PDID"; then
+      alert "One-time RO+RW update from unstable PD firmware."
       return $FLAGS_FALSE
     fi
   fi

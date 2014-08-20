@@ -17,6 +17,7 @@ MOCK_WPSW_BOOT=
 # MOCK_*_WP: Empty = "not enabled", otherwise "enabled"
 MOCK_MAIN_WP=
 MOCK_EC_WP=
+MOCK_PD_WP=
 
 MOCK_VDAT_FLAGS=
 MOCK_TPM_FWVER=
@@ -93,6 +94,8 @@ flashrom() {
   local disabled="write protect is disabled"
   if [ "${opts%-p host*}" != "${opts}" ]; then
     [ -n "${MOCK_MAIN_WP}" ] || enabled="${disabled}"
+  elif [ "${opts%-p ec:dev=1}" != "${opts}" ]; then
+    [ -n "${MOCK_PD_WP}" ] || enabled="${disabled}"
   elif [ "${opts%-p ec*}" != "${opts}" ]; then
     [ -n "${MOCK_EC_WP}" ] || enabled="${disabled}"
   else
@@ -154,12 +157,16 @@ test_write_protected() {
 
   MOCK_MAIN_WP=Y
   MOCK_EC_WP=Y
+  MOCK_PD_WP=Y
   assertTrue "M" "cros_is_software_write_protected '${TARGET_OPT_MAIN}'"
   assertTrue "E" "cros_is_software_write_protected '${TARGET_OPT_EC}'"
+  assertTrue "P" "cros_is_software_write_protected '${TARGET_OPT_PD}'"
   MOCK_MAIN_WP=
   MOCK_EC_WP=
+  MOCK_PD_WP=
   assertFalse "!M" "cros_is_software_write_protected '${TARGET_OPT_MAIN}'"
   assertFalse "!E" "cros_is_software_write_protected '${TARGET_OPT_EC}'"
+  assertFalse "!P" "cros_is_software_write_protected '${TARGET_OPT_PD}'"
 }
 
 test_cros_firmware_info() {
@@ -187,6 +194,7 @@ test_cros_firmware_info() {
 test_cros_check_stable_firmware() {
   FLAGS_update_main=${FLAGS_TRUE}
   FLAGS_update_ec=${FLAGS_FALSE}
+  FLAGS_update_pd=${FLAGS_FALSE}
   RO_FWID="Link.123.0"
   STABLE_FWID="Link.123.1"
   FLAGS_wp=true
@@ -205,6 +213,7 @@ test_cros_check_stable_firmware() {
 
   FLAGS_update_main=${FLAGS_FALSE}
   FLAGS_update_ec=${FLAGS_TRUE}
+  FLAGS_update_pd=${FLAGS_FALSE}
   ECID="link/v1.123.0"
   STABLE_ECID="link/v1.123.1"
   FLAGS_wp=true
@@ -213,9 +222,23 @@ test_cros_check_stable_firmware() {
   assertFalse "wp=0,es" cros_check_stable_firmware
   ECID="link/v1.123.2"
   assertTrue "wp=0,es2" cros_check_stable_firmware
-
   ECID="link/v1.123.0"
   STABLE_ECID=""
+
+  FLAGS_update_main=${FLAGS_FALSE}
+  FLAGS_update_ec=${FLAGS_FALSE}
+  FLAGS_update_pd=${FLAGS_TRUE}
+  PDID="link/v1.123.0"
+  STABLE_PDID="link/v1.123.1"
+  FLAGS_wp=true
+  assertTrue "wp=1,es" cros_check_stable_firmware
+  FLAGS_wp=false
+  assertFalse "wp=0,es" cros_check_stable_firmware
+  PDID="link/v1.123.2"
+  assertTrue "wp=0,es2" cros_check_stable_firmware
+  PDID="link/v1.123.0"
+  STABLE_PDID=""
+
   FLAGS_wp=true
   assertTrue "wp=1,en" cros_check_stable_firmware
   FLAGS_wp=false

@@ -55,12 +55,16 @@ SLOT_RO="RO_SECTION"
 SLOT_RW_SHARED="RW_SHARED"
 SLOT_EC_RO="EC_RO"
 SLOT_EC_RW="EC_RW"
+SLOT_PD_RO="EC_RO"
+SLOT_PD_RW="EC_RW"
 
 TYPE_MAIN="main"
 TYPE_EC="ec"
+TYPE_PD="pd"
 IMAGE_MAIN="bios.bin"
 IMAGE_MAIN_RW="bios_rw.bin"  # optional image.
 IMAGE_EC="ec.bin"
+IMAGE_PD="pd.bin"
 KEYSET_DIR="keyset"
 
 # ----------------------------------------------------------------------------
@@ -69,12 +73,14 @@ KEYSET_DIR="keyset"
 # Current system identifiers (may be empty if running on non-ChromeOS systems)
 HWID="$(crossystem hwid 2>/dev/null)" || HWID=""
 ECINFO="$(mosys -k ec info 2>/dev/null)" || ECINFO=""
+PDINFO="$(mosys -k pd info 2>/dev/null)" || PDINFO=""
 
-# Compare following values with TARGET_FWID, TARGET_ECID, TARGET_PLATFORM
+# Compare following values with TARGET_*
 # (should be passed by wrapper as environment variables)
 FWID="$(crossystem fwid 2>/dev/null)" || FWID=""
 RO_FWID="$(crossystem ro_fwid 2>/dev/null)" || RO_FWID=""
 ECID="$(eval "$ECINFO"; echo "$fw_version")"
+PDID="$(eval "$PDINFO"; echo "$fw_version")"
 PLATFORM="$(mosys platform name 2>/dev/null)" || PLATFORM=""
 
 # ----------------------------------------------------------------------------
@@ -143,12 +149,31 @@ need_update_ec() {
   return $FLAGS_FALSE
 }
 
+need_update_pd() {
+  prepare_pd_image
+  prepare_pd_current_image
+  if ! is_pdfw_write_protected &&
+     ! crosfw_is_equal_slot "$TYPE_PD" "$SLOT_PD_RO"; then
+      debug_msg "PD RO needs update."
+      return $FLAGS_TRUE
+  fi
+  if ! crosfw_is_equal_slot "$TYPE_PD" "$SLOT_PD_RW"; then
+      debug_msg "PD RW needs update."
+      return $FLAGS_TRUE
+  fi
+  return $FLAGS_FALSE
+}
+
 prepare_main_image() {
   crosfw_unpack_image "$TYPE_MAIN" "$IMAGE_MAIN" "$TARGET_OPT_MAIN"
 }
 
 prepare_ec_image() {
   crosfw_unpack_image "$TYPE_EC" "$IMAGE_EC" "$TARGET_OPT_EC"
+}
+
+prepare_pd_image() {
+  crosfw_unpack_image "$TYPE_PD" "$IMAGE_PD" "$TARGET_OPT_PD"
 }
 
 prepare_main_current_image() {
@@ -159,6 +184,10 @@ prepare_ec_current_image() {
   crosfw_unpack_current_image "$TYPE_EC" "$IMAGE_EC" "$TARGET_OPT_EC" "$@"
 }
 
+prepare_pd_current_image() {
+  crosfw_unpack_current_image "$TYPE_PD" "$IMAGE_PD" "$TARGET_OPT_PD" "$@"
+}
+
 is_write_protection_disabled() {
   if [ "${FLAGS_update_main}" = ${FLAGS_TRUE} ]; then
     is_mainfw_write_protected && return $FLAGS_FALSE || true
@@ -166,6 +195,10 @@ is_write_protection_disabled() {
 
   if [ "${FLAGS_update_ec}" = ${FLAGS_TRUE} ]; then
     is_ecfw_write_protected && return $FLAGS_FALSE || true
+  fi
+
+  if [ "${FLAGS_update_pd}" = ${FLAGS_TRUE} ]; then
+    is_pdfw_write_protected && return $FLAGS_FALSE || true
   fi
 
   return $FLAGS_TRUE
@@ -284,6 +317,14 @@ mode_autoupdate() {
         FLAGS_update_ec=$FLAGS_FALSE
       fi
     fi
+    # Check PD firmware
+    if [ "${FLAGS_update_pd}" = ${FLAGS_TRUE} ]; then
+      if [ "$TARGET_PDID" != "$PDID" ]; then
+        need_update=1
+      else
+        FLAGS_update_pd=$FLAGS_FALSE
+      fi
+    fi
   fi
 
   if [ "$need_update" -eq 0 ]; then
@@ -383,6 +424,17 @@ mode_recovery() {
     verbose_msg "$prefix: EC may be restored or updated in next boot."
   fi
 
+  if [ "${FLAGS_update_pd}" = ${FLAGS_TRUE} ]; then
+    if ! is_pdfw_write_protected; then
+      verbose_msg "$prefix: update pd/RO+RW"
+      crosfw_update_pd
+    fi
+    # If PD is write-protected, software sync will lock RW PD after kernel
+    # starts (left firmware boot stage). We can't recover PD RW in this case.
+    # Ref: crosbug.com/p/16087.
+    verbose_msg "$prefix: PD may be restored or updated in next boot."
+  fi
+
   clear_update_cookies
 }
 
@@ -402,6 +454,9 @@ mode_factory_install() {
   fi
   if [ "${FLAGS_update_ec}" = ${FLAGS_TRUE} ]; then
     crosfw_update_ec
+  fi
+  if [ "${FLAGS_update_pd}" = ${FLAGS_TRUE} ]; then
+    crosfw_update_pd
   fi
   cros_clear_nvdata
   silent_sh enable_dev_boot
@@ -432,6 +487,9 @@ mode_fast_version_check() {
   fi
   if [ -n "$IMAGE_EC" -a "$ECID" != "$TARGET_ECID" ]; then
     die "EC FWID: $ECID != $TARGET_ECID"
+  fi
+  if [ -n "$IMAGE_PD" -a "$PDID" != "$TARGET_PDID" ]; then
+    die "PD FWID: $PDID != $TARGET_PDID"
   fi
 }
 
@@ -492,6 +550,12 @@ main() {
   if [ -n "$ECID" ]; then
     current_info="$current_info / EC:$ECID"
   fi
+  if [ -n "${TARGET_PDID%IGNORE}" ]; then
+    package_info="$package_info / PD:$TARGET_PDID"
+  fi
+  if [ -n "$PDID" ]; then
+    current_info="$current_info / PD:$PDID"
+  fi
   verbose_msg " - Updater package: [$package_info]"
   verbose_msg " - Current system:  [$current_info]"
 
@@ -508,8 +572,13 @@ main() {
     FLAGS_update_ec=${FLAGS_FALSE}
     debug_msg "No EC firmware bundled in updater, ignored."
   fi
+  if [ ! -s "$IMAGE_PD" ]; then
+    FLAGS_update_pd=${FLAGS_FALSE}
+    debug_msg "No PD firmware bundled in updater, ignored."
+  fi
 
-  local wpmsg="$(cros_report_wp_status $FLAGS_update_main $FLAGS_update_ec)"
+  local wpmsg="$(cros_report_wp_status $FLAGS_update_main \
+                 $FLAGS_update_ec $FLAGS_update_pd)"
   verbose_msg " - Write protection: $wpmsg"
 
   # Check platform except in factory_install mode.

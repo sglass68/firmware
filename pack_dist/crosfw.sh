@@ -17,11 +17,13 @@ DIR_TARGET="_target"
 # Parameters for flashrom command
 TARGET_OPT_MAIN="-p host"
 TARGET_OPT_EC="-p ec"
+TARGET_OPT_PD="-p ec:dev=1"
 WRITE_OPT="--fast-verify"
 
 # Overrides this with any function name to perform special tasks when EC is
 # updated (Ex, notify EC to check battery firmware updates)
 CUSTOMIZATION_EC_POST_UPDATE=""
+CUSTOMIZATION_PD_POST_UPDATE=""
 
 # Unpacks target image, in full image and unpacked form.
 crosfw_unpack_image() {
@@ -147,6 +149,17 @@ is_ecfw_write_protected() {
   fi
 }
 
+# Utility to return if PD firmware write protection is enabled.
+is_pdfw_write_protected() {
+  if [ -n "$FLAGS_wp" ]; then
+    verbose_msg "Warning: PD WP state overridden as ${FLAGS_wp}"
+    "${FLAGS_wp}"
+  else
+    cros_is_hardware_write_protected &&
+      cros_is_software_write_protected "$TARGET_OPT_PD"
+  fi
+}
+
 crosfw_dup2_mainfw() {
   # Syntax: crosfw_dup2_mainfw SLOT_FROM SLOT_TO
   #    Duplicates a slot to another place on system live firmware
@@ -226,6 +239,23 @@ crosfw_update_ec() {
     invoke "flashrom $TARGET_OPT_EC $WRITE_OPT -w $IMAGE_EC"
   fi
   [ -z "$CUSTOMIZATION_EC_POST_UPDATE" ] || "$CUSTOMIZATION_EC_POST_UPDATE"
+}
+
+# Update Embedded Controller PD Firmware
+crosfw_update_pd() {
+  local slot="$1"
+  debug_msg "invoking: crosfw_update_pd($@)"
+  # Syntax: crosfw_update_pd SLOT
+  #    Update assigned slot with proper firmware.
+  # Syntax: crosfw_update_pd
+  #    Write complete MAIN_TARGET_IMAGE
+  [ -s "$IMAGE_PD" ] || die "missing firmware image: $IMAGE_PD"
+  if [ -n "$slot" ]; then
+    invoke "flashrom $TARGET_OPT_PD $WRITE_OPT -w $IMAGE_PD -i $slot"
+  else
+    invoke "flashrom $TARGET_OPT_PD $WRITE_OPT -w $IMAGE_PD"
+  fi
+  [ -z "$CUSTOMIZATION_PD_POST_UPDATE" ] || "$CUSTOMIZATION_PD_POST_UPDATE"
 }
 
 # Note following "preserve" utilities will change $IMAGE_MAIN so any processing
