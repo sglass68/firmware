@@ -163,6 +163,9 @@ perform_shar_repack() {
   local pd_ver="$(find_version_string "$new_source/pd.bin" \
                   '^[a-zA-Z0-9]*_v[0-9\.]*-[a-z0-9]*$')"
 
+  # Since mosys r430, trailing spaces reported by mosys is always scrubbed.
+  ec_ver="$(echo "$ec_ver" | sed 's/ *$//')"
+
   [ "$cut_mark" -gt 0 ] || die "File corrupted: $SELF"
   sed -i "$((cut_mark + 1)),\$d" "$SELF" ||
     die "Failed to truncate existing data in $SELF"
