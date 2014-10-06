@@ -175,6 +175,7 @@ cros_report_wp_status() {
   case "$FLAGS_mode" in
     autoupdate | bootok | todev )
       test_ec=$FLAGS_FALSE
+      test_pd=$FLAGS_FALSE
       ;;
   esac
 
