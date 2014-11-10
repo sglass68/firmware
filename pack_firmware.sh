@@ -22,7 +22,6 @@ DEFINE_string ec_image "" "Path of input EC firmware image" "e"
 DEFINE_string ec_version "IGNORE" "Version of input EC firmware image"
 DEFINE_string pd_image "" "Path of input PD firmware image" "p"
 DEFINE_string pd_version "IGNORE" "Version of input PD firmware image"
-DEFINE_string platform "" "Platform name to check for firmware"
 DEFINE_string script "updater.sh" "File name of main script file"
 DEFINE_string output "" "Path of output filename" "o"
 DEFINE_string extra "" "Directory list (separated by :) of files to be merged"
@@ -48,6 +47,7 @@ DEFINE_boolean unstable ${FLAGS_FALSE} "(deprecated)"
 DEFINE_boolean early_mp_fullupdate ${FLAGS_FALSE}  "(deprecated)"
 DEFINE_string mp_main_version "" "(deprecated)"
 DEFINE_string mp_ec_version "" "(deprecated)"
+DEFINE_string platform "" "(deprecated)"
 
 # Parse command line
 FLAGS "$@" || exit 1
@@ -255,6 +255,10 @@ if [ "$pd_bin" != "" ]; then
   [ "$pd_version" = "IGNORE" ] ||
     echo "PD version:   $pd_version" >>"$version_file"
 fi
+
+# Set platform to first field of firmware version (ex: Google_Link.1234 ->
+# Google_Link).
+FLAGS_platform="${bios_version%%.*}"
 
 # copy tool programs and main resources from pack_dist.
 # WARNING: do not put any files with dot in prefix ( eg: .blah )

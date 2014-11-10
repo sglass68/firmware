@@ -81,7 +81,7 @@ FWID="$(crossystem fwid 2>/dev/null)" || FWID=""
 RO_FWID="$(crossystem ro_fwid 2>/dev/null)" || RO_FWID=""
 ECID="$(eval "$ECINFO"; echo "$fw_version")"
 PDID="$(eval "$PDINFO"; echo "$fw_version")"
-PLATFORM="$(mosys platform name 2>/dev/null)" || PLATFORM=""
+PLATFORM="${FWID%%.*}"
 
 # ----------------------------------------------------------------------------
 # Helper functions
