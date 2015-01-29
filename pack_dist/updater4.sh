@@ -263,6 +263,10 @@ load_keyset() {
   verbose_msg "Firmware keys changed to set [$keyid]."
 }
 
+is_vboot2() {
+  crossystem 'fw_vboot2?1'
+}
+
 # ----------------------------------------------------------------------------
 # Core logic in different modes
 
@@ -274,17 +278,21 @@ mode_startup() {
 
 # Update Engine - Current Boot Successful (chromeos_setgoodkernel)
 mode_bootok() {
-  local mainfw_act="$(cros_get_prop mainfw_act)"
-  # Copy main firmware to the spare slot.
-  if [ "$mainfw_act" = "A" ]; then
-    crosfw_dup2_mainfw "$SLOT_A" "$SLOT_B"
-  elif [ "$mainfw_act" = "B" ]; then
-    crosfw_dup2_mainfw "$SLOT_B" "$SLOT_A"
+  if is_vboot2; then
+    cros_set_prop fw_result=success fw_try_count=0
   else
-    # Recovery mode, or non-chrome.
-    die "bootok: abnormal active firmware ($mainfw_act)..."
+    local mainfw_act="$(cros_get_prop mainfw_act)"
+    # Copy main firmware to the spare slot.
+    if [ "$mainfw_act" = "A" ]; then
+      crosfw_dup2_mainfw "$SLOT_A" "$SLOT_B"
+    elif [ "$mainfw_act" = "B" ]; then
+      crosfw_dup2_mainfw "$SLOT_B" "$SLOT_A"
+    else
+      # Recovery mode, or non-chrome.
+      die "bootok: abnormal active firmware ($mainfw_act)..."
+    fi
+    cros_set_fwb_tries 0
   fi
-  cros_set_fwb_tries 0
 
   # EC firmware is managed by software sync (main firmware).
 }
@@ -329,25 +337,46 @@ mode_autoupdate() {
 
   if [ "${FLAGS_update_main}" = "${FLAGS_TRUE}" ]; then
     local mainfw_act="$(cros_get_prop mainfw_act)"
-    if [ "$mainfw_act" = "B" ]; then
-      # mainfw_act is only updated at system reboot; if two updates (both with
-      # firmware updates) are pushed in a row, next update will be executed
-      # while mainfw_act is still B. Since we don't use RW BIOS directly when
-      # updater is running, it should be safe to update in this case.
-      debug_msg "mainfw_act=B, checking if we can still update FW B..."
-      prepare_main_current_image
-      cros_compare_file "$DIR_CURRENT/$TYPE_MAIN/$SLOT_A" \
-                        "$DIR_CURRENT/$TYPE_MAIN/$SLOT_B" &&
-        alert "Installing updates while mainfw_act is B (should be safe)." ||
-        die_need_reboot "Done (retry update next boot)"
-    elif [ "$mainfw_act" != "A" ]; then
-      die "autoupdate: unexpected active firmware ($mainfw_act)..."
+    local update_slot="${SLOT_B}"
+    local prop_name=fwb_tries
+    local try_next=
+
+    if is_vboot2; then
+      if [ "$mainfw_act" = "A" ]; then
+        update_slot="$SLOT_B"
+        try_next=B
+      elif [ "$mainfw_act" = "B" ]; then
+        update_slot="$SLOT_A"
+        try_next=A
+      else
+        die "autoupdate: unexpected active firmware ($_mainfw_act)..."
+      fi
+      prop_name=fw_try_count
+    else  # vboot1
+      if [ "$mainfw_act" = "B" ]; then
+        # mainfw_act is only updated at system reboot; if two updates (both with
+        # firmware updates) are pushed in a row, next update will be executed
+        # while mainfw_act is still B. Since we don't use RW BIOS directly when
+        # updater is running, it should be safe to update in this case.
+        debug_msg "mainfw_act=B, checking if we can still update FW B..."
+        prepare_main_current_image
+        cros_compare_file "$DIR_CURRENT/$TYPE_MAIN/$SLOT_A" \
+                          "$DIR_CURRENT/$TYPE_MAIN/$SLOT_B" &&
+          alert "Installing updates while mainfw_act is B (should be safe)." ||
+          die_need_reboot "Done (retry update next boot)"
+      elif [ "$mainfw_act" != "A" ]; then
+        die "autoupdate: unexpected active firmware ($mainfw_act)..."
+      fi
     fi
+
 
     prepare_main_image
     prepare_main_current_image
     check_compatible_keys
-    crosfw_update_main "$SLOT_B"
+    crosfw_update_main "$update_slot"
+    if [ -n "$try_next" ]; then
+      cros_set_prop "fw_try_next=$try_next"
+    fi
 
     # Try to determine EC software sync by checking $ECID. We can't rely on
     # $TARGET_ECID, $FLAGS_update_ec or $IMAGE_EC because in future there may be
@@ -356,10 +385,10 @@ mode_autoupdate() {
     # report an ID (but they should use updater v3 instead).
     if [ -n "$ECID" -a "$ECID" != "$TARGET_ECID" ]; then
       # EC software sync may need extra reboots.
-      cros_set_fwb_tries 8
+      cros_set_prop "${prop_name}=8"
       verbose_msg "On reboot EC update may occur."
     else
-      cros_set_fwb_tries 6
+      cros_set_prop "${prop_name}=6"
     fi
   fi
 
