@@ -209,8 +209,8 @@ clear_update_cookies() {
 }
 
 silent_sh() {
-  # Calls given commands and ignores any error (mostly for to factory
-  # installation, when the firmwaere is still non-Chrome).
+  # Calls given commands and ignores any error (mostly for factory
+  # installations, when the firmware is still non-Chrome).
   ( "$@" ) >/dev/null 2>&1 ||
     debug_msg "Failed calling: $@"
 }
