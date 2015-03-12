@@ -199,6 +199,15 @@ crosfw_is_equal_slot() {
   cros_compare_file "$current" "$target"
 }
 
+# Gets the hash from the current slot
+crosfw_slot_hash() {
+  check_param "crosfw_slot_hash(type, slot)" "$@"
+  local type_name="$1" slot_name="$2"
+  [ "$#" -lt 3 ] || die "crosfw_slot_hash: internal error"
+  local current="$DIR_CURRENT/$type_name/$slot_name"
+  cros_get_file_hash "$current"
+}
+
 # ----------------------------------------------------------------------------
 # General Updater
 

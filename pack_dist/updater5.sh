@@ -53,6 +53,7 @@ SLOT_A="RW_SECTION_A"
 SLOT_B="RW_SECTION_B"
 SLOT_RO="RO_SECTION"
 SLOT_RW_SHARED="RW_SHARED"
+SLOT_LEGACY="RW_LEGACY"
 SLOT_EC_RO="EC_RO"
 SLOT_EC_RW="EC_RW"
 
@@ -72,6 +73,9 @@ FWID="$(crossystem fwid 2>/dev/null)" || FWID=""
 RO_FWID="$(crossystem ro_fwid 2>/dev/null)" || RO_FWID=""
 ECID="$(eval "$ECINFO"; echo "$fw_version")"
 PLATFORM="${FWID%%.*}"
+
+# This should be overriden via a custom_updater.sh script.
+LEGACY_UPGRADE_WHITELIST=""
 
 # ----------------------------------------------------------------------------
 # Helper functions
@@ -115,13 +119,38 @@ check_compatible_keys() {
   fi
 }
 
-need_update_main_vblock() {
-  # Check if VBLOCK (key version and firmware signature) is different.
+need_update_legacy() {
+  local legacy_hash="$(crosfw_slot_hash "$TYPE_MAIN" "$SLOT_LEGACY")"
+  debug_msg "RW_LEGACY hash is $legacy_hash (white list: $LEGACY_UPGRADE_WHITELIST)"
+
+  for hash in $LEGACY_UPGRADE_WHITELIST; do
+    if [ "$legacy_hash" = "$hash" ] && cros_fw_is_equal_slot "$TYPE_MAIN" "$SLOT_LEGACY"; then
+      debug_msg "RW_LEGACY needs update."
+      return $FLAGS_TRUE
+    fi
+  done
+
+  debug_msg "No updates for RW_LEGACY"
+  return $FLAGS_FALSE
+}
+
+
+need_update_main() {
+  if [ "$TARGET_FWID" != "$FWID" ]; then
+    return $FLAGS_TRUE
+  fi
+
   prepare_main_image
   prepare_main_current_image
 
   # Compare VBLOCK from current A slot and target B slot (normal firmware).
-  ! crosfw_is_equal_slot "$TYPE_MAIN" "VBLOCK_A" "VBLOCK_B"
+  if ! crosfw_is_equal_slot "$TYPE_MAIN" "VBLOCK_A" "VBLOCK_B"; then
+    debug_msg "VBLOCK in A and B differ"
+    return $FLAGS_TRUE
+  fi
+
+  # Compare legacy hash with whitelisted set of legacy hashes to update.
+  need_update_legacy
 }
 
 need_update_ec() {
@@ -255,7 +284,7 @@ mode_autoupdate() {
   else
     # Check main firmware
     if [ "${FLAGS_update_main}" = ${FLAGS_TRUE} ]; then
-      if [ "$TARGET_FWID" != "$FWID" ] || need_update_main_vblock; then
+      if need_update_main; then
         need_update=1
       else
         FLAGS_update_main=$FLAGS_FALSE
@@ -295,6 +324,11 @@ mode_autoupdate() {
     check_compatible_keys
     crosfw_update_main "$_update_slot"
     cros_set_prop fw_try_next=$_try_next
+
+    #Update legacy if needed
+    if need_update_legacy; then
+      crosfw_update_main "$SLOT_LEGACY"
+    fi
 
     # Try to determine EC software sync by checking $ECID. We can't rely on
     # $TARGET_ECID, $FLAGS_update_ec or $IMAGE_EC because in future there may be
