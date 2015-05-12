@@ -5,10 +5,12 @@
 # found in the LICENSE file.
 
 : ${SCRIPT_BASE:="$(dirname "$0")"}
-if [ -s "$SCRIPT_BASE/shflags" ]; then
-  . "$SCRIPT_BASE/shflags"
-else
-  . /usr/share/misc/shflags
+if [ -z "${FLAGS_VERSION}" ]; then
+  if [ -s "$SCRIPT_BASE/shflags" ]; then
+    . "$SCRIPT_BASE/shflags"
+  else
+    . /usr/share/misc/shflags
+  fi
 fi
 . "$SCRIPT_BASE/crosutil.sh"
 . "$SCRIPT_BASE/crosfw.sh"

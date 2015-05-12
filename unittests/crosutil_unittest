@@ -4,8 +4,10 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+. ../lib/shflags/shflags
+
 SCRIPT_BASE="$(dirname "$0")/../pack_dist"
-.  "$SCRIPT_BASE/common.sh"
+. "${SCRIPT_BASE}/common.sh"
 
 #----------------------------------------------------------------------
 # Variables to control mock behavior.
