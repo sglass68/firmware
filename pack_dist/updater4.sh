@@ -479,6 +479,7 @@ mode_recovery() {
       verbose_msg "$prefix: update RO+RW"
       crosfw_preserve_vpd
       crosfw_preserve_gbb
+      crosfw_preserve_nvram
       crosfw_update_main
     else
       # TODO(hungte) check if FMAP is not changed

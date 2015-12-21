@@ -318,3 +318,26 @@ crosfw_preserve_gbb() {
     silent_invoke "gbb_utility -s --flags=$((flags)) $IMAGE_MAIN"
   fi
 }
+
+crosfw_preserve_nvram() {
+  if [ -z "$HWID" ]; then
+    debug_msg "crosfw_preserve_nvram: Running non-ChromeOS firmware. Skip."
+    return
+  fi
+  [ -s "$IMAGE_MAIN" ] || die "crosfw_preserve_nvram: no main firmware."
+  local offset=$(dump_fmap -p "$IMAGE_MAIN" RW_NVRAM | cut -d' ' -f2)
+  local size=$(dump_fmap -p "$IMAGE_MAIN" RW_NVRAM | cut -d' ' -f3)
+  if [ -z "$size" ]; then
+    debug_msg "crosfw_preserve_nvram: System doesn't have flash NVRAM. Skip."
+    return
+  fi
+
+  debug_msg "Preseving main firmware NVRAM data..."
+  silent_invoke "flashrom $TARGET_OPT_MAIN -r -i RW_NVRAM:_nvram.rom"
+  if [ "$size" != $(cros_get_file_size _nvram.rom) ]; then
+    verbose_msg "RW_NVRAM size changed, cannot preserve old state!"
+    return
+  fi
+  silent_invoke "dd seek=$offset count=$size bs=1 conv=notrunc \
+  		 if=_nvram.rom of=$IMAGE_MAIN"
+}
