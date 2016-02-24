@@ -147,10 +147,32 @@ need_update_main() {
   prepare_main_image
   prepare_main_current_image
 
-  # Compare VBLOCK from current A slot and target B slot (normal firmware).
-  if ! crosfw_is_equal_slot "$TYPE_MAIN" "VBLOCK_A" "VBLOCK_B"; then
-    debug_msg "VBLOCK in A and B differ"
-    return $FLAGS_TRUE
+  if is_vboot2; then
+    # Slot A and B are not guaranteed to be the same with vboot2, and we do not
+    # always boot out of slot A.  This check must first determine what the
+    # active slot is and compare that instead of always comparing A to B.
+    local mainfw_act="$(cros_get_prop mainfw_act)"
+    local vblock=""
+
+    if [ "$mainfw_act" = "A" ]; then
+      vblock="VBLOCK_A"
+    elif [ "$mainfw_act" = "B" ]; then
+      vblock="VBLOCK_B"
+    else
+      die "autoupdate: unexpected active firmware ($_mainfw_act)..."
+    fi
+
+    # Compare VBLOCK from current and target slot (normal firmware).
+    if ! crosfw_is_equal_slot "$TYPE_MAIN" "$vblock" "$vblock"; then
+      debug_msg "$vblock differs between current and target"
+      return $FLAGS_TRUE
+    fi
+  else
+    # Compare VBLOCK from current A slot and target B slot (normal firmware).
+    if ! crosfw_is_equal_slot "$TYPE_MAIN" "VBLOCK_A" "VBLOCK_B"; then
+      debug_msg "VBLOCK in A and B differ"
+      return $FLAGS_TRUE
+    fi
   fi
 
   # Compare legacy hash with whitelisted set of legacy hashes to update.
