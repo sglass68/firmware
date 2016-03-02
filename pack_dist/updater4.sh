@@ -126,10 +126,10 @@ check_compatible_keys() {
 
 need_update_legacy() {
   local legacy_hash="$(crosfw_slot_hash "$TYPE_MAIN" "$SLOT_LEGACY")"
-  debug_msg "RW_LEGACY hash is $legacy_hash (white list: $LEGACY_UPGRADE_WHITELIST)"
+  debug_msg "RW_LEGACY hash $legacy_hash, white list: $LEGACY_UPGRADE_WHITELIST"
 
   for hash in $LEGACY_UPGRADE_WHITELIST; do
-    if [ "$legacy_hash" = "$hash" ] && cros_fw_is_equal_slot "$TYPE_MAIN" "$SLOT_LEGACY"; then
+    if [ "$legacy_hash" = "$hash" ]; then
       debug_msg "RW_LEGACY needs update."
       return $FLAGS_TRUE
     fi
