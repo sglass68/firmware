@@ -7,15 +7,18 @@
 TARGET_FWID="REPLACE_FWID"
 TARGET_ECID="REPLACE_ECID"
 TARGET_PDID="REPLACE_PDID"
+TARGET_CR50ID="REPLACE_CR50ID"
 TARGET_PLATFORM="REPLACE_PLATFORM"
 TARGET_SCRIPT="REPLACE_SCRIPT"
 STABLE_FWID="REPLACE_STABLE_FWID"
 STABLE_ECID="REPLACE_STABLE_ECID"
 STABLE_PDID="REPLACE_STABLE_PDID"
+STABLE_CR50ID="REPLACE_STABLE_CR50ID"
 
 # Export all version information
-export TARGET_FWID TARGET_ECID TARGET_PDID TARGET_PLATFORM TARGET_SCRIPT
-export STABLE_FWID STABLE_ECID STABLE_PDID
+export TARGET_FWID TARGET_ECID TARGET_PDID TARGET_CR50ID
+export TARGET_PLATFORM TARGET_SCRIPT
+export STABLE_FWID STABLE_ECID STABLE_PDID STABLE_CR50ID
 set -e
 
 # Global variables
@@ -145,7 +148,7 @@ find_version_string() {
   else
 
     (echo "WARNING: 'strings' and 'dump_fmap' are both not available."
-     echo "         TARGET_{FW,EC,PD}ID can't be updated."
+     echo "         TARGET_{FW,EC,PD,CR50}ID can't be updated."
      echo "         You have to manually change that or repack on a desktop."
      ) >&2
 
@@ -162,6 +165,8 @@ perform_shar_repack() {
                   '^[a-zA-Z0-9]*_v[0-9\.]*-[a-z0-9]*$')"
   local pd_ver="$(find_version_string "$new_source/pd.bin" \
                   '^[a-zA-Z0-9]*_v[0-9\.]*-[a-z0-9]*$')"
+  local cr50_ver="$(find_version_string "$new_source/cr50.bin" \
+                  '^cr50_v[0-9]\.[0-9]+\.')"
 
   # Since mosys r430, trailing spaces reported by mosys is always scrubbed.
   ec_ver="$(echo "$ec_ver" | sed 's/ *$//')"
@@ -188,6 +193,13 @@ perform_shar_repack() {
       echo "Changed TARGET_PDID to $pd_ver"
     [ -s "$new_source/VERSION" ] &&
       sed -i "s/^PD version:   .*/PD version:   $pd_ver/" "$new_source/VERSION"
+  fi
+  if [ -n "$cr50_ver" ]; then
+    sed -i 's/^TARGET_CR50ID=".*"/TARGET_CR50ID="'"$cr50_ver"'"/' "$SELF" &&
+      echo "Changed TARGET_CR50ID to $cr50_ver"
+    [ -s "$new_source/VERSION" ] &&
+      sed -i "s/^CR50 version:   .*/CR50 version:   $cr50_ver/" \
+        "$new_source/VERSION"
   fi
 
   # Update checksum data for every files except VERSION*
