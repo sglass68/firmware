@@ -6,7 +6,7 @@
 
 # This script packages firmware images into an executale "shell-ball".
 # It requires:
-#  - at least one BIOS image and/or EC image (*.bin / *.fd)
+#  - at least one firmware image (*.bin, should be AP or EC or ...)
 #  - pack_dist/updater.sh main script
 #  - pack_stub as the template/stub script for output
 #  - any other additional files used by updater.sh in pack_dist folder
@@ -16,11 +16,11 @@ SHFLAGS_FILE="$script_base/lib/shflags/shflags"
 . "$SHFLAGS_FILE"
 
 # DEFINE_string name default_value description flag
-DEFINE_string bios_image "" "Path of input BIOS firmware image" "b"
+DEFINE_string bios_image "" "Path of input AP (BIOS) firmware image" "b"
 DEFINE_string bios_rw_image "" "Path of input BIOS RW firmware image" "w"
-DEFINE_string ec_image "" "Path of input EC firmware image" "e"
+DEFINE_string ec_image "" "Path of input Embedded Controller firmware image" "e"
 DEFINE_string ec_version "IGNORE" "Version of input EC firmware image"
-DEFINE_string pd_image "" "Path of input PD firmware image" "p"
+DEFINE_string pd_image "" "Path of input Power Delivery firmware image" "p"
 DEFINE_string pd_version "IGNORE" "Version of input PD firmware image"
 DEFINE_string script "updater.sh" "File name of main script file"
 DEFINE_string output "" "Path of output filename" "o"

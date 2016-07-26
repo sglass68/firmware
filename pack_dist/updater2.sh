@@ -63,7 +63,9 @@ FWSRC_DEVELOPER="$SLOT_A"
 
 # Folders for preparing and unpacking firmware
 # Layout: DIR_[TYPE]/[TYPE]/[SECTION], DIR_[TYPE]/[IMAGE]
+# Main = Application (AP) or SoC firmware, sometimes considered as "BIOS"
 TYPE_MAIN="main"
+# EC = Embedded Controller
 TYPE_EC="ec"
 
 # ----------------------------------------------------------------------------

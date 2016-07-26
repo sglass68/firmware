@@ -60,7 +60,9 @@ SLOT_LEGACY="RW_LEGACY"
 SLOT_EC_RO="EC_RO"
 SLOT_EC_RW="EC_RW"
 
+# Main = Application (AP) or SoC firmware, sometimes considered as "BIOS"
 TYPE_MAIN="main"
+# EC = Embedded Controller
 TYPE_EC="ec"
 
 # ----------------------------------------------------------------------------

@@ -59,8 +59,11 @@ SLOT_EC_RW="EC_RW"
 SLOT_PD_RO="EC_RO"
 SLOT_PD_RW="EC_RW"
 
+# Main = Application (AP) or SoC firmware, sometimes considered as "BIOS"
 TYPE_MAIN="main"
+# EC = Embedded Controller
 TYPE_EC="ec"
+# PD = Power Delivery
 TYPE_PD="pd"
 
 # ----------------------------------------------------------------------------

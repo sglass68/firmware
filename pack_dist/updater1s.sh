@@ -58,7 +58,9 @@ SLOT_RW_SHARED="RW_SHARED"
 SLOT_EC_RO="EC_RO"
 SLOT_EC_RW="EC_RW"
 
+# Main = Application (AP) or SoC firmware, sometimes considered as "BIOS"
 TYPE_MAIN="main"
+# EC = Embedded Controller
 TYPE_EC="ec"
 
 # Override FMAP with board-specific layout files
