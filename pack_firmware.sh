@@ -22,8 +22,6 @@ DEFINE_string ec_image "" "Path of input EC firmware image" "e"
 DEFINE_string ec_version "IGNORE" "Version of input EC firmware image"
 DEFINE_string pd_image "" "Path of input PD firmware image" "p"
 DEFINE_string pd_version "IGNORE" "Version of input PD firmware image"
-DEFINE_string cr50_image "" "Path of input CR50 firmware image" "c"
-DEFINE_string cr50_version "IGNORE" "Version of input CR50 firmware image"
 DEFINE_string script "updater.sh" "File name of main script file"
 DEFINE_string output "" "Path of output filename" "o"
 DEFINE_string extra "" "Directory list (separated by :) of files to be merged"
@@ -36,7 +34,6 @@ DEFINE_boolean create_bios_rw_image ${FLAGS_FALSE} \
 DEFINE_string stable_main_version "" "Version of stable main firmware"
 DEFINE_string stable_ec_version "" "Version of stable EC firmware"
 DEFINE_string stable_pd_version "" "Version of stable PD firmware"
-DEFINE_string stable_cr50_version "" "Version of stable CR50 firmware"
 
 # embedded tools
 DEFINE_string tools "flashrom mosys crossystem gbb_utility vpd dump_fmap" \
@@ -102,19 +99,6 @@ find_tool() {
                 fi
               done)"
   [ -n "$toolpath" ] && echo "$toolpath"
-}
-
-extract_cr50_frid() {
-  local image_file="$(readlink -f "$1")"
-  local frid
-
-  frid="$(strings "${image_file}" |
-    awk '/^cr50_v[0-9]\.[0-9]+\./ {print $1}' | head -1)"
-  if [ -z "${frid}" ]; then
-    echo "unknown"
-  else
-    echo "${frid}"
-  fi
 }
 
 extract_frid() {
@@ -210,8 +194,6 @@ ec_bin="${FLAGS_ec_image}"
 ec_version="${FLAGS_ec_version}"
 pd_bin="${FLAGS_pd_image}"
 pd_version="${FLAGS_pd_version}"
-cr50_bin="${FLAGS_cr50_image}"
-cr50_version="${FLAGS_cr50_version}"
 if [ "$bios_bin" = "" -a "$ec_bin" = "" -a "$pd_bin" = "" ]; then
   die "must assign at least one of BIOS or EC or PD image."
 fi
@@ -235,7 +217,6 @@ IMAGE_MAIN="bios.bin"
 IMAGE_MAIN_RW="bios_rw.bin"
 IMAGE_EC="ec.bin"
 IMAGE_PD="pd.bin"
-IMAGE_CR50="cr50.bin"
 
 # copy firmware image files
 if [ "$bios_bin" != "" ]; then
@@ -273,13 +254,6 @@ if [ "$pd_bin" != "" ]; then
   echo "PD image:     $(md5sum -b "$pd_bin")" >> "$version_file"
   [ "$pd_version" = "IGNORE" ] ||
     echo "PD version:   $pd_version" >>"$version_file"
-fi
-if [ "$cr50_bin" != "" ]; then
-  cr50_version="$(extract_cr50_frid "$cr50_bin" "$FLAGS_cr50_version")"
-  cp -pf "$cr50_bin" "$tmpbase/$IMAGE_CR50" || die "cannot get CR50 image"
-  echo "CR50 image:     $(md5sum -b "$cr50_bin")" >> "$version_file"
-  [ "$cr50_version" = "IGNORE" ] ||
-    echo "CR50 version:   $cr50_version" >>"$version_file"
 fi
 
 # Set platform to first field of firmware version (ex: Google_Link.1234 ->
@@ -338,13 +312,11 @@ sed -in "
   s${dc}REPLACE_FWID${dc}${bios_version}${dc};
   s${dc}REPLACE_ECID${dc}${ec_version}${dc};
   s${dc}REPLACE_PDID${dc}${pd_version}${dc};
-  s${dc}REPLACE_CR50ID${dc}${cr50_version}${dc};
   s${dc}REPLACE_PLATFORM${dc}${FLAGS_platform}${dc};
   s${dc}REPLACE_SCRIPT${dc}${FLAGS_script}${dc};
   s${dc}REPLACE_STABLE_FWID${dc}${FLAGS_stable_main_version}${dc};
   s${dc}REPLACE_STABLE_ECID${dc}${FLAGS_stable_ec_version}${dc};
   s${dc}REPLACE_STABLE_PDID${dc}${FLAGS_stable_pd_version}${dc};
-  s${dc}REPLACE_STABLE_CR50ID${dc}${FLAGS_stable_cr50_version}${dc};
   " "$output"
 sh "$output" --sb_repack "$tmpbase" ||
   die "Failed to archive firmware package"
