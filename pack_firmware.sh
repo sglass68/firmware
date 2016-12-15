@@ -29,6 +29,8 @@ DEFINE_boolean remove_inactive_updaters ${FLAGS_TRUE} \
   "Remove inactive updater scripts"
 DEFINE_boolean create_bios_rw_image ${FLAGS_FALSE} \
   "Resign and generate a BIOS RW image"
+DEFINE_boolean merge_bios_rw_image ${FLAGS_TRUE} \
+  "Merge the --bios_rw_image into --bios_image RW sections."
 
 # stable settings
 DEFINE_string stable_main_version "" "Version of stable main firmware"
@@ -162,6 +164,41 @@ create_rw_firmware() {
   echo "RW firmware image created: $rw_image_file"
 }
 
+clone_firmware_section() {
+  local src="$1"
+  local dest="$2"
+  local section="$3"
+
+  local info_src="$(dump_fmap -p $src $section)"
+  local info_dest="$(dump_fmap -p $dest $section)"
+
+  local size_src="${info_src##* }"
+  local size_dest="${info_dest##* }"
+  local offset_src="$(echo "$info_src" | cut -d ' ' -f 2)"
+  local offset_dest="$(echo "$info_dest" | cut -d ' ' -f 2)"
+
+  [ "$size_src" -gt 0 ] || die "Firmware section $section is invalid."
+
+  if [ "$size_src" != "$size_dest" ]; then
+    die "Firmware section $section size is different, cannot clone."
+  fi
+
+  if [ "$offset_src" != "$offset_dest" ]; then
+    die "Firmware section $section is not in same location, cannot clone."
+  fi
+
+  dd if="$src" of="$dest" bs=1 skip="$offset_src" seek="$offset_dest" \
+    count="$size_src" || die "Failed to clone firmware section."
+}
+
+merge_rw_firmware() {
+  local ro_image_file="$1"
+  local rw_image_file="$2"
+
+  clone_firmware_section "$rw_image_file" "$ro_image_file" RW_SECTION_A
+  clone_firmware_section "$rw_image_file" "$ro_image_file" RW_SECTION_B
+}
+
 trap do_cleanup EXIT
 
 # check tool: we need uuencode to create the shell ball.
@@ -229,12 +266,19 @@ fi
 if [ -z "$bios_rw_bin" -a "$FLAGS_create_bios_rw_image" = "$FLAGS_TRUE" ]; then
   bios_rw_bin="$tmpbase/$IMAGE_MAIN_RW"
   create_rw_firmware "$bios_bin" "$bios_rw_bin"
+  # create_rw_firmware is made only for RO_NORMAL images and can't be merged.
+  FLAGS_merge_bios_rw_image=$FLAGS_FALSE
 fi
 if [ "$bios_rw_bin" != "" ]; then
   check_rw_firmware "$bios_rw_bin"
   bios_rw_version="$(extract_frid "$bios_rw_bin" "IGNORE")"
-  [ "$bios_rw_bin" = "$tmpbase/$IMAGE_MAIN_RW" ] ||
+
+  if [ "$FLAGS_merge_bios_rw_image" = "$FLAGS_TRUE" ]; then
+    merge_rw_firmware "$tmpbase/$IMAGE_MAIN" "$bios_rw_bin"
+  elif [ "$bios_rw_bin" != "$tmpbase/$IMAGE_MAIN_RW" ]; then
     cp -pf "$bios_rw_bin" "$tmpbase/$IMAGE_MAIN_RW" || die "cannot get RW BIOS"
+  fi
+
   echo "BIOS (RW) image:   $(md5sum -b "$bios_rw_bin")" >> "$version_file"
   [ "$bios_rw_version" = "IGNORE" ] ||
     echo "BIOS (RW) version: $bios_rw_version" >>"$version_file"
