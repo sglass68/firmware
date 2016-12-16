@@ -258,6 +258,7 @@ IMAGE_PD="pd.bin"
 # copy firmware image files
 if [ "$bios_bin" != "" ]; then
   bios_version="$(extract_frid "$bios_bin" "IGNORE")"
+  bios_rw_version="$bios_version"
   cp -pf "$bios_bin" "$tmpbase/$IMAGE_MAIN" || die "cannot get BIOS image"
   echo "BIOS image:   $(md5sum -b "$bios_bin")" >> "$version_file"
   [ "$bios_version" = "IGNORE" ] ||
@@ -353,7 +354,8 @@ cp -f "$stub_file" "$output"
 # Instead, use ascii char 1 (SOH/Start of Heading) as sed delimiter char
 dc=$'\001'
 sed -in "
-  s${dc}REPLACE_FWID${dc}${bios_version}${dc};
+  s${dc}REPLACE_RO_FWID${dc}${bios_version}${dc};
+  s${dc}REPLACE_FWID${dc}${bios_rw_version}${dc};
   s${dc}REPLACE_ECID${dc}${ec_version}${dc};
   s${dc}REPLACE_PDID${dc}${pd_version}${dc};
   s${dc}REPLACE_PLATFORM${dc}${FLAGS_platform}${dc};

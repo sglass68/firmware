@@ -446,8 +446,11 @@ mode_incompatible_update() {
 # bundled in updater. Note root/recovery keys, TPM version, vblock key versions,
 # and firmware integrity are all unchecked.
 mode_fast_version_check() {
-  if [ -n "$IMAGE_MAIN" -a "$RO_FWID" != "$TARGET_FWID" ]; then
-    die "Main FWID: $RO_FWID != $TARGET_FWID"
+  if [ -n "$IMAGE_MAIN" -a "$RO_FWID" != "$TARGET_RO_FWID" ]; then
+    die "Main RO FWID: $RO_FWID != $TARGET_RO_FWID"
+  fi
+  if [ -n "$IMAGE_MAIN" -a "$FWID" != "$TARGET_FWID" ]; then
+    die "Main FWID: $FWID != $TARGET_FWID"
   fi
   if [ -n "$IMAGE_EC" -a "$ECID" != "$TARGET_ECID" ]; then
     die "EC FWID: $ECID != $TARGET_ECID"
@@ -504,6 +507,9 @@ main() {
 
   verbose_msg "Starting $TARGET_PLATFORM firmware updater v5 (${FLAGS_mode})..."
   local package_info="$TARGET_FWID"
+  if [ "$TARGET_FWID" != "$TARGET_RO_FWID" ]; then
+    package_info="RO:$TARGET_RO_FWID RW:$TARGET_FWID"
+  fi
   local current_info="RO:$RO_FWID $ro_type, ACT:$FWID"
   if [ -n "${TARGET_ECID%IGNORE}" ]; then
     package_info="$package_info / EC:$TARGET_ECID"

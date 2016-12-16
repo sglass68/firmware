@@ -4,6 +4,7 @@
 # found in the LICENSE file.
 
 # Version information. Please keep this in head of the updater.
+TARGET_RO_FWID="REPLACE_RO_FWID"
 TARGET_FWID="REPLACE_FWID"
 TARGET_ECID="REPLACE_ECID"
 TARGET_PDID="REPLACE_PDID"
@@ -14,7 +15,7 @@ STABLE_ECID="REPLACE_STABLE_ECID"
 STABLE_PDID="REPLACE_STABLE_PDID"
 
 # Export all version information
-export TARGET_FWID TARGET_ECID TARGET_PDID
+export TARGET_FWID TARGET_RO_FWID TARGET_ECID TARGET_PDID
 export TARGET_PLATFORM TARGET_SCRIPT
 export STABLE_FWID STABLE_ECID STABLE_PDID
 set -e
@@ -66,8 +67,7 @@ make_temp() {
 make_exec_temp() {
   make_temp
   debug "bind and remount for allowing execution ..."
-  mount --bind "$TMP_DIR" "$TMP_DIR" &&
-    mount -o remount,exec "$TMP_DIR" ||
+  (mount --bind "$TMP_DIR" "$TMP_DIR" && mount -o remount,exec "$TMP_DIR") ||
     die "Failed to enable execution permission of folder $TMP_DIR"
 }
 
@@ -122,6 +122,7 @@ prepare_shar_extract() {
 find_version_string() {
   local filename="$1"
   local pattern="$2"
+  local section="$3"
   if [ ! -s "$filename" ]; then
     return
   fi
@@ -131,17 +132,40 @@ find_version_string() {
 
     local tmpdir="$(mktemp -d)"
     local filepath="$(readlink -f "$filename")"
-    (cd "$tmpdir"; dump_fmap -x "$filepath") >/dev/null 2>&1
-    cat "$tmpdir/RO_FRID" 2>/dev/null
+    (cd "$tmpdir"; dump_fmap -x "$filepath" "$section") >/dev/null 2>&1
+    cat "$tmpdir/$section" #2>/dev/null
     rm -rf "$tmpdir"
 
   elif type strings >/dev/null 2>&1; then
 
-    local version="$( (strings "$filename" | grep "$pattern" | uniq) || true)"
-    if [ "$(echo "version" | wc -l)" -ne "1" ]; then
-      version=""
+    local versions=$( (strings "$filename" | grep "$pattern") || true)
+    local version="$(echo "$versions" | uniq)"
+
+    local num_versions="$(echo "$versions" | wc -l)"
+    local num_version="$(echo "$version" | wc -l)"
+
+    # To deal with firmware having RO != RW, we need to find difference
+    # between RO_FRID, RW_FWID_A and RW_FWID_B; and unfortunately that is not
+    # possible if there's just strings, since we don't know the ordering of
+    # RO/RW sections. The hack here is, if there are three versions with only
+    # 2 different values, we assume the duplicated = RW and unique = RO.
+    if [ "$num_version" -eq 1 ]; then
+      echo "$version"
+    elif [ "$num_version" -eq 2 -a "$num_versions" -eq 3 ]; then
+      case "$section" in
+        RO_FRID)
+          echo "$versions" | uniq -u
+          ;;
+        RW_FWID_*)
+          echo "$versions" | uniq -d
+          ;;
+        *)
+          echo "WARNING: Unknown firmware versions for $filename." >&2
+          ;;
+      esac
+    else
+      echo "WARNING: cannot identify firmware version for $filename." >&2
     fi
-    echo "$version"
 
   else
 
@@ -158,11 +182,14 @@ perform_shar_repack() {
   local new_source="$1"
   local cut_mark="$(sed -n '/^##CUTHERE##/=' "$SELF")"
   local md5_file="$new_source/VERSION.md5"
-  local fw_ver="$(find_version_string "$new_source/bios.bin" '^Google_')"
+  local ro_fw_ver="$(find_version_string "$new_source/bios.bin" \
+                  '^Google_' RO_FRID)"
+  local fw_ver="$(find_version_string "$new_source/bios.bin" \
+                  '^Google_' RW_FWID_A)"
   local ec_ver="$(find_version_string "$new_source/ec.bin" \
-                  '^[a-zA-Z0-9]*_v[0-9\.]*-[a-z0-9]*$')"
+                  '^[a-zA-Z0-9]*_v[0-9\.]*-[a-z0-9]*$' RO_FRID)"
   local pd_ver="$(find_version_string "$new_source/pd.bin" \
-                  '^[a-zA-Z0-9]*_v[0-9\.]*-[a-z0-9]*$')"
+                  '^[a-zA-Z0-9]*_v[0-9\.]*-[a-z0-9]*$' RO_FRID)"
 
   # Since mosys r430, trailing spaces reported by mosys is always scrubbed.
   ec_ver="$(echo "$ec_ver" | sed 's/ *$//')"
@@ -175,8 +202,12 @@ perform_shar_repack() {
   if [ -n "$fw_ver" ]; then
     sed -i 's/^TARGET_FWID=".*"/TARGET_FWID="'"$fw_ver"'"/' "$SELF" &&
       echo "Changed TARGET_FWID to $fw_ver"
-    [ -s "$new_source/VERSION" ] &&
-      sed -i "s/^BIOS version: .*/BIOS version: $fw_ver/" "$new_source/VERSION"
+    sed -i 's/^TARGET_RO_FWID=".*"/TARGET_RO_FWID="'"$ro_fw_ver"'"/' "$SELF" &&
+      echo "Changed TARGET_ROFWID to $ro_fw_ver"
+    if [ -s "$new_source/VERSION" ]; then
+      sed -i "s/^\(BIOS version:\) .*/\1 $ro_fw_ver/;
+              s/^\(BIOS .RW. version:\) .*/\1 $fw_ver/" "$new_source/VERSION"
+    fi
   fi
   if [ -n "$ec_ver" ]; then
     sed -i 's/^TARGET_ECID=".*"/TARGET_ECID="'"$ec_ver"'"/' "$SELF" &&
