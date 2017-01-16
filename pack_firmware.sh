@@ -187,7 +187,14 @@ clone_firmware_section() {
     die "Firmware section $section is not in same location, cannot clone."
   fi
 
-  dd if="$src" of="$dest" bs=1 skip="$offset_src" seek="$offset_dest" \
+  bs=1
+  # Optimize block size
+  if (( offset_src % 4096 == 0 && size_src % 4096 == 0 )); then
+    bs=4096
+    ((offset_src /= bs, offset_dest /= bs, size_src /= bs, size_dest /= bs))
+  fi
+
+  dd if="$src" of="$dest" bs="$bs" skip="$offset_src" seek="$offset_dest" \
     count="$size_src" conv=notrunc || die "Failed to clone firmware section."
 }
 
