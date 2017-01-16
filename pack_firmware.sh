@@ -188,7 +188,7 @@ clone_firmware_section() {
   fi
 
   dd if="$src" of="$dest" bs=1 skip="$offset_src" seek="$offset_dest" \
-    count="$size_src" || die "Failed to clone firmware section."
+    count="$size_src" conv=notrunc || die "Failed to clone firmware section."
 }
 
 merge_rw_firmware() {
