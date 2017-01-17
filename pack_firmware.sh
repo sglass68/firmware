@@ -108,11 +108,12 @@ find_tool() {
 extract_frid() {
   local image_file="$(readlink -f "$1")"
   local default_frid="$2"
+  local section_name="${3:-RO_FRID}"
   local tmpdir="$(mktemp -d)"
   TMPDIRS+=("$tmpdir")
   ( cd "$tmpdir"
     dump_fmap -x "$image_file" >/dev/null 2>&1 || true
-    [ -s "RO_FRID" ] && cat "RO_FRID" || echo "$default_frid" )
+    [ -s "$section_name" ] && cat "$section_name" || echo "$default_frid" )
 }
 
 my_md5() {
@@ -214,6 +215,66 @@ merge_rw_firmware() {
   clone_firmware_section "$rw_image_file" "$ro_image_file" RW_SECTION_B
 }
 
+decode_int32() {
+  local file="$1"
+  local offset="$2"
+  python -c "import struct; fd = open('$file'); fd.seek($offset); \
+    print(struct.unpack('<I', fd.read(4))[0])"
+}
+
+extract_ecrw_vboot1() {
+  local rw_image_file="$1"
+
+  dump_fmap -x "$rw_image_file" EC_MAIN_A >/dev/null 2>&1
+  # EC_MAIN_A starts with a section header: [count][offset][size].
+  local count="$(decode_int32 EC_MAIN_A 0)"
+  local offset="$(decode_int32 EC_MAIN_A 4)"
+  local size="$(decode_int32 EC_MAIN_A 8)"
+  if [ "$count" != 1 -o "$offset" != 12 ]; then
+    die "Unexpected EC_MAIN_A ($count,$offset). Cannot merge EC RW."
+  fi
+  python -c "fd = open('EC_MAIN_A'); fd.seek($offset); \
+             open('ecrw', 'w').write(fd.read($size))"
+}
+
+extract_ecrw_vboot2() {
+  local rw_image_file="$1"
+  local cbfs_name="$2"
+
+  dump_fmap -x "$rw_image_file" FW_MAIN_A >/dev/null 2>&1
+  cbfstool FW_MAIN_A extract -n "$cbfs_name" -f ecrw
+}
+
+extract_ecrw() {
+  local rw_image_file="$1"
+
+  if [ -n "$(dump_fmap -p "$rw_image_file" EC_MAIN_A)" ]; then
+    extract_ecrw_vboot1 "$@"
+  else
+    extract_ecrw_vboot2 "$@"
+  fi
+}
+
+merge_rw_ec_firmware() {
+  local ec_image_file="$1"
+  local rw_image_file="$2"
+  local cbfs_name="$3"
+  local offset size
+
+  local tmpdir="$(mktemp -d)"
+  TMPDIRS+=("$tmpdir")
+  (cd "$tmpdir"
+   extract_ecrw "$rw_image_file" "$cbfs_name"
+   offset="$(dump_fmap -p "$ec_image_file" EC_RW)"
+   size="${offset##* }"
+   offset="${offset#* }"
+   offset="${offset% *}"
+   [ "$size" -gt "$(stat -c"%s" ecrw)" ] ||
+     die "New RW payload larger than preserved FMAP section, cannot merge."
+   dd if=ecrw of="$ec_image_file" bs="1" seek="$offset" \
+     count="$size" conv=notrunc || die "Failed to change firmware section.")
+}
+
 trap do_cleanup EXIT
 
 # check tool: we need uuencode to create the shell ball.
@@ -277,9 +338,11 @@ if [ "$bios_bin" != "" ]; then
   bios_version="$(extract_frid "$bios_bin" "IGNORE")"
   bios_rw_version="$bios_version"
   cp -pf "$bios_bin" "$tmpbase/$IMAGE_MAIN" || die "cannot get BIOS image"
-  echo "BIOS image:   $(md5sum -b "$bios_bin")" >> "$version_file"
+  echo "BIOS image:   $(my_md5 "$bios_bin")" >> "$version_file"
   [ "$bios_version" = "IGNORE" ] ||
     echo "BIOS version: $bios_version" >> "$version_file"
+else
+  FLAGS_merge_bios_rw_image=$FLAGS_FALSE
 fi
 if [ -z "$bios_rw_bin" -a "$FLAGS_create_bios_rw_image" = "$FLAGS_TRUE" ]; then
   bios_rw_bin="$tmpbase/$IMAGE_MAIN_RW"
@@ -309,6 +372,13 @@ if [ "$ec_bin" != "" ]; then
   echo "EC image:     $(my_md5 "$ec_bin")" >> "$version_file"
   [ "$ec_version" = "IGNORE" ] ||
     echo "EC version:   $ec_version" >>"$version_file"
+
+  if [ "$FLAGS_merge_bios_rw_image" = "$FLAGS_TRUE" ]; then
+    # Read EC RW from merged RW image.
+    merge_rw_ec_firmware "$tmpbase/$IMAGE_EC" "$tmpbase/$IMAGE_MAIN" "ecrw"
+    ec_rw_version="$(extract_frid "$tmpbase/$IMAGE_EC" "" "RW_FWID")"
+    echo "EC (RW) version:   $ec_rw_version" >>"$version_file"
+  fi
 fi
 if [ "$pd_bin" != "" ]; then
   pd_version="$(extract_frid "$pd_bin" "$FLAGS_pd_version")"
@@ -316,6 +386,13 @@ if [ "$pd_bin" != "" ]; then
   echo "PD image:     $(my_md5 "$pd_bin")" >> "$version_file"
   [ "$pd_version" = "IGNORE" ] ||
     echo "PD version:   $pd_version" >>"$version_file"
+
+  if [ "$FLAGS_merge_bios_rw_image" = "$FLAGS_TRUE" ]; then
+    # Read EC RW from merged RW image.
+    merge_rw_ec_firmware "$tmpbase/$IMAGE_PD" "$tmpbase/$IMAGE_MAIN" "pdrw"
+    pd_rw_version="$(extract_frid "$tmpbase/$IMAGE_PD" "" "RW_FWID")"
+    echo "PD (RW) version:   $pd_rw_version" >>"$version_file"
+  fi
 fi
 
 # Set platform to first field of firmware version (ex: Google_Link.1234 ->
