@@ -115,6 +115,12 @@ extract_frid() {
     [ -s "RO_FRID" ] && cat "RO_FRID" || echo "$default_frid" )
 }
 
+my_md5() {
+  local path="$1"
+  # Strip the path in /build/.../work
+  md5sum -b "${path}" | sed 's"/build/.*/work/""'
+}
+
 get_preamble_flags() {
   local image_file="$(readlink -f "$1")"
   local tmpdir="$(mktemp -d)"
@@ -291,7 +297,7 @@ if [ "$bios_rw_bin" != "" ]; then
     cp -pf "$bios_rw_bin" "$tmpbase/$IMAGE_MAIN_RW" || die "cannot get RW BIOS"
   fi
 
-  echo "BIOS (RW) image:   $(md5sum -b "$bios_rw_bin")" >> "$version_file"
+  echo "BIOS (RW) image:   $(my_md5 "$bios_rw_bin")" >> "$version_file"
   [ "$bios_rw_version" = "IGNORE" ] ||
     echo "BIOS (RW) version: $bios_rw_version" >>"$version_file"
 fi
@@ -300,14 +306,14 @@ if [ "$ec_bin" != "" ]; then
   # Since mosys r430, trailing spaces reported by mosys is always scrubbed.
   ec_version="$(echo "$ec_version" | sed 's/ *$//')"
   cp -pf "$ec_bin" "$tmpbase/$IMAGE_EC" || die "cannot get EC image"
-  echo "EC image:     $(md5sum -b "$ec_bin")" >> "$version_file"
+  echo "EC image:     $(my_md5 "$ec_bin")" >> "$version_file"
   [ "$ec_version" = "IGNORE" ] ||
     echo "EC version:   $ec_version" >>"$version_file"
 fi
 if [ "$pd_bin" != "" ]; then
   pd_version="$(extract_frid "$pd_bin" "$FLAGS_pd_version")"
   cp -pf "$pd_bin" "$tmpbase/$IMAGE_PD" || die "cannot get PD image"
-  echo "PD image:     $(md5sum -b "$pd_bin")" >> "$version_file"
+  echo "PD image:     $(my_md5 "$pd_bin")" >> "$version_file"
   [ "$pd_version" = "IGNORE" ] ||
     echo "PD version:   $pd_version" >>"$version_file"
 fi
