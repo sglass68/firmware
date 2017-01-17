@@ -64,14 +64,16 @@ stub_file="$script_base/pack_stub"
 pack_dist="$script_base/pack_dist"
 main_script="$pack_dist/${FLAGS_script}"
 tmpbase=""
+TMPDIRS=()
 
 # helper utilities
 
 do_cleanup() {
-  if [ -d "$tmpbase" ]; then
-    rm -rf "$tmpbase"
-    tmpbase=""
-  fi
+  local dir
+  for dir in "${TMPDIRS[@]}"; do
+    rm -rf "${dir}"
+  done
+  TMPDIRS=()
 }
 
 die() {
@@ -107,15 +109,16 @@ extract_frid() {
   local image_file="$(readlink -f "$1")"
   local default_frid="$2"
   local tmpdir="$(mktemp -d)"
+  TMPDIRS+=("$tmpdir")
   ( cd "$tmpdir"
     dump_fmap -x "$image_file" >/dev/null 2>&1 || true
     [ -s "RO_FRID" ] && cat "RO_FRID" || echo "$default_frid" )
-  rm -rf "$tmpdir" 2>/dev/null
 }
 
 get_preamble_flags() {
   local image_file="$(readlink -f "$1")"
   local tmpdir="$(mktemp -d)"
+  TMPDIRS+=("$tmpdir")
   local preamble_flags="$(
     cd "$tmpdir"
     dump_fmap -x "$image_file" >/dev/null 2>&1 || true
@@ -123,7 +126,6 @@ get_preamble_flags() {
     vbutil_firmware --verify VBLOCK_A --signpubkey rootkey.bin --fv FW_MAIN_A |
       grep  "^ *Preamble flags:" |
       sed 's/^ *Preamble flags:[t \t]*//' || true)"
-  rm -rf "$tmpdir" 2>/dev/null
   echo "$preamble_flags"
 }
 
@@ -244,6 +246,8 @@ fi
 
 # create temporary folder to store files
 tmpbase="$(mktemp -d)" || die "Cannot create temporary folder."
+TMPDIRS+=("${tmpbase}")
+
 version_file="$tmpbase/VERSION"
 if [ -n "$flashrom_bin" ]; then
   flashrom_ver="$(
