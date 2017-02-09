@@ -22,7 +22,6 @@ DEFINE_string bios_rw_image "" "Path of input BIOS RW firmware image" "w"
 DEFINE_string ec_image "" "Path of input Embedded Controller firmware image" "e"
 DEFINE_string ec_version "IGNORE" "Version of input EC firmware image"
 DEFINE_string pd_image "" "Path of input Power Delivery firmware image" "p"
-DEFINE_string pd_version "IGNORE" "Version of input PD firmware image"
 DEFINE_string script "updater.sh" "File name of main script file"
 DEFINE_string output "" "Path of output filename" "o"
 DEFINE_string extra "" "Directory list (separated by :) of files to be merged"
@@ -287,7 +286,7 @@ bios_rw_bin="${FLAGS_bios_rw_image}"
 ec_bin="${FLAGS_ec_image}"
 ec_version="${FLAGS_ec_version}"
 pd_bin="${FLAGS_pd_image}"
-pd_version="${FLAGS_pd_version}"
+pd_version="IGNORE"
 if [ "$bios_bin" = "" -a "$ec_bin" = "" -a "$pd_bin" = "" ]; then
   die "must assign at least one of BIOS or EC or PD image."
 fi
@@ -364,7 +363,7 @@ if [ "$ec_bin" != "" ]; then
   fi
 fi
 if [ "$pd_bin" != "" ]; then
-  pd_version="$(extract_frid "$pd_bin" "$FLAGS_pd_version")"
+  pd_version="$(extract_frid "$pd_bin" "IGNORE")"
   cp -pf "$pd_bin" "$tmpbase/$IMAGE_PD" || die "cannot get PD image"
   echo "PD image:     $(my_md5 "$pd_bin")" >> "$version_file"
   [ "$pd_version" = "IGNORE" ] ||
