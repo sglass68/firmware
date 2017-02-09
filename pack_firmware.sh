@@ -44,14 +44,6 @@ DEFINE_string tools "flashrom mosys crossystem gbb_utility vpd dump_fmap" \
 DEFINE_string tool_base "" \
   "Default source locations for tools programs (delimited by colon)"
 
-# deprecated parameters
-DEFINE_string bios_version "(deprecated)" "Please don't use this."
-DEFINE_boolean unstable ${FLAGS_FALSE} "(deprecated)"
-DEFINE_boolean early_mp_fullupdate ${FLAGS_FALSE}  "(deprecated)"
-DEFINE_string mp_main_version "" "(deprecated)"
-DEFINE_string mp_ec_version "" "(deprecated)"
-DEFINE_string platform "" "(deprecated)"
-
 # Parse command line
 FLAGS "$@" || exit 1
 eval set -- "${FLAGS_ARGV}" || exit 1
