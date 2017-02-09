@@ -256,6 +256,78 @@ merge_rw_ec_firmware() {
      die "Failed to merge RW firmware to $ec_image_file."
 }
 
+# Copy BIOS, EC and PD files into $tmpbase
+# Check preamble flags of the BIOS to make sure it is RW firmware
+# (update the flag for RO normal firmware)
+# Merge RO firmware into RW firmware if --merge_bios_rw_image flag is set
+# Similarly for EC and PC.
+copy_firmware_image_files() {
+  if [ "$bios_bin" != "" ]; then
+    bios_version="$(extract_frid "$bios_bin" "IGNORE")"
+    bios_rw_version="$bios_version"
+    cp -pf "$bios_bin" "$tmpbase/$IMAGE_MAIN" || die "cannot get BIOS image"
+    echo "BIOS image:   $(my_md5 "$bios_bin")" >> "$version_file"
+    [ "$bios_version" = "IGNORE" ] ||
+      echo "BIOS version: $bios_version" >> "$version_file"
+  else
+    FLAGS_merge_bios_rw_image=$FLAGS_FALSE
+  fi
+  if [ -z "$bios_rw_bin" -a "$FLAGS_create_bios_rw_image" = "$FLAGS_TRUE" ]; \
+      then \
+    bios_rw_bin="$tmpbase/$IMAGE_MAIN_RW"
+    create_rw_firmware "$bios_bin" "$bios_rw_bin"
+    # create_rw_firmware is made only for RO_NORMAL images and can't be merged.
+    FLAGS_merge_bios_rw_image=$FLAGS_FALSE
+  fi
+  if [ "$bios_rw_bin" != "" ]; then
+    check_rw_firmware "$bios_rw_bin"
+    bios_rw_version="$(extract_frid "$bios_rw_bin" "IGNORE")"
+
+    if [ "$FLAGS_merge_bios_rw_image" = "$FLAGS_TRUE" ]; then
+      merge_rw_firmware "$tmpbase/$IMAGE_MAIN" "$bios_rw_bin"
+    elif [ "$bios_rw_bin" != "$tmpbase/$IMAGE_MAIN_RW" ]; then
+      cp -pf "$bios_rw_bin" "$tmpbase/$IMAGE_MAIN_RW" || \
+          die "cannot get RW BIOS"
+    fi
+
+    echo "BIOS (RW) image:   $(my_md5 "$bios_rw_bin")" >> "$version_file"
+    [ "$bios_rw_version" = "IGNORE" ] ||
+      echo "BIOS (RW) version: $bios_rw_version" >>"$version_file"
+  else
+    FLAGS_merge_bios_rw_image="$FLAGS_FALSE"
+  fi
+  if [ "$ec_bin" != "" ]; then
+    ec_version="$(extract_frid "$ec_bin" "$FLAGS_ec_version")"
+    # Since mosys r430, trailing spaces reported by mosys is always scrubbed.
+    ec_version="$(echo "$ec_version" | sed 's/ *$//')"
+    cp -pf "$ec_bin" "$tmpbase/$IMAGE_EC" || die "cannot get EC image"
+    echo "EC image:     $(my_md5 "$ec_bin")" >> "$version_file"
+    [ "$ec_version" = "IGNORE" ] ||
+      echo "EC version:   $ec_version" >>"$version_file"
+
+    if [ "$FLAGS_merge_bios_rw_image" = "$FLAGS_TRUE" ]; then
+      # Read EC RW from merged RW image.
+      merge_rw_ec_firmware "$tmpbase/$IMAGE_EC" "$tmpbase/$IMAGE_MAIN" "ecrw"
+      ec_rw_version="$(extract_frid "$tmpbase/$IMAGE_EC" "" "RW_FWID")"
+      echo "EC (RW) version:   $ec_rw_version" >>"$version_file"
+    fi
+  fi
+  if [ "$pd_bin" != "" ]; then
+    pd_version="$(extract_frid "$pd_bin" "$FLAGS_pd_version")"
+    cp -pf "$pd_bin" "$tmpbase/$IMAGE_PD" || die "cannot get PD image"
+    echo "PD image:     $(my_md5 "$pd_bin")" >> "$version_file"
+    [ "$pd_version" = "IGNORE" ] ||
+      echo "PD version:   $pd_version" >>"$version_file"
+
+    if [ "$FLAGS_merge_bios_rw_image" = "$FLAGS_TRUE" ]; then
+      # Read EC RW from merged RW image.
+      merge_rw_ec_firmware "$tmpbase/$IMAGE_PD" "$tmpbase/$IMAGE_MAIN" "pdrw"
+      pd_rw_version="$(extract_frid "$tmpbase/$IMAGE_PD" "" "RW_FWID")"
+      echo "PD (RW) version:   $pd_rw_version" >>"$version_file"
+    fi
+  fi
+}
+
 trap do_cleanup EXIT
 
 # check tool: we need uuencode to create the shell ball.
@@ -314,69 +386,7 @@ IMAGE_MAIN_RW="bios_rw.bin"
 IMAGE_EC="ec.bin"
 IMAGE_PD="pd.bin"
 
-# copy firmware image files
-if [ "$bios_bin" != "" ]; then
-  bios_version="$(extract_frid "$bios_bin" "IGNORE")"
-  bios_rw_version="$bios_version"
-  cp -pf "$bios_bin" "$tmpbase/$IMAGE_MAIN" || die "cannot get BIOS image"
-  echo "BIOS image:   $(my_md5 "$bios_bin")" >> "$version_file"
-  [ "$bios_version" = "IGNORE" ] ||
-    echo "BIOS version: $bios_version" >> "$version_file"
-else
-  FLAGS_merge_bios_rw_image=$FLAGS_FALSE
-fi
-if [ -z "$bios_rw_bin" -a "$FLAGS_create_bios_rw_image" = "$FLAGS_TRUE" ]; then
-  bios_rw_bin="$tmpbase/$IMAGE_MAIN_RW"
-  create_rw_firmware "$bios_bin" "$bios_rw_bin"
-  # create_rw_firmware is made only for RO_NORMAL images and can't be merged.
-  FLAGS_merge_bios_rw_image=$FLAGS_FALSE
-fi
-if [ "$bios_rw_bin" != "" ]; then
-  check_rw_firmware "$bios_rw_bin"
-  bios_rw_version="$(extract_frid "$bios_rw_bin" "IGNORE")"
-
-  if [ "$FLAGS_merge_bios_rw_image" = "$FLAGS_TRUE" ]; then
-    merge_rw_firmware "$tmpbase/$IMAGE_MAIN" "$bios_rw_bin"
-  elif [ "$bios_rw_bin" != "$tmpbase/$IMAGE_MAIN_RW" ]; then
-    cp -pf "$bios_rw_bin" "$tmpbase/$IMAGE_MAIN_RW" || die "cannot get RW BIOS"
-  fi
-
-  echo "BIOS (RW) image:   $(my_md5 "$bios_rw_bin")" >> "$version_file"
-  [ "$bios_rw_version" = "IGNORE" ] ||
-    echo "BIOS (RW) version: $bios_rw_version" >>"$version_file"
-else
-  FLAGS_merge_bios_rw_image="$FLAGS_FALSE"
-fi
-if [ "$ec_bin" != "" ]; then
-  ec_version="$(extract_frid "$ec_bin" "$FLAGS_ec_version")"
-  # Since mosys r430, trailing spaces reported by mosys is always scrubbed.
-  ec_version="$(echo "$ec_version" | sed 's/ *$//')"
-  cp -pf "$ec_bin" "$tmpbase/$IMAGE_EC" || die "cannot get EC image"
-  echo "EC image:     $(my_md5 "$ec_bin")" >> "$version_file"
-  [ "$ec_version" = "IGNORE" ] ||
-    echo "EC version:   $ec_version" >>"$version_file"
-
-  if [ "$FLAGS_merge_bios_rw_image" = "$FLAGS_TRUE" ]; then
-    # Read EC RW from merged RW image.
-    merge_rw_ec_firmware "$tmpbase/$IMAGE_EC" "$tmpbase/$IMAGE_MAIN" "ecrw"
-    ec_rw_version="$(extract_frid "$tmpbase/$IMAGE_EC" "" "RW_FWID")"
-    echo "EC (RW) version:   $ec_rw_version" >>"$version_file"
-  fi
-fi
-if [ "$pd_bin" != "" ]; then
-  pd_version="$(extract_frid "$pd_bin" "$FLAGS_pd_version")"
-  cp -pf "$pd_bin" "$tmpbase/$IMAGE_PD" || die "cannot get PD image"
-  echo "PD image:     $(my_md5 "$pd_bin")" >> "$version_file"
-  [ "$pd_version" = "IGNORE" ] ||
-    echo "PD version:   $pd_version" >>"$version_file"
-
-  if [ "$FLAGS_merge_bios_rw_image" = "$FLAGS_TRUE" ]; then
-    # Read EC RW from merged RW image.
-    merge_rw_ec_firmware "$tmpbase/$IMAGE_PD" "$tmpbase/$IMAGE_MAIN" "pdrw"
-    pd_rw_version="$(extract_frid "$tmpbase/$IMAGE_PD" "" "RW_FWID")"
-    echo "PD (RW) version:   $pd_rw_version" >>"$version_file"
-  fi
-fi
+copy_firmware_image_files
 
 # Set platform to first field of firmware version (ex: Google_Link.1234 ->
 # Google_Link).
