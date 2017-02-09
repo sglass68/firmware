@@ -228,6 +228,11 @@ perform_shar_repack() {
    find . -type f '!' -name VERSION.md5 '!' -name VERSION \
           -exec md5sum -b '{}' '+' ) >"$md5_file"
 
+  # Use a standard timestamp for the version files so that we get the same
+  # exact sharball each time. Otherwise the changing timestamps creates small
+  # differences.
+  touch -t 201701010000 "$new_source/VERSION" "$md5_file"
+
   # Build shar content
   (cd "$new_source" &&
    shar -Q -q -x -m --no-character-count -D --no-i18n -z -g 1 . |
