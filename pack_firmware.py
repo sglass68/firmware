@@ -15,15 +15,32 @@ It requires:
 from __future__ import print_function
 
 import argparse
+import collections
+import glob
 import md5
 import os
 import re
 import shutil
+import struct
 import sys
 from StringIO import StringIO
 import tempfile
 
 from chromite.lib import cros_build_lib
+from chromite.lib import osutils
+
+sys.path.append('utils')
+import merge_file
+
+IMAGE_MAIN = 'bios.bin'
+IMAGE_MAIN_RW = 'bios_rw.bin'
+IMAGE_EC = 'ec.bin'
+IMAGE_PD = 'pd.bin'
+Section = collections.namedtuple('Section', ['offset', 'size'])
+
+# File execution permissions. We could use state.S_... but that's confusing.
+CHMOD_ALL_READ = 0444
+CHMOD_ALL_EXEC = 0555
 
 # For testing
 packer = None
@@ -262,6 +279,350 @@ class FirmwarePacker(object):
         return fd.read().strip().replace('\x00', '')
     return ''
 
+  def _BaseDirPath(self, basename):
+    """Build a filename in the temporary base directory.
+
+    Args:
+      basename: Leafname (with no directory) of file to build.
+
+    Returns:
+      New filename within the self._basedir directory.
+    """
+    return os.path.join(self._basedir, basename)
+
+  def _GetPreambleFlags(self, fname):
+    """Get the preamble flags from an image.
+
+    Args:
+      fname: Image to check (relative or absolute path).
+
+    Returns:
+      Preamble flags as an integer.
+    """
+    cros_build_lib.RunCommand(['dump_fmap', '-x', fname],
+                              quiet=True, cwd=self._tmpdir)
+    cros_build_lib.RunCommand(['gbb_utility', '--rootkey=rootkey.bin', 'GBB'],
+                              quiet=True, cwd=self._tmpdir)
+    result = cros_build_lib.RunCommand(
+        ['vbutil_firmware', '--verify VBLOCK_A', '--signpubkey', 'rootkey.bin',
+         '--fv', 'FW_MAIN_A'], quiet=True, cwd=self._tmpdir)
+    lines = ([line for line in result.output.splitlines()
+              if 'Preamble flags' in line])
+    if len(lines) != 1:
+      raise PackError("vbutil_firmware returned %d 'Preamble flags' lines",
+                      len(lines))
+    return int(lines[0].split()[-1])
+
+  def _SetPreambleFlags(self, infile, outfile, preamble_flags):
+    """Set the preamble flags for an image.
+
+    Args:
+      infile: Input image file (relative or absolute path).
+      outfile: Output image file (relative or absolute path).
+      preamble_flags: Preamble flags as an integer.
+    """
+    keydir = '/usr/share/vboot/devkeys'
+    cros_build_lib.RunCommand(
+        ['resign_firmwarefd.sh', infile, outfile,
+         os.path.join(keydir, 'firmware_data_key.vbprivk'),
+         os.path.join(keydir, 'firmware.keyblock'),
+         os.path.join(keydir, 'dev_firmware_data_key.vbprivk'),
+         os.path.join(keydir, 'dev_firmware.keyblock'),
+         os.path.join(keydir, 'kernel_subkey.vbpubk'),
+         '0', str(preamble_flags)],
+        quiet=True, cwd=self._tmpdir)
+
+  def _CreateRwFirmware(self, ro_fname, rw_fname):
+    """Build a RW firmware file from an input RO file.
+
+    This works by clearing bit 0 of the preamble flags, this indicating this is
+    RW firmware.
+
+    Args:
+      ro_fname: Filename of RO firmware (relative or absolute path).
+      rw_fname: Filename of RW firmware (relative or absolute path).
+    """
+    preamble_flags = self._GetPreambleFlags(ro_fname)
+    if not (preamble_flags & 1):
+      raise PackError("Firmware image '%s' is NOT RO_NORMAL firmware" %
+                      ro_fname)
+    self._SetPreambleFlags(ro_fname, rw_fname, preamble_flags ^ 1)
+    if not self._args.quiet:
+      print("RW firmware image '%s' created" % rw_fname)
+
+  def _CheckRwFirmware(self, fname):
+    """Check that the firmware file is RW firmware.
+
+    Raises:
+      PackError or RunCommandError if the flags could not be read.
+    """
+    if not (self._GetPreambleFlags(fname) & 1):
+      raise PackError("Firmware image '%s' is NOT RW-firmware" % fname)
+
+  def _GetFMAP(self, fname):
+    """Get the FMAP (flash map) from a firmware image.
+
+    Args:
+      fname: Filename of firmware image.
+
+    Returns:
+      A dict comprising:
+        key: Section name.
+        value: Section() named tuple containing offset and size.
+    """
+    result = cros_build_lib.RunCommand(['dump_fmap', '-p', fname],
+                                       quiet=True, cwd=self._tmpdir)
+    sections = {}
+    for line in result.output.splitlines():
+      name, offset, size = line.split()
+      sections[name] = Section(int(offset), int(size))
+    return sections
+
+  def _CloneFirmwareSection(self, dst, src, section):
+    """Clone a section in one file from another.
+
+    Args:
+      dst: Destination file (relative or absolute path).
+      src: Source file (relative or absolute path).
+      section: Section to clone.
+    """
+    src_section = self._GetFMAP(src)[section]
+    dst_section = self._GetFMAP(dst)[section]
+    if not src_section.size:
+      raise PackError("Firmware section '%s' is invalid" % section)
+    if src_section.size != dst_section.size:
+      raise PackError("Firmware section '%s' size is different, cannot clone" %
+                      section)
+    if src_section.offset != dst_section.offset:
+      raise PackError("Firmware section '%s' is not in same location, cannot "
+                      "clone" % section)
+    merge_file.merge_file(dst, src, dst_section.offset, src_section.offset,
+                          src_section.size)
+
+  def _MergeRwFirmware(self, ro_fname, rw_fname):
+    """Merge RW sections from RW firmware to RO firmware.
+
+    Args:
+      ro_fname: RO firmware image file (relative or absolute path).
+      rw_fname: RW firmware image file (relative or absolute path).
+    """
+    self._CloneFirmwareSection(ro_fname, rw_fname, 'RW_SECTION_A')
+    self._CloneFirmwareSection(ro_fname, rw_fname, 'RW_SECTION_B')
+
+  def _ExtractEcRwUsingFMAP(self, fname, ecrw_fname):
+    """Use the FMAP to extract the EC_MAIN_A section containing an EC binary.
+
+    Args:
+      fname: Filename of firmware image (relative or absolute path).
+      ecrw_fname: Filename to put EC binary into (relative or absolute path).
+    """
+    cros_build_lib.RunCommand(['dump_fmap', '-x', fname, 'EC_MAIN_A'],
+                              quiet=True, cwd=self._tmpdir)
+    ec_main_a = os.path.join(self._tmpdir, 'EC_MAIN_A')
+    with open(ec_main_a) as fd:
+      count, offset, size = struct.unpack('<III', fd.read(12))
+    if count != 1 or offset != 12:
+      raise PackError('Unexpected EC_MAIN_A (%d, %d). Cannot merge EC RW' %
+                      count, offset)
+    # To make sure files to be merged are both prepared, merge_file.py will
+    # only accept existing files, so we have to create ecrw now.
+    osutils.Touch(ecrw_fname)
+    merge_file.merge_file(ecrw_fname, ec_main_a, 0, offset, size)
+
+  def _ExtractEcRwUsingCBFS(self, fname, cbfs_name, ecrw_fname):
+    """Extract an EC binary from a CBFS image.
+
+    Args:
+      fname: Filename of firmware image (relative or absolute path).
+      cbfs_name: Name of file in CBFS which contains the EC binary.
+      ecrw_fname: Filename to put EC binary into (relative or absolute path).
+    """
+    cros_build_lib.RunCommand(
+        ['cbfstool', fname, 'extract', '-n', cbfs_name, '-f', ecrw_fname, 'r',
+         'FW_MAIN_A'], quiet=True, cwd=self._tmpdir)
+
+  def _ExtractEcRw(self, fname, cbfs_name, ecrw_fname):
+    """Obtain the RW EC binary.
+
+    Args:
+      fname: Filename of firmware image (relative or absolute path).
+      cbfs_name: Name of file in CBFS which contains the EC binary, if the
+          image does not have an EC_MAIN_A section.
+      ecrw_fname: Filename to put EC binary into (relative or absolute path).
+
+    Raises:
+      PackError or RunCommandError if an error occurs.
+    """
+    if 'EC_MAIN_A' in self._GetFMAP(fname):
+      self._ExtractEcRwUsingFMAP(fname, ecrw_fname)
+    else:
+      self._ExtractEcRwUsingCBFS(fname, cbfs_name, ecrw_fname)
+
+  def _MergeRwEcFirmware(self, ec_fname, rw_fname, cbfs_name):
+    """Merge EC firmware from an image into the given file.
+
+    Args:
+      ec_fname: Filename to merge RW EC binary into (relative or absolute path).
+      rw_fname: Filename of firmware image (relative or absolute path).
+      cbfs_name: Name of file in CBFS which contains the EC binary, if the
+          image does not have an EC_MAIN_A section.
+    """
+    ecrw_fname = os.path.join(self._tmpdir, 'ecrw')
+    self._ExtractEcRw(rw_fname, cbfs_name, ecrw_fname)
+    section = self._GetFMAP(ec_fname)['EC_RW']
+    if section.size > os.stat(ecrw_fname).st_size:
+      raise PackError('New RW payload larger than preserved FMAP section, '
+                      'cannot merge')
+    merge_file.merge_file(ec_fname, ecrw_fname, section.offset)
+
+  def _CopyFirmwareFiles(self):
+    """Process firmware files and copy them into the working directory"""
+    bios_rw_bin = self._args.bios_rw_image
+    if self._args.bios_image:
+      self._bios_version = self._ExtractFrid(self._args.bios_image)
+      self._bios_rw_version = self._bios_version
+      shutil.copy2(self._args.bios_image, self._BaseDirPath(IMAGE_MAIN))
+      self._AddVersionInfo('BIOS', self._args.bios_image, self._bios_version)
+    else:
+      self._args.merge_bios_rw_image = False
+
+    if not bios_rw_bin and self._args.create_bios_rw_image:
+      bios_rw_bin = self._BaseDirPath(IMAGE_MAIN_RW)
+      self._CreateRwFirmware(self._args.bios_image, bios_rw_bin)
+      self._args.merge_bios_rw_image = False
+
+    if bios_rw_bin:
+      self._CheckRwFirmware(bios_rw_bin)
+      self._bios_rw_version = self._ExtractFrid(bios_rw_bin)
+      if self._args.merge_bios_rw_image:
+        self._MergeRwFirmware(self._BaseDirPath(IMAGE_MAIN), bios_rw_bin)
+      elif bios_rw_bin != self._BaseDirPath(IMAGE_MAIN_RW):
+        shutil.copy2(bios_rw_bin, self._BaseDirPath(IMAGE_MAIN_RW))
+      self._AddVersionInfo('BIOS (RW)', self._args.bios_image,
+                           self._bios_rw_version)
+    else:
+      self._args.merge_bios_rw_image = False
+
+    if self._args.ec_image:
+      self._ec_version = self._ExtractFrid(self._args.ec_image)
+      if not self._ec_version and self._args.ec_version:
+        self._ec_version = self._args.ec_version
+      shutil.copy2(self._args.ec_image, self._BaseDirPath(IMAGE_EC))
+      self._AddVersionInfo('EC', self._args.ec_image, self._ec_version)
+      if self._args.merge_bios_rw_image:
+        self._MergeRwEcFirmware(self._BaseDirPath(IMAGE_EC),
+                                self._BaseDirPath(IMAGE_MAIN), 'ecrw')
+        ec_rw_version = self._ExtractFrid(self._BaseDirPath(IMAGE_EC),
+                                          'RW_FWID')
+        print('EC (RW) version: %s' % ec_rw_version, file=self._versions)
+
+    if self._args.pd_image:
+      self._pd_version = self._ExtractFrid(self._args.pd_image)
+      shutil.copy2(self._args.pd_image, self._BaseDirPath(IMAGE_PD))
+      self._AddVersionInfo('PD', self._args.pd_image, self._pd_version)
+      if self._args.merge_bios_rw_image:
+        self._MergeRwEcFirmware(self._BaseDirPath(IMAGE_PD),
+                                self._BaseDirPath(IMAGE_MAIN), 'pdrw')
+        pd_rw_version = self._ExtractFrid(self._BaseDirPath(IMAGE_PD),
+                                          'RW_FWID')
+        print('PD (RW) version: %s' % pd_rw_version, file=self._versions)
+
+  def _CopyFile(self, src, dst, mode=CHMOD_ALL_READ):
+    """Copy a file (to another file or into a directory) and set its mode.
+
+    src: Source filename (relative or absolute path).
+    dst: Destination filename or directory (relative or absolute path).
+    mode: File mode to OR with the existing mode.
+    """
+    if os.path.isdir(dst):
+      dst = os.path.join(dst, os.path.basename(src))
+    shutil.copy2(src, dst)
+    os.chmod(dst, os.stat(dst).st_mode | mode)
+
+  def _BuildShellball(self):
+    """Build a shell-ball containing the firmware update."""
+
+    def _CopyBaseFiles():
+      """Copy base files that every firmware update needs."""
+      self._CopyFile(self._shflags_file, self._basedir)
+      for tool in self._args.tools.split():
+        tool_fname = self._FindTool(tool)
+        # Most tools are dynamically linked, but if there is a statically
+        # linked version (denoted by a '_s' suffix) use that in preference.
+        # This helps to reduce run-time dependencies for firmware update,
+        # which is a critical process.
+        if os.path.exists(tool_fname + '_s'):
+          tool_fname += '_s'
+        self._CopyFile(tool_fname, self._BaseDirPath(tool), CHMOD_ALL_EXEC)
+      for fname in glob.glob(os.path.join(self._pack_dist, '*')):
+        if (self._args.remove_inactive_updaters and 'updater' in fname and
+            not self._args.script in fname):
+          continue
+        self._CopyFile(fname, self._basedir, CHMOD_ALL_EXEC)
+
+    def _CopyExtraFiles():
+      """Copy extra files, if any."""
+      if self._args.extra:
+        for extra in self._args.extra.split(':'):
+          if os.path.isdir(extra):
+            fnames = glob.glob(os.path.join(extra, '*'))
+            if not fnames:
+              raise PackError("cannot copy extra files from folder '%s'" %
+                              extra)
+            for fname in fnames:
+              self._CopyFile(fname, self._basedir)
+            print('Extra files from folder: %s' % extra,
+                  file=self._versions)
+          else:
+            self._CopyFile(extra, self._basedir)
+            print('Extra file: %s' % extra, file=self._versions)
+
+    def _WriteUpdateScript():
+      """Create and write the update script which will run on the device."""
+      with open(self._stub_file) as fd:
+        data = fd.read()
+      replace_dict = {
+          'REPLACE_RO_FWID': self._bios_version,
+          'REPLACE_FWID': self._bios_rw_version,
+          'REPLACE_ECID': self._ec_version,
+          'REPLACE_PDID': self._pd_version,
+          # Set platform to first field of firmware version
+          # (ex: Google_Link.1234 -> Google_Link).
+          'REPLACE_PLATFORM': self._bios_version.split('.')[0],
+          'REPLACE_SCRIPT': self._args.script,
+          'REPLACE_STABLE_FWID': self._args.stable_main_version,
+          'REPLACE_STABLE_ECID': self._args.stable_ec_version,
+          'REPLACE_STABLE_PDID': self._args.stable_pd_version,
+      }
+      rep = dict((re.escape(k), v) for k, v in replace_dict.iteritems())
+      pattern = re.compile('|'.join(rep.keys()))
+      data = pattern.sub(lambda m: rep[re.escape(m.group(0))], data)
+
+      fname = self._args.output
+      with open(fname, 'w') as fd:
+        fd.write(data)
+      os.chmod(fname, os.stat(fname).st_mode | 0555)
+
+    def _WriteVersionFile():
+      """Write out the VERSION file with our collected version information."""
+      print(file=self._versions)
+      with open(self._BaseDirPath('VERSION'), 'w') as fd:
+        fd.write(self._versions.getvalue())
+
+    _CopyBaseFiles()
+    _CopyExtraFiles()
+    _WriteUpdateScript()
+    _WriteVersionFile()
+
+    # Add our files to the shell-ball, and display all version information.
+    cros_build_lib.RunCommand(
+        ['sh', self._args.output, '--sb_repack', self._basedir],
+        mute_output=False)
+    if not self._args.quiet:
+      for fname in glob.glob(self._BaseDirPath('VERSION*')):
+        with open(fname) as fd:
+          print(fd.read())
+
   def Start(self, argv):
     """Handle the creation of a firmware shell-ball.
 
@@ -283,7 +644,18 @@ class FirmwarePacker(object):
     if not any((self._args.bios_image, self._args.ec_image,
                 self._args.pd_image)):
       raise PackError('Must assign at least one of BIOS or EC or PD image')
-    # TODO(sjg@chromium.org): Add code to build shell-ball.
+    try:
+      if not self._args.output:
+        raise PackError('Missing output file')
+      self._basedir = self._CreateTmpDir()
+      self._tmpdir = self._CreateTmpDir()
+      self._AddFlashromVersion()
+      self._CopyFirmwareFiles()
+      self._BuildShellball()
+      if not self._args.quiet:
+        print('Packed output image is: %s' % self._args.output)
+    finally:
+      self._RemoveTmpdirs()
 
 
 # The style guide says that we cannot pass in sys.argv[0]. That makes testing
