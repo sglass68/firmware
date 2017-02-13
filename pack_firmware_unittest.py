@@ -45,7 +45,7 @@ class TestUnit(unittest.TestCase):
   def testStartup(self):
     """Starting up with a valid updater script should work."""
     args = ['.', '--script=updater5.sh', '--tools', 'ls',
-            '--tool_base', '/bin', '-b', 'image.bin']
+            '--tool_base', '/bin:.', '-b', 'image.bin']
     pack_firmware.main(args)
 
   def testBadStartup(self):

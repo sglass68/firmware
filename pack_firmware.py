@@ -12,7 +12,10 @@ It requires:
 """
 
 import argparse
+import codecs
+import md5
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -34,12 +37,14 @@ class PackFirmware:
     _stub_file: Path to 'pack_stub'.
     _tmpbase: Base temporary directory.
     _tmp_dirs: List of temporary directories created.
+    _versions: Collected version information, as a string.
   """
   def __init__(self, progname):
     self._script_base = os.path.dirname(progname)
     self._stub_file = os.path.join(self._script_base, 'pack_stub')
     self._pack_dist = os.path.join(self._script_base, 'pack_dist')
     self._tmp_dirs = []
+    self._versions = ''
  
   def ParseArgs(self, argv):
     """Parse the available arguments.
@@ -127,7 +132,7 @@ class PackFirmware:
       fname = os.path.join(path, tool)
       if os.path.exists(fname):
         return os.path.abspath(fname)
-    return None
+    raise PackError("Cannot find tool program '%s' to bundle" % tool)
 
   def _EnsureTools(self, tools):
     """Ensure that all required tools are available.
@@ -138,8 +143,7 @@ class PackFirmware:
       PackError if any tool is not available.
     """
     for tool in tools:
-      if not self._FindTool(tool):
-        raise PackError("Cannot find tool program '%s' to bundle" % tool)
+      self._FindTool(tool)
 
   def _GetTmpdir(self):
     """Get a temporary directory, and remember it for later removal.
@@ -156,6 +160,30 @@ class PackFirmware:
     for fname in self._tmp_dirs:
       shutil.rmtree(fname)
     self._tmpdirs = []
+
+  def _AddVersion(self, name, version_string):
+    if name:
+      self._versions += name + ': '
+    else:
+      self._versions += ' '
+    self._versions += '\n' + version_string
+
+  def _AddFlashromVersion(self):
+    flashrom = self._FindTool('flashrom')
+    with open(flashrom, 'rb') as fd:
+      data = fd.read()
+      end = data.find('UTC\0')
+      pos = end
+      while data[pos - 1] >= ' ' and data[pos - 1] < chr(127):
+        pos -= 1
+      version = data[pos:end + 3]
+    hash = md5.new()
+    hash.update(data)
+    result = cros_build_lib.RunCommand(['file', '-b', flashrom], quiet=True)
+    self._AddVersion('flashrom(8)', '%s %s\n %s\n %s' %
+        (hash.hexdigest(), flashrom, result.output, version))
+
+  #with open(os.path.join(self._tmpbase, 'VERSION'), 'w'):
 
   def Start(self, argv):
     """Handle the creation of a firmware shell-ball.
@@ -178,6 +206,8 @@ class PackFirmware:
       raise PackError('Must assign at least one of BIOS or EC or PD image')
     try:
       self._tmpbase = self._GetTmpdir()
+      self._AddFlashromVersion()
+      #self._CopyFirmwareFiles()
     finally:
       self._RemoveTmpdirs()
 
