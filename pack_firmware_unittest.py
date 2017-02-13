@@ -5,7 +5,7 @@
 
 import argparse
 from contextlib import contextmanager
-from io import StringIO
+import os
 import sys
 import unittest
 
@@ -45,7 +45,7 @@ class TestUnit(unittest.TestCase):
   def testStartup(self):
     """Starting up with a valid updater script should work."""
     args = ['.', '--script=updater5.sh', '--tools', 'ls',
-            '--tool_base', '/bin']
+            '--tool_base', '/bin', '-b', 'image.bin']
     pack_firmware.main(args)
 
   def testBadStartup(self):
@@ -67,6 +67,13 @@ class TestUnit(unittest.TestCase):
       pack_firmware.main(['.', '--script=updater5.sh',
                           '--tools', 'missing-tool',])
     self.assertIn("Cannot find tool program 'missing-tool'", str(e.exception))
+
+    # Should complain if we don't provide at least one image.
+    with self.assertRaises(PackError) as e:
+      args = ['.', '--script=updater5.sh', '--tools', 'ls',
+              '--tool_base', '/bin']
+      pack_firmware.main(args)
+    self.assertIn('Must assign at least one of BIOS', str(e.exception))
 
   def testArgParse(self):
     """Test some basic argument parsing as a sanity check."""
@@ -93,6 +100,15 @@ class TestUnit(unittest.TestCase):
     self.pack._EnsureCommand('ls', 'sample-package')
     with self.assertRaises(PackError):
       self.pack._EnsureCommand('does-not-exist', 'sample-package')
+
+  def testTmpdirs(self):
+    dir1 = self.pack._GetTmpdir()
+    dir2 = self.pack._GetTmpdir()
+    self.assertTrue(os.path.exists(dir1))
+    self.assertTrue(os.path.exists(dir2))
+    self.pack._RemoveTmpdirs()
+    self.assertFalse(os.path.exists(dir1))
+    self.assertFalse(os.path.exists(dir2))
 
 if __name__ == '__main__':
     unittest.main()

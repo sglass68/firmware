@@ -13,7 +13,9 @@ It requires:
 
 import argparse
 import os
+import shutil
 import sys
+import tempfile
 import uu
 
 from chromite.lib import cros_build_lib
@@ -30,12 +32,15 @@ class PackFirmware:
     _pack_dist: Path to 'pack_dist' directory.
     _script_base: Base directory with useful files (src/platform/firmware).
     _stub_file: Path to 'pack_stub'.
+    _tmpbase: Base temporary directory.
+    _tmp_dirs: List of temporary directories created.
   """
   def __init__(self, progname):
     self._script_base = os.path.dirname(progname)
     self._stub_file = os.path.join(self._script_base, 'pack_stub')
     self._pack_dist = os.path.join(self._script_base, 'pack_dist')
-  
+    self._tmp_dirs = []
+ 
   def ParseArgs(self, argv):
     """Parse the available arguments.
 
@@ -136,6 +141,22 @@ class PackFirmware:
       if not self._FindTool(tool):
         raise PackError("Cannot find tool program '%s' to bundle" % tool)
 
+  def _GetTmpdir(self):
+    """Get a temporary directory, and remember it for later removal.
+
+    Returns:
+      Path name of temporary directory.
+    """
+    fname = tempfile.mkdtemp('pack_firmware-%d' % os.getpid())
+    self._tmp_dirs.append(fname)
+    return fname
+
+  def _RemoveTmpdirs(self):
+    """Remove all the temporary directories"""
+    for fname in self._tmp_dirs:
+      shutil.rmtree(fname)
+    self._tmpdirs = []
+
   def Start(self, argv):
     """Handle the creation of a firmware shell-ball.
 
@@ -152,7 +173,13 @@ class PackFirmware:
       if not os.path.exists(fname):
         raise PackError("Cannot find required file '%s'" % fname)
     self._EnsureTools(self._args.tools.split())
-
+    if (not self._args.bios_image and not self._args.ec_image and
+        not self._args.pd_image):
+      raise PackError('Must assign at least one of BIOS or EC or PD image')
+    try:
+      self._tmpbase = self._GetTmpdir()
+    finally:
+      self._RemoveTmpdirs()
 
 # The style guide says that we cannot pass in sys.argv[0]. That makes testing
 # a pain, so this is a full argv.
