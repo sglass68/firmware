@@ -36,11 +36,17 @@ class PackFirmware:
     self._stub_file = os.path.join(self._script_base, 'pack_stub')
     self._pack_dist = os.path.join(self._script_base, 'pack_dist')
   
-  # Parse the available arguments:
-  # Invalid arguments or -h cause this function to print a message and exit.
-  # Returns:
-  #   argparse.Namespace object containing the attributes.
   def ParseArgs(self, argv):
+    """Parse the available arguments.
+
+    Invalid arguments or -h cause this function to print a message and exit.
+
+    Args:
+      argv: List of string arguments (excluding program name / argv[0])
+
+    Returns:
+      argparse.Namespace object containing the attributes.
+    """
     parser = argparse.ArgumentParser(
         description='Produce a firmware update shell-ball')
     parser.add_argument('-b', '--bios_image', type=str,
@@ -92,12 +98,26 @@ class PackFirmware:
     return parser.parse_args(argv)
 
   def _EnsureCommand(self, cmd, package):
+    """Ennsure that a command is available, raising an exception if not.
+
+    Args:
+      cmd: Command to check (just the name, not the full path.
+    Raises:
+      PackError if the command is not available.
+    """
     result = cros_build_lib.RunCommand('type %s' % cmd, shell=True, quiet=True,
                                        error_code_ok=True)
     if result.returncode:
       raise PackError("You need '%s' (package '%s')" % (cmd, package))
 
   def _FindTool(self, tool):
+    """Find a tool in the tool_base path list, raising an exception if missing.
+
+    Args:
+      tool: Name pf tool to find (just the name, not the full path.
+    Raises:
+      PackError if the tool is not available.
+    """
     for path in self._args.tool_base.split(':'):
       fname = os.path.join(path, tool)
       if os.path.exists(fname):
@@ -105,11 +125,25 @@ class PackFirmware:
     return None
 
   def _EnsureTools(self, tools):
+    """Ensure that all required tools are available.
+
+    Args:
+      tools: List of tools to check.
+    Raises:
+      PackError if any tool is not available.
+    """
     for tool in tools:
       if not self._FindTool(tool):
         raise PackError("Cannot find tool program '%s' to bundle" % tool)
 
   def Start(self, argv):
+    """Handle the creation of a firmware shell-ball.
+
+    argv: List of arguments (excluding the program name/argv[0]).
+
+    Raises:
+      PackError if any error occurs.
+    """
     self._args = self.ParseArgs(argv)
     main_script = os.path.join(self._pack_dist, self._args.script)
 
@@ -119,7 +153,8 @@ class PackFirmware:
         raise PackError("Cannot find required file '%s'" % fname)
     self._EnsureTools(self._args.tools.split())
 
-# The style guide says that we cannot pass in sys.argv[0]. That mains testing
+
+# The style guide says that we cannot pass in sys.argv[0]. That makes testing
 # a pain, so this is a full argv.
 def main(argv):
   pack = PackFirmware(argv[0])
