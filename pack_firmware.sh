@@ -82,14 +82,9 @@ has_command() {
 find_tool() {
   local toolbase_list="$(echo "$FLAGS_tool_base" | tr ':' '\n')"
   local toolpath
-  # TODO(hungte) old_bins is introduced by issue chromiumos:224734.
-  # Remove it when the transition is complete.
   toolpath="$(echo "$toolbase_list" |
               while read toolbase; do
-                if [ -f "$toolbase/old_bins/$1" ]; then
-                  readlink -f "$toolbase/old_bins/$1"
-                  exit $FLAGS_TRUE
-                elif [ -f "$toolbase/$1" ]; then
+                if [ -f "$toolbase/$1" ]; then
                   readlink -f "$toolbase/$1"
                   exit $FLAGS_TRUE
                 fi
