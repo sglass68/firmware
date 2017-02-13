@@ -19,16 +19,22 @@ import uu
 from chromite.lib import cros_build_lib
 import chromite.lib.cros_logging as logging
 
+class PackError(Exception):
+  pass
+
 class PackFirmware:
   """Handles building a shell-ball firmware update.
 
   Private members:
     _args: Parsed arguments.
+    _pack_dist: Path to 'pack_dist' directory.
+    _script_base: Base directory with useful files (src/platform/firmware).
+    _stub_file: Path to 'pack_stub'.
   """
   def __init__(self, progname):
-    self.script_base = os.path.dirname(progname)
-    self.stub_file = os.path.join(self.script_base, 'pack_stub')
-    self.pack_dist = os.path.join(self.script_base, 'pack_dist')
+    self._script_base = os.path.dirname(progname)
+    self._stub_file = os.path.join(self._script_base, 'pack_stub')
+    self._pack_dist = os.path.join(self._script_base, 'pack_dist')
   
   # Parse the available arguments:
   # Invalid arguments or -h cause this function to print a message and exit.
@@ -85,13 +91,11 @@ class PackFirmware:
         help='Default source locations for tools programs (delimited by colon)')
     return parser.parse_args(argv)
 
-  def _HasCommand(self, cmd, package):
+  def _EnsureCommand(self, cmd, package):
     result = cros_build_lib.RunCommand('type %s' % cmd, shell=True, quiet=True,
                                        error_code_ok=True)
     if result.returncode:
-      logging.critical('You need %s (%s)' % (cmd, package))
-      return False
-    return True
+      raise PackError("You need '%s' (package '%s')" % (cmd, package))
 
   def _FindTool(self, tool):
     for path in self._args.tool_base.split(':'):
@@ -100,34 +104,26 @@ class PackFirmware:
         return os.path.abspath(fname)
     return None
 
-  def _FindTools(self, tools):
+  def _EnsureTools(self, tools):
     for tool in tools:
       if not self._FindTool(tool):
-        logging.critical("Cannot find tool program '%s' to bundle" % tool)
-        return False
-    return True
+        raise PackError("Cannot find tool program '%s' to bundle" % tool)
 
   def Start(self, argv):
     self._args = self.ParseArgs(argv)
-    main_script = os.path.join(self.pack_dist, self._args.script)
+    main_script = os.path.join(self._pack_dist, self._args.script)
 
-    if not self._HasCommand('shar', 'sharutils'):
-      return False
-    for fname in [main_script, self.stub_file]:
+    self._EnsureCommand('shar', 'sharutils')
+    for fname in [main_script, self._stub_file]:
       if not os.path.exists(fname):
-        logging.critical("Cannot find required file '%s'" % fname)
-        return False
-    if not self._FindTools(self._args.tools.split()):
-      return False
-
-    return True
-
+        raise PackError("Cannot find required file '%s'" % fname)
+    self._EnsureTools(self._args.tools.split())
 
 # The style guide says that we cannot pass in sys.argv[0]. That mains testing
 # a pain, so this is a full argv.
 def main(argv):
   pack = PackFirmware(argv[0])
-  return pack.Start(argv[1:])
+  pack.Start(argv[1:])
 
 if __name__ == "__main__":
   if not main(sys.argv):

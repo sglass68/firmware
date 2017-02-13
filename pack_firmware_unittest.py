@@ -5,13 +5,20 @@
 
 import argparse
 from contextlib import contextmanager
-from StringIO import StringIO
+from io import StringIO
 import sys
 import unittest
 
+try:
+    from StringIO import StringIO
+except ImportError:
+    from io import StringIO
+
+from chromite.lib import cros_build_lib_unittest
+from chromite.lib import partial_mock
 import chromite.lib.cros_logging as logging
 import pack_firmware
-from pack_firmware import PackFirmware
+from pack_firmware import PackFirmware, PackError
 
 # Disable all logging as it's confusing to get log output from tests.
 logging.getLogger().setLevel(logging.CRITICAL + 1)
@@ -37,12 +44,29 @@ class TestUnit(unittest.TestCase):
 
   def testStartup(self):
     """Starting up with a valid updater script should work."""
-    self.assertFalse(pack_firmware.main(['.']))
-    self.assertTrue(pack_firmware.main(['.', '--script=updater5.sh']))
+    args = ['.', '--script=updater5.sh', '--tools', 'ls',
+            '--tool_base', '/bin']
+    pack_firmware.main(args)
 
   def testBadStartup(self):
-    """Starting up in another directory (without required files) should fail."""
-    self.assertFalse(pack_firmware.main(['/']))
+    """Test various bad start-up conditions"""
+    # Starting up in another directory (without required files) should fail.
+    with self.assertRaises(PackError) as e:
+      pack_firmware.main(['/'])
+    self.assertIn("required file '/pack_dist/updater.sh'", str(e.exception))
+
+    # Should check for 'shar' tool.
+    with cros_build_lib_unittest.RunCommandMock() as rc:
+      rc.AddCmdResult(partial_mock.ListRegex('type shar'), returncode=1)
+      with self.assertRaises(PackError) as e:
+        pack_firmware.main(['.'])
+      self.assertIn("You need 'shar'", str(e.exception))
+
+    # Should complain about missing tools.
+    with self.assertRaises(PackError) as e:
+      pack_firmware.main(['.', '--script=updater5.sh',
+                          '--tools', 'missing-tool',])
+    self.assertIn("Cannot find tool program 'missing-tool'", str(e.exception))
 
   def testArgParse(self):
     """Test some basic argument parsing as a sanity check."""
@@ -65,9 +89,10 @@ class TestUnit(unittest.TestCase):
     self.assertEqual(False, self.pack.ParseArgs(['--no-merge_bios_rw_image'])
                          .merge_bios_rw_image)
 
-  def testHasCommand(self):
-    self.assertTrue(self.pack._HasCommand('ls', 'sample-package'))
-    self.assertFalse(self.pack._HasCommand('does-not-exist', 'sample-package'))
+  def testEnsureCommand(self):
+    self.pack._EnsureCommand('ls', 'sample-package')
+    with self.assertRaises(PackError):
+      self.pack._EnsureCommand('does-not-exist', 'sample-package')
 
 if __name__ == '__main__':
     unittest.main()
