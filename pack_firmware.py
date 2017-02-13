@@ -11,6 +11,8 @@ It requires:
  - any other additional files used by updater.sh in pack_dist folder
 """
 
+from __future__ import print_function
+
 import argparse
 import codecs
 import md5
@@ -20,6 +22,11 @@ import shutil
 import sys
 import tempfile
 import uu
+
+try:
+    from StringIO import StringIO
+except ImportError:
+    from io import StringIO
 
 from chromite.lib import cros_build_lib
 import chromite.lib.cros_logging as logging
@@ -44,7 +51,7 @@ class PackFirmware:
     self._stub_file = os.path.join(self._script_base, 'pack_stub')
     self._pack_dist = os.path.join(self._script_base, 'pack_dist')
     self._tmp_dirs = []
-    self._versions = ''
+    self._versions = StringIO()
  
   def ParseArgs(self, argv):
     """Parse the available arguments.
@@ -170,6 +177,8 @@ class PackFirmware:
 
   def _AddFlashromVersion(self):
     flashrom = self._FindTool('flashrom')
+
+    # Look for a string ending in UTC.
     with open(flashrom, 'rb') as fd:
       data = fd.read()
       end = data.find('UTC\0')
@@ -180,8 +189,9 @@ class PackFirmware:
     hash = md5.new()
     hash.update(data)
     result = cros_build_lib.RunCommand(['file', '-b', flashrom], quiet=True)
-    self._AddVersion('flashrom(8)', '%s %s\n %s\n %s' %
-        (hash.hexdigest(), flashrom, result.output, version))
+    print('flashrom(8): %s %s\n %s\n %s' %
+        (hash.hexdigest(), flashrom, result.output, version),
+        file=self._versions)
 
   #with open(os.path.join(self._tmpbase, 'VERSION'), 'w'):
 
