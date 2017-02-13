@@ -66,8 +66,8 @@ class TestUnit(unittest.TestCase):
                          .merge_bios_rw_image)
 
   def testHasCommand(self):
-    self.assertTrue(self.pack.HasCommand('ls', 'sample-package'))
-    self.assertFalse(self.pack.HasCommand('does-not-exist', 'sample-package'))
+    self.assertTrue(self.pack._HasCommand('ls', 'sample-package'))
+    self.assertFalse(self.pack._HasCommand('does-not-exist', 'sample-package'))
 
 if __name__ == '__main__':
     unittest.main()

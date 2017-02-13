@@ -20,6 +20,11 @@ from chromite.lib import cros_build_lib
 import chromite.lib.cros_logging as logging
 
 class PackFirmware:
+  """Handles building a shell-ball firmware update.
+
+  Private members:
+    _args: Parsed arguments.
+  """
   def __init__(self, progname):
     self.script_base = os.path.dirname(progname)
     self.stub_file = os.path.join(self.script_base, 'pack_stub')
@@ -76,7 +81,7 @@ class PackFirmware:
     # TODO(sjg@chromium.org: Consider making this accumulate rather than using
     # the ':' separator.
     parser.add_argument(
-        '--tool_base', type=str,
+        '--tool_base', type=str, default='',
         help='Default source locations for tools programs (delimited by colon)')
     return parser.parse_args(argv)
 
@@ -89,14 +94,22 @@ class PackFirmware:
     return True
 
   def _FindTool(self, tool):
-    
+    for path in self._args.tool_base.split(':'):
+      fname = os.path.join(path, tool)
+      if os.path.exists(fname):
+        return os.path.abspath(fname)
+    return None
 
   def _FindTools(self, tools):
     for tool in tools:
+      if not self._FindTool(tool):
+        logging.critical("Cannot find tool program '%s' to bundle" % tool)
+        return False
+    return True
 
   def Start(self, argv):
-    args = self.ParseArgs(argv)
-    main_script = os.path.join(self.pack_dist, args.script)
+    self._args = self.ParseArgs(argv)
+    main_script = os.path.join(self.pack_dist, self._args.script)
 
     if not self._HasCommand('shar', 'sharutils'):
       return False
@@ -104,6 +117,8 @@ class PackFirmware:
       if not os.path.exists(fname):
         logging.critical("Cannot find required file '%s'" % fname)
         return False
+    if not self._FindTools(self._args.tools.split()):
+      return False
 
     return True
 
