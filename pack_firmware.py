@@ -43,6 +43,7 @@ class PackFirmware:
     _script_base: Base directory with useful files (src/platform/firmware).
     _stub_file: Path to 'pack_stub'.
     _tmpbase: Base temporary directory.
+    _tmpdir: Temporary directory for use for running tools.
     _tmp_dirs: List of temporary directories created.
     _versions: Collected version information, as a string.
   """
@@ -193,6 +194,21 @@ class PackFirmware:
         (hash.hexdigest(), flashrom, result.output, version),
         file=self._versions)
 
+  def _ExtractFrid(self, image_file, default_frid='IGNORE',
+                   section_name='RO_FRID'):
+    cros_build_lib.RunCommand(['dump_fmap', '-x', self._args.bios_image],
+                              quiet=True, cwd=self._tmpdir, error_code_ok=True)
+    fname = os.path.join(self._tmpdir, section_name)
+    if os.path.exists(fname):
+      with open(fname) as fd:
+        return fd.read()
+    return default_frid
+
+  def _CopyFirmwareFiles(self):
+    if self._args.bios_image:
+      frid = self._ExtractFrid(self._args.bios_image)
+      print(frid)
+
   #with open(os.path.join(self._tmpbase, 'VERSION'), 'w'):
 
   def Start(self, argv):
@@ -216,6 +232,7 @@ class PackFirmware:
       raise PackError('Must assign at least one of BIOS or EC or PD image')
     try:
       self._tmpbase = self._GetTmpdir()
+      self._tmpdir = self._GetTmpdir()
       self._AddFlashromVersion()
       #self._CopyFirmwareFiles()
     finally:

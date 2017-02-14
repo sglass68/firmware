@@ -110,5 +110,14 @@ class TestUnit(unittest.TestCase):
     self.assertFalse(os.path.exists(dir1))
     self.assertFalse(os.path.exists(dir2))
 
+  def testExtractFrid(self):
+    self.pack._tmpdir = '.'
+    with open('RO_FRID', 'w') as fd:
+      fd.write('1234')
+    self.pack._args = self.pack.ParseArgs(['--bios_image', 'image.bin'])
+    with cros_build_lib_unittest.RunCommandMock() as rc:
+      rc.AddCmdResult(partial_mock.ListRegex('dump_fmap'), returncode=0)
+      self.assertEqual('1234', self.pack._ExtractFrid('image.bin'))
+
 if __name__ == '__main__':
     unittest.main()
