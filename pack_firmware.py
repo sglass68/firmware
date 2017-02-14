@@ -31,6 +31,11 @@ except ImportError:
 from chromite.lib import cros_build_lib
 import chromite.lib.cros_logging as logging
 
+IMAGE_MAIN = 'bios.bin'
+IMAGE_MAIN_RW = 'bios_rw.bin'
+IMAGE_EC = 'ec.bin'
+IMAGE_PD = 'pd.bin'
+
 class PackError(Exception):
   pass
 
@@ -45,12 +50,8 @@ class PackFirmware:
     _tmpbase: Base temporary directory.
     _tmpdir: Temporary directory for use for running tools.
     _tmp_dirs: List of temporary directories created.
-    _versions: Collected version information, as a string.
+    _versions: Collected version information (StringIO).
   """
-  IMAGE_MAIN = 'bios.bin'
-  IMAGE_MAIN_RW = 'bios_rw.bin'
-  IMAGE_EC = 'ec.bin'
-  IMAGE_PD = 'pd.bin'
 
   def __init__(self, progname):
     self._script_base = os.path.dirname(progname)
@@ -174,14 +175,8 @@ class PackFirmware:
       shutil.rmtree(fname)
     self._tmpdirs = []
 
-  def _AddVersion(self, name, version_string):
-    if name:
-      self._versions += name + ': '
-    else:
-      self._versions += ' '
-    self._versions += '\n' + version_string
-
   def _AddFlashromVersion(self):
+    """Add flashrom version info to the collection of version information."""
     flashrom = self._FindTool('flashrom')
 
     # Look for a string ending in UTC.
@@ -200,32 +195,102 @@ class PackFirmware:
         file=self._versions)
 
   def _AddVersionInfo(self, name, fname, version):
-    with open(flashrom, 'rb') as fd:
+    """Add version info for a single file.
+
+    Calculates the md5 hash of the file and adds this and other file details
+    into the collection of version information.
+
+    Args:
+      name: User-readable name of the file (e.g. 'BIOS')
+      fname: Filename to read
+      version: Version string (e.g. 'Google_Reef.9042.40.0')
+    """
+    with open(fname, 'rb') as fd:
       hash = md5.new()
       hash.update(fd.read())
     print('%s image: %s' % (name, hash.hexdigest()), file=self._versions)
-    print('%s version: %s' % (name, version), file=self._versions)
+    if version:
+      print('%s version: %s' % (name, version), file=self._versions)
 
-  def _ExtractFrid(self, image_file, default_frid='IGNORE',
-                   section_name='RO_FRID'):
+  def _ExtractFrid(self, image_file, default_frid='', section_name='RO_FRID'):
+    """Extracts the firmware ID from an image file.
+
+    Args:
+      image_file: File to process.
+      default_frid: Default firmware ID if we cannot obtain one.
+      section_name: Name of the section of image_file which contains the
+          firmware ID.
+
+    Returns:
+      Firmware ID as a string, if found, else default_frid
+    """
     cros_build_lib.RunCommand(['dump_fmap', '-x', self._args.bios_image],
                               quiet=True, cwd=self._tmpdir, error_code_ok=True)
     fname = os.path.join(self._tmpdir, section_name)
     if os.path.exists(fname):
       with open(fname) as fd:
-        return fd.read().strip()
+        return fd.read().strip().replace('\x00', '')
     return default_frid
+
+  def _BaseFilename(self, leafname):
+    """Build a filename in the temporary base directory.
+
+    Args:
+      leafname: Leafname (with no directory) of file to build.
+    Returns:
+      New filename within the self._tmpbase directory.
+    """
+    return os.path.join(self._tmpbase, leafname)
+
+  def _GetPreambleFlags(self, fname):
+    cros_build_lib.RunCommand(['dump_fmap', '-x', fname],
+                              quiet=True, cwd=self._tmpdir)
+    cros_build_lib.RunCommand(['gbb_utility', '--rootkey=rootkey.bin', 'GBB'],
+                              quiet=True, cwd=self._tmpdir)
+    result = cros_build_lib.RunCommand(
+        ['vbutil_firmware', '--verify VBLOCK_A', '--signpubkey', 'rootkey.bin',
+         '--fv', 'FW_MAIN_A'], quiet=True, cwd=self._tmpdir)
+    lines = ([line for line in result.output.splitlines()
+              if 'Preamble flags' in line])
+    if len(lines) != 1:
+      raise PackError("vbutil_firmware returned %d 'Preamble flags' lines",
+                      len(lines))
+    return int(lines[0].split()[-1])
+
+  def _SetPreambleFlags(self, infile, outfile, preamble_flags):
+    keydir = '/usr/share/vboot/devkeys'
+    cros_build_lib.RunCommand(
+        ['resign_firmwarefd.sh', infile, outfile,
+         os.path.join(keydir, 'firmware_data_key.vbprivk'),
+         os.path.join(keydir, 'firmware.keyblock'),
+         os.path.join(keydir, 'dev_firmware_data_key.vbprivk'),
+         os.path.join(keydir, 'dev_firmware.keyblock'),
+         os.path.join(keydir, 'kernel_subkey.vbpubk')],
+        quiet=True, cwd=self._tmpdir)
+
+  def _CreateRwFirmware(self, ro_fname, rw_fname):
+    preamble_flags = self._GetPreambleFlags(ro_fname)
+    if not (preamble_flags & 1):
+      raise PackError("Firmware image '%s' is NOT RO_NORMAL firmware" %
+                      ro_fname)
+    self._SetPreambleFlags(ro_fname, rw_fname, preamble_flags ^ 1)
+    print("RW firmware image '%s' created" % rw_fname)
+
+  def _CheckRwFirmeare(self, fname):
+    if not (self._GetPreambleFlags(fname) & 1):
+      raise PackError("Firmware image '%s' is NOT RW-firmware" % fname)
 
   def _CopyFirmwareFiles(self):
     bios_rw_bin = self._args.bios_rw_image
     if self._args.bios_image:
-      frid = self._ExtractFrid(self._args.bios_image)
+      bios_version = self._ExtractFrid(self._args.bios_image)
+      bios_rw_version = bios_version
       shutil.copy2(self._args.bios_image, self._BaseFilename(IMAGE_MAIN))
-      self._AddVersionInfo('BIOS', self._args.bios_image)
+      self._AddVersionInfo('BIOS', self._args.bios_image, bios_version)
     else:
       self._args.merge_bios_rw_image = False
 
-    if self._args.bios_rw_image and self.args.create_bios_rw_image:
+    if not bios_rw_bin and self._args.create_bios_rw_image:
       bios_rw_bin = self._BaseFilename(IMAGE_MAIN_RW)
       self._CreateRwFirmware(self._args.bios_image, bios_rw_bin)
       self._args.merge_bios_rw_image = False
@@ -237,7 +302,7 @@ class PackFirmware:
         self._MergeRwFirmware(self._BaseFilename(IMAGE_MAIN), bios_rw_bin)
       elif bios_rw_bin != self._BaseFilename(IMAGE_MAIN_RW):
         shutil.copy2(bios_rw_bin, self._BaseFilename(IMAGE_MAIN_RW))
-      self._AddVersionInfo('BIOS', self._args.bios_image)
+      self._AddVersionInfo('BIOS', self._args.bios_image, bios_rw_version)
     else:
       self._args.merge_bios_rw_image = False
 
