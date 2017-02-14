@@ -445,11 +445,19 @@ class PackFirmware:
       'REPLACE_STABLE_ECID': self._args.stable_ec_version,
       'REPLACE_STABLE_PDID': self._args.stable_pd_version,
       }
-    with open(self._args.output, 'w') as fd:
-      fd.write(data)
-    os.chmod(self._args.output, os.stat(self._args.output).st_mode | 0555)
+    rep = dict((re.escape(k), v) for k, v in replace_dict.iteritems())
+    pattern = re.compile("|".join(rep.keys()))
+    data = pattern.sub(lambda m: rep[re.escape(m.group(0))], data)
 
-    print("\nPacked output image is '%s'" % self._args.output)
+    fname =self._args.output
+    with open(fname, 'w') as fd:
+      fd.write(data)
+    os.chmod(fname, os.stat(fname).st_mode | 0555)
+
+    result = cros_build_lib.RunCommand(
+        ['sh', fname, '--sb_repack', self._tmpbase], quiet=True)
+
+    print("\nPacked output image is '%s'" % fname)
 
   #with open(os.path.join(self._tmpbase, 'VERSION'), 'w'):
 
