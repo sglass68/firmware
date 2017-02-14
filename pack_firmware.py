@@ -454,6 +454,8 @@ class PackFirmware:
       fd.write(data)
     os.chmod(fname, os.stat(fname).st_mode | 0555)
 
+    # Need VERSION files
+
     result = cros_build_lib.RunCommand(
         ['sh', fname, '--sb_repack', self._tmpbase], quiet=True)
 
