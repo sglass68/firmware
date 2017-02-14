@@ -47,6 +47,11 @@ class PackFirmware:
     _tmp_dirs: List of temporary directories created.
     _versions: Collected version information, as a string.
   """
+  IMAGE_MAIN = 'bios.bin'
+  IMAGE_MAIN_RW = 'bios_rw.bin'
+  IMAGE_EC = 'ec.bin'
+  IMAGE_PD = 'pd.bin'
+
   def __init__(self, progname):
     self._script_base = os.path.dirname(progname)
     self._stub_file = os.path.join(self._script_base, 'pack_stub')
@@ -194,6 +199,13 @@ class PackFirmware:
         (hash.hexdigest(), flashrom, result.output, version),
         file=self._versions)
 
+  def _AddVersionInfo(self, name, fname, version):
+    with open(flashrom, 'rb') as fd:
+      hash = md5.new()
+      hash.update(fd.read())
+    print('%s image: %s' % (name, hash.hexdigest()), file=self._versions)
+    print('%s version: %s' % (name, version), file=self._versions)
+
   def _ExtractFrid(self, image_file, default_frid='IGNORE',
                    section_name='RO_FRID'):
     cros_build_lib.RunCommand(['dump_fmap', '-x', self._args.bios_image],
@@ -201,13 +213,53 @@ class PackFirmware:
     fname = os.path.join(self._tmpdir, section_name)
     if os.path.exists(fname):
       with open(fname) as fd:
-        return fd.read()
+        return fd.read().strip()
     return default_frid
 
   def _CopyFirmwareFiles(self):
+    bios_rw_bin = self._args.bios_rw_bin
     if self._args.bios_image:
       frid = self._ExtractFrid(self._args.bios_image)
-      print(frid)
+      shutil.copy2(self._args.bios_image, self._BaseFilename(IMAGE_MAIN))
+      self._AddVersionInfo('BIOS', self._args.bios_image)
+    else:
+      self._args.merge_bios_rw_image = False
+
+    if self._args.bios_rw_image and self.args.create_bios_rw_image:
+      bios_rw_bin = self._BaseFilename(IMAGE_MAIN_RW)
+      self._CreateRwFirmware(self._args.bios_image, bios_rw_bin)
+      self._args.merge_bios_rw_image = False
+
+    if bios_rw_bin:
+      self._CheckRwFirmeare(bios_rw_bin)
+      bios_rw_version = self._ExtractFrid(bios_rw_bin)
+      if self._args.merge_bios_rw_image:
+        self._MergeRwFirmware(self._BaseFilename(IMAGE_MAIN), bios_rw_bin)
+      elif bios_rw_bin != self._BaseFilename(IMAGE_MAIN_RW):
+        shutil.copy2(bios_rw_bin, self._BaseFilename(IMAGE_MAIN_RW))
+      self._AddVersionInfo('BIOS', self._args.bios_image)
+    else:
+      self._args.merge_bios_rw_image = False
+
+    if self._args.ec_image:
+      ec_version = self._ExtractFrid(self._args.ec_image)
+      shutil.copy2(self._args.ec_image, self._BaseFilename(IMAGE_EC))
+      self._AddVersionInfo('EC', self._args.ec_image)
+      if self._args.merge_bios_rw_image:
+        self._MergeRwEcFirmware(self._BaseFilename(IMAGE_EC),
+                                self._BaseFilename(IMAGE_MAIN), 'ecrw')
+        ec_rw_version = self._ExtractFrid(self._BaseFilename(IMAGE_EC), '', 'RW_FWID')
+        print('EC (RW) version: %s' % ec_rw_version, file=self._versions)
+
+    if self._args.pd_image:
+      pd_version = self._ExtractFrid(self._args.pd_image)
+      shutil.copy2(self._args.pd_image, self._BaseFilename(IMAGE_PD))
+      self._AddVersionInfo('PD', self._args.pd_image)
+      if self._args.merge_bios_rw_image:
+        self._MergeRwEcFirmware(self._BaseFilename(IMAGE_PD),
+                                self._BaseFilename(IMAGE_MAIN), 'pdrw')
+        pd_rw_version = self._ExtractFrid(self._BaseFilename(IMAGE_PD), '', 'RW_FWID')
+        print('PD (RW) version: %s' % pd_rw_version, file=self._versions)
 
   #with open(os.path.join(self._tmpbase, 'VERSION'), 'w'):
 
