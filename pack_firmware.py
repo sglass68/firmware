@@ -15,6 +15,7 @@ from __future__ import print_function
 
 import argparse
 import codecs
+import collections
 import md5
 import os
 import re
@@ -30,11 +31,16 @@ except ImportError:
 
 from chromite.lib import cros_build_lib
 import chromite.lib.cros_logging as logging
+from chromite.lib import osutils
+
+sys.path.append('utils')
+import merge_file
 
 IMAGE_MAIN = 'bios.bin'
 IMAGE_MAIN_RW = 'bios_rw.bin'
 IMAGE_EC = 'ec.bin'
 IMAGE_PD = 'pd.bin'
+Section = collections.namedtuple('Section', ['offset', 'size'])
 
 class PackError(Exception):
   pass
@@ -280,6 +286,67 @@ class PackFirmware:
     if not (self._GetPreambleFlags(fname) & 1):
       raise PackError("Firmware image '%s' is NOT RW-firmware" % fname)
 
+  def _GetFmap(self, fname):
+    result = cros_build_lib.RunCommand(['dump_fmap', '-p', fname],
+                                       quiet=True, cwd=self._tmpdir)
+    sections = {}
+    for line in result.output.splitlines():
+      name, offset, size = line.split()
+      sections[name] = Section(int(offset), int(size))
+    return sections
+
+  def _CloneFirmwareSection(self, src, dst, section):
+    src_section = self._GetFmap(src)[section]
+    dst_section = self._GetFmap(dst)[section]
+    if not src_section.size:
+      raise PackError("Firmware section '%s' is invalid" % section)
+    if src_section.size != dst_section.size:
+      raise PackError("Firmware section '%s' size is different, cannot clone" %
+                      section)
+    if src_section.offset != dst_section.offset:
+      raise PackError("Firmware section '%s' is not in same location, cannot "
+                      "clone" % section)
+    merge_file.merge_file(dst, src, dst_section.offset, src_section.offset,
+                          src_section.size)
+
+  def _MergeRwFirmware(self, ro_fname, rw_fname):
+    self._CloneFirmwareSection(rw_fname, ro_fname, 'RW_SECTION_A')
+    self._CloneFirmwareSection(rw_fname, ro_fname, 'RW_SECTION_B')
+
+  def _ExtractEcRcFmap(self, fname, ecrw_fname):
+    result = cros_build_lib.RunCommand(['dump_fmap', '-x', fname, 'EC_MAIN_A'],
+                                       quiet=True, cwd=self._tmpdir)
+    ec_main_a = os.path.join(self._tmpdir, 'EC_MAIN_A')
+    with open(ec_main_a) as fd:
+      count, offset, size = struct.unpack('<III', fd.read(12))
+    if count != 1 or offset != 12:
+      raise PackError('Unexpected EC_MAIN_A (%d, %d). Cannot merge EC RW' %
+                      count, offset)
+    # To make sure files to be merged are both prepared, merge_file.py will
+    # only accept existing files, so we have to create ecrw now.
+    osutils.Touch(ecrw_fname)
+    merge_file.merge_file(ecrw_fname, ec_main_a, 0, offset, size)
+
+  def _ExtractEcRcCbfs(self, fname, cbfs_name, ecrw_fname):
+    result = cros_build_lib.RunCommand(
+        ['cbfstool', fname, 'extract', '-n', cbfs_name, '-f', ecrw_fname, 'r',
+         'FW_MAIN_A'], quiet=True, cwd=self._tmpdir)
+
+  def _ExtractEcRw(self, fname, cbfs_name, ecrw_fname):
+    if 'EC_MAIN_A' in self._GetFmap(fname):
+      self._ExtractEcRcFmap(fname, ecrw_fname)
+    else:
+      self._ExtractEcRcCbfs(fname, cbfs_name, ecrw_fname)
+
+  def _MergeRwEcFirmware(self, ec_fname, rw_fname, cbfs_name):
+    ecrw_fname = os.path.join(self._tmpdir, 'ecrw')
+    self._ExtractEcRw(rw_fname, cbfs_name, ecrw_fname)
+    section = self._GetFmap(ec_fname)['EC_RW']
+    if section.size > os.stat(ecrw_fname).st_size:
+      raise PackError('New RW payload larger than preserved FMAP section, '
+                      'cannot merge')
+    merge_file.merge_file(ec_fname, ecrw_fname, section.offset)
+
   def _CopyFirmwareFiles(self):
     bios_rw_bin = self._args.bios_rw_image
     if self._args.bios_image:
@@ -302,14 +369,14 @@ class PackFirmware:
         self._MergeRwFirmware(self._BaseFilename(IMAGE_MAIN), bios_rw_bin)
       elif bios_rw_bin != self._BaseFilename(IMAGE_MAIN_RW):
         shutil.copy2(bios_rw_bin, self._BaseFilename(IMAGE_MAIN_RW))
-      self._AddVersionInfo('BIOS', self._args.bios_image, bios_rw_version)
+      self._AddVersionInfo('BIOS (RW)', self._args.bios_image, bios_rw_version)
     else:
       self._args.merge_bios_rw_image = False
 
     if self._args.ec_image:
       ec_version = self._ExtractFrid(self._args.ec_image)
       shutil.copy2(self._args.ec_image, self._BaseFilename(IMAGE_EC))
-      self._AddVersionInfo('EC', self._args.ec_image)
+      self._AddVersionInfo('EC', self._args.ec_image, ec_version)
       if self._args.merge_bios_rw_image:
         self._MergeRwEcFirmware(self._BaseFilename(IMAGE_EC),
                                 self._BaseFilename(IMAGE_MAIN), 'ecrw')
@@ -319,7 +386,7 @@ class PackFirmware:
     if self._args.pd_image:
       pd_version = self._ExtractFrid(self._args.pd_image)
       shutil.copy2(self._args.pd_image, self._BaseFilename(IMAGE_PD))
-      self._AddVersionInfo('PD', self._args.pd_image)
+      self._AddVersionInfo('PD', self._args.pd_image, pd_version)
       if self._args.merge_bios_rw_image:
         self._MergeRwEcFirmware(self._BaseFilename(IMAGE_PD),
                                 self._BaseFilename(IMAGE_MAIN), 'pdrw')
@@ -358,6 +425,8 @@ class PackFirmware:
 # The style guide says that we cannot pass in sys.argv[0]. That makes testing
 # a pain, so this is a full argv.
 def main(argv):
+  global pack
+
   pack = PackFirmware(argv[0])
   pack.Start(argv[1:])
 
