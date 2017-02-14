@@ -16,6 +16,7 @@ from __future__ import print_function
 import argparse
 import codecs
 import collections
+import glob
 import md5
 import os
 import re
@@ -63,8 +64,13 @@ class PackFirmware:
     self._script_base = os.path.dirname(progname)
     self._stub_file = os.path.join(self._script_base, 'pack_stub')
     self._pack_dist = os.path.join(self._script_base, 'pack_dist')
+    self._shflags_file = os.path.join(self._script_base, 'lib/shflags/shflags')
     self._tmp_dirs = []
     self._versions = StringIO()
+    self._bios_version = ''
+    self._bios_rw_version = ''
+    self._ec_version = ''
+    self._pd_version = ''
  
   def ParseArgs(self, argv):
     """Parse the available arguments.
@@ -350,10 +356,10 @@ class PackFirmware:
   def _CopyFirmwareFiles(self):
     bios_rw_bin = self._args.bios_rw_image
     if self._args.bios_image:
-      bios_version = self._ExtractFrid(self._args.bios_image)
-      bios_rw_version = bios_version
+      self._bios_version = self._ExtractFrid(self._args.bios_image)
+      self._bios_rw_version = self._bios_version
       shutil.copy2(self._args.bios_image, self._BaseFilename(IMAGE_MAIN))
-      self._AddVersionInfo('BIOS', self._args.bios_image, bios_version)
+      self._AddVersionInfo('BIOS', self._args.bios_image, self._bios_version)
     else:
       self._args.merge_bios_rw_image = False
 
@@ -364,19 +370,20 @@ class PackFirmware:
 
     if bios_rw_bin:
       self._CheckRwFirmeare(bios_rw_bin)
-      bios_rw_version = self._ExtractFrid(bios_rw_bin)
+      self._bios_rw_version = self._ExtractFrid(bios_rw_bin)
       if self._args.merge_bios_rw_image:
         self._MergeRwFirmware(self._BaseFilename(IMAGE_MAIN), bios_rw_bin)
       elif bios_rw_bin != self._BaseFilename(IMAGE_MAIN_RW):
         shutil.copy2(bios_rw_bin, self._BaseFilename(IMAGE_MAIN_RW))
-      self._AddVersionInfo('BIOS (RW)', self._args.bios_image, bios_rw_version)
+      self._AddVersionInfo('BIOS (RW)', self._args.bios_image,
+                           self._bios_rw_version)
     else:
       self._args.merge_bios_rw_image = False
 
     if self._args.ec_image:
-      ec_version = self._ExtractFrid(self._args.ec_image)
+      self._ec_version = self._ExtractFrid(self._args.ec_image)
       shutil.copy2(self._args.ec_image, self._BaseFilename(IMAGE_EC))
-      self._AddVersionInfo('EC', self._args.ec_image, ec_version)
+      self._AddVersionInfo('EC', self._args.ec_image, self._ec_version)
       if self._args.merge_bios_rw_image:
         self._MergeRwEcFirmware(self._BaseFilename(IMAGE_EC),
                                 self._BaseFilename(IMAGE_MAIN), 'ecrw')
@@ -384,14 +391,65 @@ class PackFirmware:
         print('EC (RW) version: %s' % ec_rw_version, file=self._versions)
 
     if self._args.pd_image:
-      pd_version = self._ExtractFrid(self._args.pd_image)
+      self._pd_version = self._ExtractFrid(self._args.pd_image)
       shutil.copy2(self._args.pd_image, self._BaseFilename(IMAGE_PD))
-      self._AddVersionInfo('PD', self._args.pd_image, pd_version)
+      self._AddVersionInfo('PD', self._args.pd_image, self._pd_version)
       if self._args.merge_bios_rw_image:
         self._MergeRwEcFirmware(self._BaseFilename(IMAGE_PD),
                                 self._BaseFilename(IMAGE_MAIN), 'pdrw')
         pd_rw_version = self._ExtractFrid(self._BaseFilename(IMAGE_PD), '', 'RW_FWID')
         print('PD (RW) version: %s' % pd_rw_version, file=self._versions)
+
+  def _CopyExecutable(self, src, dst):
+    shutil.copy2(src, dst)
+    os.chmod(dst, os.stat(dst).st_mode | 0555)
+
+  def _CopyReadable(self, src, dst):
+    shutil.copy2(src, dst)
+    os.chmod(dst, os.stat(dst).st_mode | 0444)
+
+  def _BuildShellball(self):
+    shutil.copy2(self._shflags_file, self._tmpbase)
+    for tool in self._args.tools.split():
+      tool_fname = self._FindTool(tool)
+      if os.path.exists(tool_fname + '_s'):
+        tool_fname += '_s'
+        self._CopyExecutable(tool_fname, self._BaseFilename(tool))
+    for fname in glob.glob(os.path.join(self._pack_dist, '*')):
+      if (self._args.remove_inactive_updaters and 'updater' in fname and
+          not self._args.script in fname):
+        continue
+      self._CopyExecutable(fname, self._tmpbase)
+    if self._args.extra:
+      for extra in self._args.extra:
+        if os.path.isdir(extra):
+          fnames = glob.glob(os.path.join(extra, '/*'))
+          if not fnames:
+            raise PackError("cannot copy extra files from folder '%s'" % extra)
+          for fname in fnames:
+            self._CopyReadable(fname, os.path.join(self._tmpbase, fname))
+        else:
+          self._CopyReadable(extra, os.path.join(self._tmpbase, extra))
+    with open(self._stub_file) as fd:
+      data = fd.read()
+    replace_dict = {
+      'REPLACE_RO_FWID': self._bios_version,
+      'REPLACE_FWID': self._bios_rw_version,
+      'REPLACE_ECID': self._ec_version,
+      'REPLACE_PDID': self._pd_version,
+      # Set platform to first field of firmware version
+      # (ex: Google_Link.1234 -> Google_Link).
+      'REPLACE_PLATFORM': self._bios_version.split('.')[0],
+      'REPLACE_SCRIPT': self._args.script,
+      'REPLACE_STABLE_FWID': self._args.stable_main_version,
+      'REPLACE_STABLE_ECID': self._args.stable_ec_version,
+      'REPLACE_STABLE_PDID': self._args.stable_pd_version,
+      }
+    with open(self._args.output, 'w') as fd:
+      fd.write(data)
+    os.chmod(self._args.output, os.stat(self._args.output).st_mode | 0555)
+
+    print("\nPacked output image is '%s'" % self._args.output)
 
   #with open(os.path.join(self._tmpbase, 'VERSION'), 'w'):
 
@@ -415,10 +473,13 @@ class PackFirmware:
         not self._args.pd_image):
       raise PackError('Must assign at least one of BIOS or EC or PD image')
     try:
+      if not self._args.output:
+        raise PackError('Missing output file')
       self._tmpbase = self._GetTmpdir()
       self._tmpdir = self._GetTmpdir()
       self._AddFlashromVersion()
       self._CopyFirmwareFiles()
+      self._BuildShellball()
     finally:
       self._RemoveTmpdirs()
 

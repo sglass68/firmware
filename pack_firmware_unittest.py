@@ -207,7 +207,7 @@ class TestUnit(unittest.TestCase):
 
     args = ['.', '--script=updater5.sh', '--tools', 'flashrom dump_fmap',
             '--tool_base', 'test', '-b', 'test/image.bin',
-            '--create_bios_rw_image', '-e', 'test/ec.bin']
+            '--create_bios_rw_image', '-e', 'test/ec.bin', '-o' 'out']
     with cros_build_lib_unittest.RunCommandMock() as rc:
       self._AddMocks(rc)
       pack_firmware.main(args)
@@ -225,7 +225,8 @@ class TestUnit(unittest.TestCase):
     args = ['.', '--script=updater5.sh', '--tools', 'flashrom dump_fmap',
             '--tool_base', 'test', '-b', 'test/image.bin',
             '--bios_rw_image', 'test/image_rw.bin', '--merge_bios_rw_image',
-            '-e', 'test/ec.bin', '-p', 'test/pd.bin']
+            '-e', 'test/ec.bin', '-p', 'test/pd.bin',
+            '--remove_inactive_updaters', '-o' 'out']
     with cros_build_lib_unittest.RunCommandMock() as rc:
       self._AddMocks(rc)
       rc.AddCmdResult(partial_mock.Regex('dump_fmap -x .*test/image_rw.bin'),
