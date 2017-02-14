@@ -42,12 +42,6 @@ class TestUnit(unittest.TestCase):
   def setUp(self):
     self.pack = PackFirmware('.')
 
-  def testStartup(self):
-    """Starting up with a valid updater script should work."""
-    args = ['.', '--script=updater5.sh', '--tools', 'ls',
-            '--tool_base', '/bin:.', '-b', 'image.bin']
-    pack_firmware.main(args)
-
   def testBadStartup(self):
     """Test various bad start-up conditions"""
     # Starting up in another directory (without required files) should fail.
@@ -118,6 +112,27 @@ class TestUnit(unittest.TestCase):
     with cros_build_lib_unittest.RunCommandMock() as rc:
       rc.AddCmdResult(partial_mock.ListRegex('dump_fmap'), returncode=0)
       self.assertEqual('1234', self.pack._ExtractFrid('image.bin'))
+
+  def testAddFlashromVersion(self):
+    self.pack._args = self.pack.ParseArgs(['--tool_base', 'test'])
+    with cros_build_lib_unittest.RunCommandMock() as rc:
+      rc.AddCmdResult(partial_mock.ListRegex('file'), returncode=0,
+          output='ELF 64-bit LSB executable, etc.\n')
+      self.pack._AddFlashromVersion()
+    result = self.pack._versions.getvalue().splitlines()
+    self.assertIn('flashrom(8)', result[0])
+    self.assertIn('ELF 64-bit LSB executable', result[1])
+    self.assertEqual('%s0.9.4  : 1bb61e1 : Feb 07 2017 18:29:17 UTC' %
+                     (' ' * 13), result[2])
+
+  def xtestFullRun(self):
+    """Starting up with a valid updater script should work."""
+    args = ['.', '--script=updater5.sh', '--tools', 'ls',
+            '--tool_base', '/bin:.', '-b', 'image.bin']
+    with cros_build_lib_unittest.RunCommandMock() as rc:
+      rc.AddCmdResult(partial_mock.ListRegex('type shar'), returncode=0)
+      rc.AddCmdResult(partial_mock.Regex('dump_fmap'), returncode=0)
+      pack_firmware.main(args)
 
 if __name__ == '__main__':
     unittest.main()

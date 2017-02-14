@@ -195,8 +195,8 @@ class PackFirmware:
     hash = md5.new()
     hash.update(data)
     result = cros_build_lib.RunCommand(['file', '-b', flashrom], quiet=True)
-    print('flashrom(8): %s %s\n %s\n %s' %
-        (hash.hexdigest(), flashrom, result.output, version),
+    print('flashrom(8): %s %s\n             %s\n             %s\n' %
+        (hash.hexdigest(), flashrom, result.output.strip(), version),
         file=self._versions)
 
   def _AddVersionInfo(self, name, fname, version):
@@ -217,7 +217,7 @@ class PackFirmware:
     return default_frid
 
   def _CopyFirmwareFiles(self):
-    bios_rw_bin = self._args.bios_rw_bin
+    bios_rw_bin = self._args.bios_rw_image
     if self._args.bios_image:
       frid = self._ExtractFrid(self._args.bios_image)
       shutil.copy2(self._args.bios_image, self._BaseFilename(IMAGE_MAIN))
@@ -286,7 +286,7 @@ class PackFirmware:
       self._tmpbase = self._GetTmpdir()
       self._tmpdir = self._GetTmpdir()
       self._AddFlashromVersion()
-      #self._CopyFirmwareFiles()
+      self._CopyFirmwareFiles()
     finally:
       self._RemoveTmpdirs()
 
