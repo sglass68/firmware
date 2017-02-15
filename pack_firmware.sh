@@ -11,6 +11,14 @@
 #  - pack_stub as the template/stub script for output
 #  - any other additional files used by updater.sh in pack_dist folder
 
+#  ____   ___    _   _  ___ _____   _____ ____ ___ _____ _
+# |  _ \ / _ \  | \ | |/ _ \_   _| | ____|  _ \_ _|_   _| |
+# | | | | | | | |  \| | | | || |   |  _| | | | | |  | | | |
+# | |_| | |_| | | |\  | |_| || |   | |___| |_| | |  | | |_|
+# |____/ \___/  |_| \_|\___/ |_|   |_____|____/___| |_| (_)
+#
+# This file is being replaced by pack_firmware.py as part of crbug.com/690573
+
 script_base="$(dirname "$0")"
 UTILS="$(readlink -f "$script_base")/utils"
 SHFLAGS_FILE="$script_base/lib/shflags/shflags"
