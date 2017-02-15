@@ -408,11 +408,11 @@ chmod a+rx "$tmpbase"/*.sh
 extra_list="$(echo "${FLAGS_extra}" | tr ':' '\n')"
 for extra in $extra_list; do
   if [ -d "$extra" ]; then
-    cp -r "$extra"/* "$tmpbase" ||
+    cp -rp "$extra"/* "$tmpbase" ||
       die "cannot copy extra files from folder $extra"
     echo "Extra files from folder: $extra" >> "$version_file"
   elif [ "$extra" != "" ]; then
-    cp -r "$extra" "$tmpbase" ||
+    cp -rp "$extra" "$tmpbase" ||
       die "Cannot copy extra files $extra"
     echo "Extra file: $extra" >> "$version_file"
   fi
