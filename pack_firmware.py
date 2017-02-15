@@ -157,7 +157,7 @@ class PackFirmware:
     for path in self._args.tool_base.split(':'):
       fname = os.path.join(path, tool)
       if os.path.exists(fname):
-        return os.path.abspath(fname)
+        return os.path.realpath(fname)
     raise PackError("Cannot find tool program '%s' to bundle" % tool)
 
   def _EnsureTools(self, tools):
@@ -202,7 +202,7 @@ class PackFirmware:
     hash = md5.new()
     hash.update(data)
     result = cros_build_lib.RunCommand(['file', '-b', flashrom], quiet=True)
-    print('flashrom(8): %s %s\n             %s\n             %s\n' %
+    print('flashrom(8): %s *%s\n             %s\n             %s\n' %
         (hash.hexdigest(), flashrom, result.output.strip(), version),
         file=self._versions)
 
@@ -220,9 +220,12 @@ class PackFirmware:
     with open(fname, 'rb') as fd:
       hash = md5.new()
       hash.update(fd.read())
-    print('%s image: %s' % (name, hash.hexdigest()), file=self._versions)
+    short_fname = re.sub('/build/.*/work/', '*', fname)
+    print('%s image:%s%s %s' % (name, ' ' * (7 - len(name)), hash.hexdigest(),
+                                short_fname), file=self._versions)
     if version:
-      print('%s version: %s' % (name, version), file=self._versions)
+      print('%s version:%s%s' % (name, ' ' * (7 - len(name)), version),
+            file=self._versions)
 
   def _ExtractFrid(self, image_file, default_frid='', section_name='RO_FRID'):
     """Extracts the firmware ID from an image file.
@@ -401,16 +404,20 @@ class PackFirmware:
         print('PD (RW) version: %s' % pd_rw_version, file=self._versions)
 
   def _CopyExecutable(self, src, dst):
+    if os.path.isdir(dst):
+      dst = os.path.join(dst, os.path.basename(src))
     shutil.copy2(src, dst)
     os.chmod(dst, os.stat(dst).st_mode | 0555)
 
   def _CopyReadable(self, src, dst):
+    if os.path.isdir(dst):
+      dst = os.path.join(dst, os.path.basename(src))
     shutil.copy2(src, dst)
     os.chmod(dst, os.stat(dst).st_mode | 0444)
 
   def _BuildShellball(self):
     def _CopyBaseFiles():
-      shutil.copy2(self._shflags_file, self._tmpbase)
+      self._CopyReadable(self._shflags_file, self._tmpbase)
       for tool in self._args.tools.split():
         tool_fname = self._FindTool(tool)
         if os.path.exists(tool_fname + '_s'):
@@ -443,8 +450,8 @@ class PackFirmware:
       replace_dict = {
         'REPLACE_RO_FWID': self._bios_version,
         'REPLACE_FWID': self._bios_rw_version,
-        'REPLACE_ECID': self._ec_version or 'IGNORE',
-        'REPLACE_PDID': self._pd_version or 'IGNORE',
+        'REPLACE_ECID': self._ec_version,
+        'REPLACE_PDID': self._pd_version,
         # Set platform to first field of firmware version
         # (ex: Google_Link.1234 -> Google_Link).
         'REPLACE_PLATFORM': self._bios_version.split('.')[0],
@@ -470,10 +477,14 @@ class PackFirmware:
     _CopyExtraFiles()
     _WriteUpdateScript()
     _WriteVersionFile()
-    # Need VERSION files
 
     result = cros_build_lib.RunCommand(
-        ['sh', self._args.output, '--sb_repack', self._tmpbase])
+        ['sh', self._args.output, '--sb_repack', self._tmpbase], combine_stdout_stderr=True, mute_output=False)
+    print(result.output)
+    with open(self._BaseFilename('VERSION')) as fd:
+      print(fd.read())
+    #result = cros_build_lib.RunCommand(
+        #'sh %s --sb_repack %s' % (self._args.output, self._tmpbase), shell=True)
 
     print("\nPacked output image is '%s'" % self._args.output)
 
