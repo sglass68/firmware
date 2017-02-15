@@ -15,9 +15,15 @@ It requires:
 from __future__ import print_function
 
 import argparse
+import md5
 import os
+import re
+import shutil
 import sys
 from StringIO import StringIO
+import tempfile
+
+from chromite.lib import cros_build_lib
 
 # For testing
 packer = None
@@ -150,6 +156,112 @@ class FirmwarePacker(object):
                         help='Avoid output except for warnings/errors')
     return parser.parse_args(argv)
 
+  def _EnsureCommand(self, cmd, package):
+    """Ensure that a command is available, raising an exception if not.
+
+    Args:
+      cmd: Command to check (just the name, not the full path).
+      package: Name of package to install to obtain this tool.
+    """
+    result = cros_build_lib.RunCommand('type %s' % cmd, shell=True, quiet=True,
+                                       error_code_ok=True)
+    if result.returncode:
+      raise PackError("You need '%s' (package '%s')" % (cmd, package))
+
+  def _FindTool(self, tool):
+    """Find a tool in the tool_base path list, raising an exception if missing.
+
+    Args:
+      tool: Name of tool to find (just the name, not the full path).
+    """
+    for path in self._args.tool_base.split(':'):
+      fname = os.path.join(path, tool)
+      if os.path.exists(fname):
+        return os.path.realpath(fname)
+    raise PackError("Cannot find tool program '%s' to bundle" % tool)
+
+  def _CreateTmpDir(self):
+    """Create a temporary directory, and remember it for later removal.
+
+    Returns:
+      Path name of temporary directory.
+    """
+    fname = tempfile.mkdtemp('.pack_firmware-%d' % os.getpid())
+    self._tmp_dirs.append(fname)
+    return fname
+
+  def _RemoveTmpdirs(self):
+    """Remove all the temporary directories."""
+    for fname in self._tmp_dirs:
+      shutil.rmtree(fname)
+    self._tmp_dirs = []
+
+  def _AddFlashromVersion(self):
+    """Add flashrom version info to the collection of version information."""
+    flashrom = self._FindTool('flashrom')
+
+    # Look for a string ending in UTC.
+    with open(flashrom, 'rb') as fd:
+      data = fd.read()
+      m = re.search(r'([0-9.]+ +: +[a-z0-9]+ +: +.+UTC)', data)
+      if not m:
+        raise PackError('Could not find flashrom version number')
+      version = m.group(1)
+
+    # crbug.com/695904: Can we use a SHA2-based algorithm?
+    digest = md5.new()
+    digest.update(data)
+    result = cros_build_lib.RunCommand(['file', '-b', flashrom], quiet=True)
+    print('\nflashrom(8): %s *%s\n             %s\n             %s\n' %
+          (digest.hexdigest(), flashrom, result.output.strip(), version),
+          file=self._versions)
+
+  def _AddVersionInfo(self, name, fname, version):
+    """Add version info for a single file.
+
+    Calculates the MD5 hash of the file and adds this and other file details
+    into the collection of version information.
+
+    Args:
+      name: User-readable name of the file (e.g. 'BIOS').
+      fname: Filename to read.
+      version: Version string (e.g. 'Google_Reef.9042.40.0').
+    """
+    if fname:
+      with open(fname, 'rb') as fd:
+        digest = md5.new()
+        digest.update(fd.read())
+      short_fname = re.sub(r'/build/.*/work/', '', fname)
+      print('%s image:%s%s *%s' % (name, ' ' * (7 - len(name)),
+                                   digest.hexdigest(), short_fname),
+            file=self._versions)
+    if version:
+      print('%s version:%s%s' % (name, ' ' * (5 - len(name)), version),
+            file=self._versions)
+
+  def _ExtractFrid(self, image_file, section_name='RO_FRID'):
+    """Extracts the firmware ID from an image file.
+
+    Args:
+      image_file: File to process.
+      section_name: Name of the section of image_file which contains the
+          firmware ID.
+
+    Returns:
+      Firmware ID as a string, if found, else ''
+    """
+    fname = os.path.join(self._tmpdir, section_name)
+
+    # Remove any file that might be in the way (if not testing).
+    if not self._testing and os.path.exists(fname):
+      os.remove(fname)
+    cros_build_lib.RunCommand(['dump_fmap', '-x', image_file], quiet=True,
+                              cwd=self._tmpdir, error_code_ok=True)
+    if os.path.exists(fname):
+      with open(fname) as fd:
+        return fd.read().strip().replace('\x00', '')
+    return ''
+
   def Start(self, argv):
     """Handle the creation of a firmware shell-ball.
 
@@ -159,7 +271,19 @@ class FirmwarePacker(object):
       PackError if any error occurs.
     """
     self._args = self.ParseArgs(argv)
-    print(self._args)
+    main_script = os.path.join(self._pack_dist, self._args.script)
+    self._ec_version = self._args.ec_version
+
+    self._EnsureCommand('shar', 'sharutils')
+    for fname in [main_script, self._stub_file]:
+      if not os.path.exists(fname):
+        raise PackError("Cannot find required file '%s'" % fname)
+    for tool in self._args.tools.split():
+      self._FindTool(tool)
+    if not any((self._args.bios_image, self._args.ec_image,
+                self._args.pd_image)):
+      raise PackError('Must assign at least one of BIOS or EC or PD image')
+    # TODO(sjg@chromium.org): Add code to build shell-ball.
 
 
 # The style guide says that we cannot pass in sys.argv[0]. That makes testing
