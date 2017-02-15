@@ -409,57 +409,73 @@ class PackFirmware:
     os.chmod(dst, os.stat(dst).st_mode | 0444)
 
   def _BuildShellball(self):
-    shutil.copy2(self._shflags_file, self._tmpbase)
-    for tool in self._args.tools.split():
-      tool_fname = self._FindTool(tool)
-      if os.path.exists(tool_fname + '_s'):
-        tool_fname += '_s'
+    def _CopyBaseFiles():
+      shutil.copy2(self._shflags_file, self._tmpbase)
+      for tool in self._args.tools.split():
+        tool_fname = self._FindTool(tool)
+        if os.path.exists(tool_fname + '_s'):
+          tool_fname += '_s'
         self._CopyExecutable(tool_fname, self._BaseFilename(tool))
-    for fname in glob.glob(os.path.join(self._pack_dist, '*')):
-      if (self._args.remove_inactive_updaters and 'updater' in fname and
-          not self._args.script in fname):
-        continue
-      self._CopyExecutable(fname, self._tmpbase)
-    if self._args.extra:
-      for extra in self._args.extra:
-        if os.path.isdir(extra):
-          fnames = glob.glob(os.path.join(extra, '/*'))
-          if not fnames:
-            raise PackError("cannot copy extra files from folder '%s'" % extra)
-          for fname in fnames:
-            self._CopyReadable(fname, os.path.join(self._tmpbase, fname))
-        else:
-          self._CopyReadable(extra, os.path.join(self._tmpbase, extra))
-    with open(self._stub_file) as fd:
-      data = fd.read()
-    replace_dict = {
-      'REPLACE_RO_FWID': self._bios_version,
-      'REPLACE_FWID': self._bios_rw_version,
-      'REPLACE_ECID': self._ec_version,
-      'REPLACE_PDID': self._pd_version,
-      # Set platform to first field of firmware version
-      # (ex: Google_Link.1234 -> Google_Link).
-      'REPLACE_PLATFORM': self._bios_version.split('.')[0],
-      'REPLACE_SCRIPT': self._args.script,
-      'REPLACE_STABLE_FWID': self._args.stable_main_version,
-      'REPLACE_STABLE_ECID': self._args.stable_ec_version,
-      'REPLACE_STABLE_PDID': self._args.stable_pd_version,
-      }
-    rep = dict((re.escape(k), v) for k, v in replace_dict.iteritems())
-    pattern = re.compile("|".join(rep.keys()))
-    data = pattern.sub(lambda m: rep[re.escape(m.group(0))], data)
+      for fname in glob.glob(os.path.join(self._pack_dist, '*')):
+        if (self._args.remove_inactive_updaters and 'updater' in fname and
+            not self._args.script in fname):
+          continue
+        self._CopyExecutable(fname, self._tmpbase)
 
-    fname =self._args.output
-    with open(fname, 'w') as fd:
-      fd.write(data)
-    os.chmod(fname, os.stat(fname).st_mode | 0555)
+    def _CopyExtraFiles():
+      if self._args.extra:
+        for extra in self._args.extra:
+          if os.path.isdir(extra):
+            fnames = glob.glob(os.path.join(extra, '/*'))
+            if not fnames:
+              raise PackError("cannot copy extra files from folder '%s'" % extra)
+            for fname in fnames:
+              self._CopyReadable(fname, os.path.join(self._tmpbase, fname))
+            print("Extra files from directory '%s'" % extra,
+                  file=self._versions)
+          else:
+            self._CopyReadable(extra, os.path.join(self._tmpbase, extra))
+            print("Extra file '%s'" % extra, file=self._versions)
 
+    def _WriteUpdateScript():
+      with open(self._stub_file) as fd:
+        data = fd.read()
+      replace_dict = {
+        'REPLACE_RO_FWID': self._bios_version,
+        'REPLACE_FWID': self._bios_rw_version,
+        'REPLACE_ECID': self._ec_version or 'IGNORE',
+        'REPLACE_PDID': self._pd_version or 'IGNORE',
+        # Set platform to first field of firmware version
+        # (ex: Google_Link.1234 -> Google_Link).
+        'REPLACE_PLATFORM': self._bios_version.split('.')[0],
+        'REPLACE_SCRIPT': self._args.script,
+        'REPLACE_STABLE_FWID': self._args.stable_main_version,
+        'REPLACE_STABLE_ECID': self._args.stable_ec_version,
+        'REPLACE_STABLE_PDID': self._args.stable_pd_version,
+        }
+      rep = dict((re.escape(k), v) for k, v in replace_dict.iteritems())
+      pattern = re.compile("|".join(rep.keys()))
+      data = pattern.sub(lambda m: rep[re.escape(m.group(0))], data)
+
+      fname = self._args.output
+      with open(fname, 'w') as fd:
+        fd.write(data)
+      os.chmod(fname, os.stat(fname).st_mode | 0555)
+
+    def _WriteVersionFile():
+      with open(self._BaseFilename('VERSION'), 'w') as fd:
+        fd.write(self._versions.getvalue())
+
+    _CopyBaseFiles()
+    _CopyExtraFiles()
+    _WriteUpdateScript()
+    _WriteVersionFile()
     # Need VERSION files
 
     result = cros_build_lib.RunCommand(
-        ['sh', fname, '--sb_repack', self._tmpbase], quiet=True)
+        ['sh', self._args.output, '--sb_repack', self._tmpbase])
 
-    print("\nPacked output image is '%s'" % fname)
+    print("\nPacked output image is '%s'" % self._args.output)
 
   #with open(os.path.join(self._tmpbase, 'VERSION'), 'w'):
 

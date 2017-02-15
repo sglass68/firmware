@@ -201,6 +201,8 @@ class TestUnit(unittest.TestCase):
                     returncode=0)
     rc.AddCmdResult(partial_mock.Regex('dump_fmap -x .*bios_rw.bin'),
                     returncode=0)
+    rc.AddCmdResult(partial_mock.Regex('--sb_repack'),
+                    returncode=0, output=FMAP_OUTPUT_EC)
 
   def testMockedRun(self):
     """Starting up with a valid updater script and BIOS should work."""
