@@ -66,9 +66,13 @@ make_temp() {
 # Creates a temporary folder with execution permission
 make_exec_temp() {
   make_temp
-  debug "bind and remount for allowing execution ..."
-  (mount --bind "$TMP_DIR" "$TMP_DIR" && mount -o remount,exec "$TMP_DIR") ||
-    die "Failed to enable execution permission of folder $TMP_DIR"
+  if [ "$(id -u)" = "0" ]; then
+    debug "bind and remount for allowing execution ..."
+    (mount --bind "$TMP_DIR" "$TMP_DIR" && mount -o remount,exec "$TMP_DIR") ||
+      die "Failed to enable execution permission of folder $TMP_DIR"
+  else
+    debug "Not running as root: assuming we can execute in /tmp"
+  fi
 }
 
 # Cleans temporary folders
