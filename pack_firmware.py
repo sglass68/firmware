@@ -304,8 +304,8 @@ class FirmwarePacker(object):
     cros_build_lib.RunCommand(['gbb_utility', '--rootkey=rootkey.bin', 'GBB'],
                               quiet=True, cwd=self._tmpdir)
     result = cros_build_lib.RunCommand(
-        ['vbutil_firmware', '--verify VBLOCK_A', '--signpubkey', 'rootkey.bin',
-         '--fv', 'FW_MAIN_A'], quiet=True, cwd=self._tmpdir)
+        ['vbutil_firmware', '--verify', 'VBLOCK_A', '--signpubkey',
+         'rootkey.bin', '--fv', 'FW_MAIN_A'], quiet=True, cwd=self._tmpdir)
     lines = ([line for line in result.output.splitlines()
               if 'Preamble flags' in line])
     if len(lines) != 1:
