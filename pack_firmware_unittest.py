@@ -397,6 +397,23 @@ class TestUnit(unittest.TestCase):
     self.assertIn(pack_firmware.IMAGE_MAIN_RW,
                   self._FindLineInList(result, 'BIOS (RW) image'))
 
+  def testNoECFirmware(self):
+    """Simple test of creating firmware without an EC image."""
+    args = COMMON_FLAGS
+    with cros_build_lib_unittest.RunCommandMock() as rc:
+      self._AddMocks(rc)
+      self.packer.Start(args)
+
+    # There should be no EC version in the VERSION file.
+    result = self.packer._versions.getvalue()
+    self.assertNotIn('EC version', result)
+    self.assertEqual(8, len(result.splitlines()))
+
+    # In the script, the EC version should be 'IGNORE'.
+    with open('out') as fd:
+      lines = fd.read().splitlines()
+    self.assertIn('IGNORE', self._FindLineInList(lines, 'TARGET_ECID'))
+
 
 if __name__ == '__main__':
   unittest.main()

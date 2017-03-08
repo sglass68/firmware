@@ -175,7 +175,7 @@ class TestFunctional(unittest.TestCase):
 
     self.assertEqual('Google_Reef.9042.50.0', versions['TARGET_RO_FWID'])
     self.assertEqual('Google_Reef.9042.50.0', versions['TARGET_FWID'])
-    self.assertEqual('', versions['TARGET_ECID'])
+    self.assertEqual('IGNORE', versions['TARGET_ECID'])
     self.assertEqual('IGNORE', versions['TARGET_PDID'])
     self.assertEqual('Google_Reef', versions['TARGET_PLATFORM'])
     self.assertEqual(UPDATER, versions['TARGET_SCRIPT'])

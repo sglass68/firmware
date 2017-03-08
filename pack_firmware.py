@@ -636,7 +636,8 @@ class FirmwarePacker(object):
     """
     self._args = self.ParseArgs(argv)
     main_script = os.path.join(self._pack_dist, self._args.script)
-    self._ec_version = self._args.ec_version
+    if self._args.ec_version:
+      self._ec_version = self._args.ec_version
 
     self._EnsureCommand('shar', 'sharutils')
     for fname in [main_script, self._stub_file]:
