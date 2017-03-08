@@ -100,6 +100,13 @@ EC_RW 262144 229376
 RW_FWID 262468 32
 '''
 
+# Common flags that we use in several tests.
+COMMON_FLAGS = [
+  '--script=updater5.sh', '--tools', 'flashrom dump_fmap',
+  '--tool_base', 'test', '-b', 'test/image.bin', '-q',  '-o' 'out',
+]
+
+
 # Use this to suppress stdout/stderr output:
 # with capture_sys_output() as (stdout, stderr)
 #   ...do something...
@@ -277,9 +284,7 @@ class TestUnit(unittest.TestCase):
       infile, outfile = cmd[1:3]
       shutil.copy2(infile, outfile)
 
-    args = ['.', '--script=updater5.sh', '--tools', 'flashrom dump_fmap',
-            '--tool_base', 'test', '-b', 'test/image.bin', '-q',
-            '--create_bios_rw_image', '-e', 'test/ec.bin', '-o' 'out']
+    args = ['.', '--create_bios_rw_image', '-e', 'test/ec.bin'] + COMMON_FLAGS
     with cros_build_lib_unittest.RunCommandMock() as rc:
       self._AddMocks(rc)
       rc.AddCmdResult(partial_mock.ListRegex('resign_firmwarefd.sh'),
@@ -308,11 +313,9 @@ class TestUnit(unittest.TestCase):
         fd.seek(ECRW_SIZE - 1)
         fd.write('\0')
 
-    args = ['.', '--script=updater5.sh', '--tools', 'flashrom dump_fmap',
-            '--tool_base', 'test', '-b', 'test/image.bin',
-            '--bios_rw_image', 'test/image_rw.bin', '--merge_bios_rw_image',
-            '-e', 'test/ec.bin', '-p', 'test/pd.bin', '-q',
-            '--remove_inactive_updaters', '-o' 'out']
+    args = ['.', '--bios_rw_image', 'test/image_rw.bin',
+            '--merge_bios_rw_image', '-e', 'test/ec.bin', '-p', 'test/pd.bin',
+            '--remove_inactive_updaters'] + COMMON_FLAGS
     with cros_build_lib_unittest.RunCommandMock() as rc:
       self._AddMocks(rc)
       rc.AddCmdResult(partial_mock.ListRegex(
