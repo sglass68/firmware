@@ -248,7 +248,16 @@ class FirmwarePacker(object):
       with open(fname, 'rb') as fd:
         digest = md5.new()
         digest.update(fd.read())
-      short_fname = re.sub(r'/build/.*/work/', '', fname)
+
+      # Modify the filename to replace any use of our base directory with a
+      # constant string, so we produce the same output on each run. Also drop
+      # the build directory since it is not useful to the user.
+      short_fname = fname
+      if self._basedir:
+        short_fname = short_fname.replace(
+            self._basedir,
+            os.path.join(os.path.dirname(self._basedir), 'tmp'))
+      short_fname = re.sub(r'/build/.*/work/', '', short_fname)
       print('%s image:%s%s *%s' % (name, ' ' * (7 - len(name)),
                                    digest.hexdigest(), short_fname),
             file=self._versions)

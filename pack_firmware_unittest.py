@@ -394,8 +394,9 @@ class TestUnit(unittest.TestCase):
     # 1 blank line
     result = self.packer._versions.getvalue().splitlines()
     self.assertEqual(12, len(result))
-    self.assertIn(pack_firmware.IMAGE_MAIN_RW,
-                  self._FindLineInList(result, 'BIOS (RW) image'))
+    rw_line = self._FindLineInList(result, 'BIOS (RW) image')
+    self.assertIn(pack_firmware.IMAGE_MAIN_RW, rw_line)
+    self.assertNotIn(self.packer._basedir, rw_line)
 
   def testNoECFirmware(self):
     """Simple test of creating firmware without an EC image."""
