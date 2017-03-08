@@ -10,6 +10,7 @@ This mocks out all tools so it can run fairly quickly.
 from __future__ import print_function
 
 from contextlib import contextmanager
+import mock
 import os
 import shutil
 import sys
@@ -285,8 +286,21 @@ class TestUnit(unittest.TestCase):
     infile, outfile = cmd[1], cmd[2]
     shutil.copy(infile, outfile)
 
+  def _MockGetPreambleFlags(self, fname, **_):
+    """Mock of _GetPreambleFlags(). Uses the filename to determine value.
+
+    Args:
+      fname: Image filename to check.
+
+    Returns:
+      0 if the image appears to be an RW image, 1 if not.
+    """
+    return 0 if 'rw' in fname else 1
+
   def testMockedRun(self):
     """Start up with a valid updater script and BIOS."""
+    pack_firmware.FirmwarePacker._GetPreambleFlags = (
+        mock.Mock(side_effect=self._MockGetPreambleFlags))
     args = ['.', '--create_bios_rw_image', '-e', 'test/ec.bin'] + COMMON_FLAGS
     with cros_build_lib_unittest.RunCommandMock() as rc:
       self._AddMocks(rc)
@@ -316,6 +330,8 @@ class TestUnit(unittest.TestCase):
         fd.seek(ECRW_SIZE - 1)
         fd.write('\0')
 
+    pack_firmware.FirmwarePacker._GetPreambleFlags = (
+        mock.Mock(side_effect=self._MockGetPreambleFlags))
     args = ['.', '--bios_rw_image', 'test/image_rw.bin',
             '--merge_bios_rw_image', '-e', 'test/ec.bin', '-p', 'test/pd.bin',
             '--remove_inactive_updaters'] + COMMON_FLAGS
@@ -340,16 +356,30 @@ class TestUnit(unittest.TestCase):
 
   def testRWFirmware(self):
     """Simple test of creating RW firmware."""
+    pack_firmware.FirmwarePacker._GetPreambleFlags = (
+        mock.Mock(side_effect=self._MockGetPreambleFlags))
     args = ['--create_bios_rw_image', '-e', 'test/ec.bin'] + COMMON_FLAGS
     with cros_build_lib_unittest.RunCommandMock() as rc:
       self._AddMocks(rc)
       rc.AddCmdResult(partial_mock.ListRegex('resign_firmwarefd.sh'),
                       side_effect=self._ResignFirmware, returncode=0)
-      pack_firmware.packer.Start(args, remove_tmpdirs=False)
-    rw_fname = pack_firmware.packer._BaseDirPath(pack_firmware.IMAGE_MAIN_RW)
+      self.packer.Start(args, remove_tmpdirs=False)
+    rw_fname = self.packer._BaseDirPath(pack_firmware.IMAGE_MAIN_RW)
     self.assertEqual(os.stat('test/image.bin').st_mtime,
                      os.stat(rw_fname).st_mtime)
-    pack_firmware.packer._RemoveTmpdirs()
+    self.packer._RemoveTmpdirs()
+
+    # This VERSION file should contain 12 lines of output:
+    # 1 blank line
+    # 3 for flashrom
+    # 1 blank line
+    # 2 for RO BIOS filename and version
+    # 2 for RW BIOS filename and version
+    # 2 for EC filename and version
+    # 1 blank line
+    result = self.packer._versions.getvalue().splitlines()
+    self.assertEqual(12, len(result))
+
 
 if __name__ == '__main__':
   unittest.main()

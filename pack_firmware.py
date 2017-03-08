@@ -297,7 +297,8 @@ class FirmwarePacker(object):
       fname: Image to check (relative or absolute path).
 
     Returns:
-      Preamble flags as an integer.
+      Preamble flags as an integer. See VB2_FIRMWARE_PREAMBLE_... for available
+      flags; the most common one is VB2_FIRMWARE_PREAMBLE_USE_RO_NORMAL.
     """
     cros_build_lib.RunCommand(['dump_fmap', '-x', fname],
                               quiet=True, cwd=self._tmpdir)
@@ -356,9 +357,10 @@ class FirmwarePacker(object):
     """Check that the firmware file is RW firmware.
 
     Raises:
-      PackError or RunCommandError if the flags could not be read.
+      PackError or RunCommandError if the flags could not be read or indicate
+        that the firmware file is not RW firmware.
     """
-    if not (self._GetPreambleFlags(fname) & 1):
+    if self._GetPreambleFlags(fname) & 1:
       raise PackError("Firmware image '%s' is NOT RW-firmware" % fname)
 
   def _GetFMAP(self, fname):
