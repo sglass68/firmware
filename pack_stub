@@ -209,21 +209,21 @@ perform_shar_repack() {
     sed -i 's/^TARGET_RO_FWID=".*"/TARGET_RO_FWID="'"$ro_fw_ver"'"/' "$SELF" &&
       echo "Changed TARGET_ROFWID to $ro_fw_ver"
     if [ -s "$new_source/VERSION" ]; then
-      sed -i "s/^\(BIOS version:\) .*/\1 $ro_fw_ver/;
-              s/^\(BIOS .RW. version:\) .*/\1 $fw_ver/" "$new_source/VERSION"
+      sed -i "s/^\(BIOS version: *\).*/\1$ro_fw_ver/;
+              s/^\(BIOS .RW. version: *\).*/\1$fw_ver/" "$new_source/VERSION"
     fi
   fi
   if [ -n "$ec_ver" ]; then
     sed -i 's/^TARGET_ECID=".*"/TARGET_ECID="'"$ec_ver"'"/' "$SELF" &&
       echo "Changed TARGET_ECID to $ec_ver"
     [ -s "$new_source/VERSION" ] &&
-      sed -i "s/^EC version:   .*/EC version:   $ec_ver/" "$new_source/VERSION"
+      sed -i "s/^\(EC version:*\).*/\1$ec_ver/" "$new_source/VERSION"
   fi
   if [ -n "$pd_ver" ]; then
     sed -i 's/^TARGET_PDID=".*"/TARGET_PDID="'"$pd_ver"'"/' "$SELF" &&
       echo "Changed TARGET_PDID to $pd_ver"
     [ -s "$new_source/VERSION" ] &&
-      sed -i "s/^PD version:   .*/PD version:   $pd_ver/" "$new_source/VERSION"
+      sed -i "s/^\(PD version:*\).*/\1$pd_ver/" "$new_source/VERSION"
   fi
 
   # Update checksum data for every files except VERSION*
