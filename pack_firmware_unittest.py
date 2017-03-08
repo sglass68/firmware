@@ -269,26 +269,27 @@ class TestUnit(unittest.TestCase):
     rc.AddCmdResult(partial_mock.ListRegex('dump_fmap -x .*pd.bin'),
                     side_effect=_CopySections, returncode=0)
 
+  @classmethod
+  def _ResignFirmware(self, cmd, **_):
+    """Called as a side effect to emulate the effect of resign_firmwarefd.sh.
+
+    This copies the input file to the output file.
+
+    Args:
+      cmd: Arguments, of the form:
+          ['resign_firmwarefd.sh', <infile>, <outfile>, ...]
+          See _SetPreambleFlags() for where this command is generated.
+    """
+    infile, outfile = cmd[1], cmd[2]
+    shutil.copy(infile, outfile)
+
   def testMockedRun(self):
     """Start up with a valid updater script and BIOS."""
-    def _CreateFile(cmd, **_):
-      """Called as a side effect to emulate the effect of resign_firmwarefd.sh.
-
-      This copies the input file to the output file.
-
-      Args:
-        cmd: Arguments, of the form:
-            ['resign_firmwarefd.sh', <infile>, <outfile>, ...]
-            See _SetPreambleFlags() for where this command is generated.
-      """
-      infile, outfile = cmd[1:3]
-      shutil.copy2(infile, outfile)
-
     args = ['.', '--create_bios_rw_image', '-e', 'test/ec.bin'] + COMMON_FLAGS
     with cros_build_lib_unittest.RunCommandMock() as rc:
       self._AddMocks(rc)
       rc.AddCmdResult(partial_mock.ListRegex('resign_firmwarefd.sh'),
-                      side_effect=_CreateFile, returncode=0)
+                      side_effect=self._ResignFirmware, returncode=0)
       pack_firmware.main(args)
       pack_firmware.packer._versions.getvalue().splitlines()
 
