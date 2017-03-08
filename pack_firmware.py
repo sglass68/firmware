@@ -258,11 +258,11 @@ class FirmwarePacker(object):
             self._basedir,
             os.path.join(os.path.dirname(self._basedir), 'tmp'))
       short_fname = re.sub(r'/build/.*/work/', '', short_fname)
-      print('%s image:%s%s *%s' % (name, ' ' * (7 - len(name)),
+      print('%s image:%s%s *%s' % (name, ' ' * max(3, 7 - len(name)),
                                    digest.hexdigest(), short_fname),
             file=self._versions)
     if version:
-      print('%s version:%s%s' % (name, ' ' * (5 - len(name)), version),
+      print('%s version:%s%s' % (name, ' ' * max(1, 5 - len(name)), version),
             file=self._versions)
 
   def _ExtractFrid(self, image_file, section_name='RO_FRID'):
