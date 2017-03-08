@@ -347,6 +347,8 @@ class FirmwarePacker(object):
       raise PackError("Firmware image '%s' is NOT RO_NORMAL firmware" %
                       ro_fname)
     self._SetPreambleFlags(ro_fname, rw_fname, preamble_flags ^ 1)
+    mtime = os.stat(ro_fname).st_mtime
+    os.utime(rw_fname, (mtime, mtime))
     if not self._args.quiet:
       print("RW firmware image '%s' created" % rw_fname)
 
@@ -623,7 +625,7 @@ class FirmwarePacker(object):
         with open(fname) as fd:
           print(fd.read())
 
-  def Start(self, argv):
+  def Start(self, argv, remove_tmpdirs=True):
     """Handle the creation of a firmware shell-ball.
 
     argv: List of arguments (excluding the program name/argv[0]).
@@ -655,7 +657,8 @@ class FirmwarePacker(object):
       if not self._args.quiet:
         print('Packed output image is: %s' % self._args.output)
     finally:
-      self._RemoveTmpdirs()
+      if remove_tmpdirs:
+        self._RemoveTmpdirs()
 
 
 # The style guide says that we cannot pass in sys.argv[0]. That makes testing

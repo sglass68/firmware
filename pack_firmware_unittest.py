@@ -125,6 +125,8 @@ class TestUnit(unittest.TestCase):
   """Test cases for common program flows."""
   def setUp(self):
     self.packer = pack_firmware.FirmwarePacker('.')
+    # Limit the resolution of timestamps to aid comparison.
+    os.stat_float_times(False)
 
   def testBadStartup(self):
     """Test various bad start-up conditions"""
@@ -336,6 +338,18 @@ class TestUnit(unittest.TestCase):
       result = pack_firmware.packer._versions.getvalue().splitlines()
       self.assertEqual(15, len(result))
 
+  def testRWFirmware(self):
+    """Simple test of creating RW firmware."""
+    args = ['--create_bios_rw_image', '-e', 'test/ec.bin'] + COMMON_FLAGS
+    with cros_build_lib_unittest.RunCommandMock() as rc:
+      self._AddMocks(rc)
+      rc.AddCmdResult(partial_mock.ListRegex('resign_firmwarefd.sh'),
+                      side_effect=self._ResignFirmware, returncode=0)
+      pack_firmware.packer.Start(args, remove_tmpdirs=False)
+    rw_fname = pack_firmware.packer._BaseDirPath(pack_firmware.IMAGE_MAIN_RW)
+    self.assertEqual(os.stat('test/image.bin').st_mtime,
+                     os.stat(rw_fname).st_mtime)
+    pack_firmware.packer._RemoveTmpdirs()
 
 if __name__ == '__main__':
   unittest.main()
