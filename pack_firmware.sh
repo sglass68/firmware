@@ -171,6 +171,7 @@ create_rw_firmware() {
   set_preamble_flags "$ro_image_file" "$rw_image_file" \
     "$((preamble_flags ^ 0x01))" ||
     die "Failed to resign and create RW image from RO image ($ro_image_file)."
+  touch -r "$ro_image_file" "$rw_image_file"
   echo "RW firmware image created: $rw_image_file"
 }
 
