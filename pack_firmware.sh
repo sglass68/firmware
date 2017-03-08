@@ -111,10 +111,16 @@ extract_frid() {
     [ -s "$section_name" ] && cat "$section_name" || echo "$default_frid" )
 }
 
+# Get the MD5 checksum of a file and output this along with the filename.
+# This is used for recording the name and hash of each file placed in the
+# firmware package, for later reference.
 my_md5() {
   local path="$1"
   # Strip the path in /build/.../work
-  md5sum -b "${path}" | sed 's"/build/.*/work/""'
+  # Also replace the temporary directory basename with 'tmp' since the
+  # particular name used as the temporary directory is not useful. It also
+  # breaks reproducibility since each run will use a different directory.
+  md5sum -b "${path}" | sed 's"/build/.*/work/""' | sed 's#/tmp\..*/#/tmp/#'
 }
 
 get_preamble_flags() {
