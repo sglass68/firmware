@@ -551,82 +551,78 @@ class FirmwarePacker(object):
     shutil.copy2(src, dst)
     os.chmod(dst, os.stat(dst).st_mode | mode)
 
+  def _CopyBaseFiles(self):
+    """Copy base files that every firmware update needs."""
+    self._CopyFile(self._shflags_file, self._basedir)
+    for tool in self._args.tools.split():
+      tool_fname = self._FindTool(tool)
+      # Most tools are dynamically linked, but if there is a statically
+      # linked version (denoted by a '_s' suffix) use that in preference.
+      # This helps to reduce run-time dependencies for firmware update,
+      # which is a critical process.
+      if os.path.exists(tool_fname + '_s'):
+        tool_fname += '_s'
+      self._CopyFile(tool_fname, self._BaseDirPath(tool), CHMOD_ALL_EXEC)
+    for fname in glob.glob(os.path.join(self._pack_dist, '*')):
+      if (self._args.remove_inactive_updaters and 'updater' in fname and
+          not self._args.script in fname):
+        continue
+      self._CopyFile(fname, self._basedir, CHMOD_ALL_EXEC)
+
+  def _CopyExtraFiles(self):
+    """Copy extra files, if any."""
+    if self._args.extra:
+      for extra in self._args.extra.split(':'):
+        if os.path.isdir(extra):
+          fnames = glob.glob(os.path.join(extra, '*'))
+          if not fnames:
+            raise PackError("cannot copy extra files from folder '%s'" %
+                            extra)
+          for fname in fnames:
+            self._CopyFile(fname, self._basedir)
+          print('Extra files from folder: %s' % extra,
+                file=self._versions)
+        else:
+          self._CopyFile(extra, self._basedir)
+          print('Extra file: %s' % extra, file=self._versions)
+
+  def _WriteUpdateScript(self):
+    """Create and write the update script which will run on the device."""
+    with open(self._stub_file) as fd:
+      data = fd.read()
+    replace_dict = {
+        'REPLACE_RO_FWID': self._bios_version,
+        'REPLACE_FWID': self._bios_rw_version,
+        'REPLACE_ECID': self._ec_version,
+        'REPLACE_PDID': self._pd_version,
+        # Set platform to first field of firmware version
+        # (ex: Google_Link.1234 -> Google_Link).
+        'REPLACE_PLATFORM': self._bios_version.split('.')[0],
+        'REPLACE_SCRIPT': self._args.script,
+        'REPLACE_STABLE_FWID': self._args.stable_main_version,
+        'REPLACE_STABLE_ECID': self._args.stable_ec_version,
+        'REPLACE_STABLE_PDID': self._args.stable_pd_version,
+    }
+    rep = dict((re.escape(k), v) for k, v in replace_dict.iteritems())
+    pattern = re.compile('|'.join(rep.keys()))
+    data = pattern.sub(lambda m: rep[re.escape(m.group(0))], data)
+
+    fname = self._args.output
+    with open(fname, 'w') as fd:
+      fd.write(data)
+    os.chmod(fname, os.stat(fname).st_mode | 0555)
+
+  def _WriteVersionFile(self):
+    """Write out the VERSION file with our collected version information."""
+    print(file=self._versions)
+    with open(self._BaseDirPath('VERSION'), 'w') as fd:
+      fd.write(self._versions.getvalue())
+
   def _BuildShellball(self):
-    """Build a shell-ball containing the firmware update."""
+    """Build a shell-ball containing the firmware update.
 
-    def _CopyBaseFiles():
-      """Copy base files that every firmware update needs."""
-      self._CopyFile(self._shflags_file, self._basedir)
-      for tool in self._args.tools.split():
-        tool_fname = self._FindTool(tool)
-        # Most tools are dynamically linked, but if there is a statically
-        # linked version (denoted by a '_s' suffix) use that in preference.
-        # This helps to reduce run-time dependencies for firmware update,
-        # which is a critical process.
-        if os.path.exists(tool_fname + '_s'):
-          tool_fname += '_s'
-        self._CopyFile(tool_fname, self._BaseDirPath(tool), CHMOD_ALL_EXEC)
-      for fname in glob.glob(os.path.join(self._pack_dist, '*')):
-        if (self._args.remove_inactive_updaters and 'updater' in fname and
-            not self._args.script in fname):
-          continue
-        self._CopyFile(fname, self._basedir, CHMOD_ALL_EXEC)
-
-    def _CopyExtraFiles():
-      """Copy extra files, if any."""
-      if self._args.extra:
-        for extra in self._args.extra.split(':'):
-          if os.path.isdir(extra):
-            fnames = glob.glob(os.path.join(extra, '*'))
-            if not fnames:
-              raise PackError("cannot copy extra files from folder '%s'" %
-                              extra)
-            for fname in fnames:
-              self._CopyFile(fname, self._basedir)
-            print('Extra files from folder: %s' % extra,
-                  file=self._versions)
-          else:
-            self._CopyFile(extra, self._basedir)
-            print('Extra file: %s' % extra, file=self._versions)
-
-    def _WriteUpdateScript():
-      """Create and write the update script which will run on the device."""
-      with open(self._stub_file) as fd:
-        data = fd.read()
-      replace_dict = {
-          'REPLACE_RO_FWID': self._bios_version,
-          'REPLACE_FWID': self._bios_rw_version,
-          'REPLACE_ECID': self._ec_version,
-          'REPLACE_PDID': self._pd_version,
-          # Set platform to first field of firmware version
-          # (ex: Google_Link.1234 -> Google_Link).
-          'REPLACE_PLATFORM': self._bios_version.split('.')[0],
-          'REPLACE_SCRIPT': self._args.script,
-          'REPLACE_STABLE_FWID': self._args.stable_main_version,
-          'REPLACE_STABLE_ECID': self._args.stable_ec_version,
-          'REPLACE_STABLE_PDID': self._args.stable_pd_version,
-      }
-      rep = dict((re.escape(k), v) for k, v in replace_dict.iteritems())
-      pattern = re.compile('|'.join(rep.keys()))
-      data = pattern.sub(lambda m: rep[re.escape(m.group(0))], data)
-
-      fname = self._args.output
-      with open(fname, 'w') as fd:
-        fd.write(data)
-      os.chmod(fname, os.stat(fname).st_mode | 0555)
-
-    def _WriteVersionFile():
-      """Write out the VERSION file with our collected version information."""
-      print(file=self._versions)
-      with open(self._BaseDirPath('VERSION'), 'w') as fd:
-        fd.write(self._versions.getvalue())
-
-    _CopyBaseFiles()
-    _CopyExtraFiles()
-    _WriteUpdateScript()
-    _WriteVersionFile()
-
-    # Add our files to the shell-ball, and display all version information.
+    Add our files to the shell-ball, and display all version information.
+    """
     cros_build_lib.RunCommand(
         ['sh', self._args.output, '--sb_repack', self._basedir],
         mute_output=False)
@@ -664,6 +660,10 @@ class FirmwarePacker(object):
       self._tmpdir = self._CreateTmpDir()
       self._AddFlashromVersion()
       self._CopyFirmwareFiles()
+      self._CopyBaseFiles()
+      self._CopyExtraFiles()
+      self._WriteUpdateScript()
+      self._WriteVersionFile()
       self._BuildShellball()
       if not self._args.quiet:
         print('Packed output image is: %s' % self._args.output)
