@@ -483,3 +483,17 @@ cros_check_compatible_platform() {
   # Return the test result.
   [ "${image}" = "${platform}" ]
 }
+
+# Set up variables which control the firmware updater's operation.
+# This is called when the firmware update package has been unpacked.
+cros_set_unibuild_vars() {
+  local model="$(mosys platform model)"
+
+  [ -n "${model}" ] || die "Cannot get model."
+  debug_msg "Setting variables for model ${model}"
+
+  local fname="models/${model}/setvars.sh"
+  [ -e "${fname}" ] || die "Cannot find model script ${fname}"
+
+  . "./${fname}"
+}

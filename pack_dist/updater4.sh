@@ -618,6 +618,7 @@ main_check_rw_compatible() {
 main() {
   cros_acquire_lock
   set_flags
+  [ -n "${UNIBUILD}" ] && cros_set_unibuild_vars
 
   # factory compatibility
   if [ "${FLAGS_factory}" = ${FLAGS_TRUE} ] ||
