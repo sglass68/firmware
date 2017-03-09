@@ -502,8 +502,7 @@ class FirmwarePacker(object):
         self._MergeRwFirmware(self._BaseDirPath(IMAGE_MAIN), bios_rw_bin)
       elif bios_rw_bin != self._BaseDirPath(IMAGE_MAIN_RW):
         shutil.copy2(bios_rw_bin, self._BaseDirPath(IMAGE_MAIN_RW))
-      self._AddVersionInfo('BIOS (RW)', self._args.bios_image,
-                           self._bios_rw_version)
+      self._AddVersionInfo('BIOS (RW)', bios_rw_bin, self._bios_rw_version)
     else:
       self._args.merge_bios_rw_image = False
 

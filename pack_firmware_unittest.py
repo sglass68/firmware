@@ -354,6 +354,21 @@ class TestUnit(unittest.TestCase):
       result = pack_firmware.packer._versions.getvalue().splitlines()
       self.assertEqual(15, len(result))
 
+  def _FindLineInList(self, lines, start_text):
+    """Helper to find a single line starting with the given text and return it.
+
+    Args:
+      lines: List of lines to check.
+      text: Text to find.
+
+    Returns:
+      Line found, as a string (or assertion failure if exactly one matching
+        line was not found).
+    """
+    found = [line for line in lines if line.startswith(start_text)]
+    self.assertEqual(len(found), 1)
+    return found[0]
+
   def testRWFirmware(self):
     """Simple test of creating RW firmware."""
     pack_firmware.FirmwarePacker._GetPreambleFlags = (
@@ -379,6 +394,8 @@ class TestUnit(unittest.TestCase):
     # 1 blank line
     result = self.packer._versions.getvalue().splitlines()
     self.assertEqual(12, len(result))
+    self.assertIn(pack_firmware.IMAGE_MAIN_RW,
+                  self._FindLineInList(result, 'BIOS (RW) image'))
 
 
 if __name__ == '__main__':
