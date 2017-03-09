@@ -483,3 +483,24 @@ cros_check_compatible_platform() {
   # Return the test result.
   [ "${image}" = "${platform}" ]
 }
+
+# Set up variables which control the firmware updater's operation.
+# This is called when the firmware update package has been unpacked.
+cros_set_unibuild_vars() {
+  local model="${FLAGS_model}"
+
+  if [ -z "${model}" ]; then
+    local words
+    local hwid="$(crossystem hwid 2>/dev/null)" || hwid=""
+
+    # Get first word of HWID as lower case.
+    [ -n "${hwid}" ] || die "Cannot get HWID."
+    model=$(echo "${hwid}" | cut -d' ' -f 1 | tr '[:upper:]' '[:lower:]')
+  fi
+  debug_msg "Setting variables for model ${model}"
+
+  local fname="${model}/setvars.sh"
+  [ -e "${fname}" ] || die "Cannot find model script ${fname}"
+
+  . "./${fname}"
+}
