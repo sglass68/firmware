@@ -497,60 +497,78 @@ class FirmwarePacker(object):
                       'cannot merge')
     merge_file.merge_file(ec_fname, ecrw_fname, section.offset)
 
-  def _CopyFirmwareFiles(self):
-    """Process firmware files and copy them into the working directory"""
+  def _CopyFirmwareFiles(self, bios_image, bios_rw_image, ec_image, pd_image,
+                         default_ec_version, create_bios_rw_image,
+                         image_main, image_main_rw, image_ec, image_pd):
+    """Process firmware files and copy them into the working directory.
+
+    Args:
+      bios_image: Input filename of main BIOS (main) image.
+      bios_rw_image: Input filename of RW BIOS image, or None if none.
+      ec_image: Input filename of EC (Embedded Controller) image.
+      pd_image: Input filename of PD (Power Delivery) image.
+      default_ec_version: Default EC version string to use if no version
+          can be detected in ec_image.
+      create_bios_rw_image: True to create a RW BIOS image from the main one
+          if not provided.
+      image_main: Output filename to use for main image.
+      image_main_rw: Output filename to use for main RW image.
+      image_ec: Output filename to use for EC image.
+      image_pd: Output filename to use for PDimage.
+
+    Returns:
+      Dict containing information on the output image files:
+        key: Name, one of BIOS, BIOS (RW), EC, EC (RW), PD, PD (RW).
+        value: ImageFile, containing filename and version.
+    """
     image_files = {}
-    bios_rw_image = self._args.bios_rw_image
-    if self._args.bios_image:
-      self._bios_version = self._ExtractFrid(self._args.bios_image)
+    merge_bios_rw_image = self._args.merge_bios_rw_image
+    if bios_image:
+      self._bios_version = self._ExtractFrid(bios_image)
 
       # b/36104199 This work-around is required for x86-mario.
       if not self._bios_version:
         self._bios_version = 'IGNORE'
       self._bios_rw_version = self._bios_version
-      shutil.copy2(self._args.bios_image, self._BaseDirPath(IMAGE_MAIN))
-      image_files['BIOS'] = ImageFile(self._args.bios_image, self._bios_version)
+      shutil.copy2(bios_image, image_main)
+      image_files['BIOS'] = ImageFile(bios_image, self._bios_version)
     else:
-      self._args.merge_bios_rw_image = False
+      merge_bios_rw_image = False
 
-    if not bios_rw_image and self._args.create_bios_rw_image:
-      bios_rw_image = self._BaseDirPath(IMAGE_MAIN_RW)
-      self._CreateRwFirmware(self._args.bios_image, bios_rw_image)
-      self._args.merge_bios_rw_image = False
+    if not bios_rw_image and create_bios_rw_image:
+      bios_rw_image = image_main_rw
+      self._CreateRwFirmware(bios_image, bios_rw_image)
+      merge_bios_rw_image = False
 
     if bios_rw_image:
       self._CheckRwFirmware(bios_rw_image)
       self._bios_rw_version = self._ExtractFrid(bios_rw_image)
-      if self._args.merge_bios_rw_image:
-        self._MergeRwFirmware(self._BaseDirPath(IMAGE_MAIN), bios_rw_image)
-      elif bios_rw_image != self._BaseDirPath(IMAGE_MAIN_RW):
-        shutil.copy2(bios_rw_image, self._BaseDirPath(IMAGE_MAIN_RW))
+      if merge_bios_rw_image:
+        self._MergeRwFirmware(image_main, bios_rw_image)
+      elif bios_rw_image != image_main_rw:
+        shutil.copy2(bios_rw_image, image_main_rw)
       image_files['BIOS (RW)'] = ImageFile(bios_rw_image, self._bios_rw_version)
     else:
-      self._args.merge_bios_rw_image = False
+      merge_bios_rw_image = False
 
-    if self._args.ec_image:
-      self._ec_version = self._ExtractFrid(self._args.ec_image)
-      if not self._ec_version and self._args.ec_version:
-        self._ec_version = self._args.ec_version
-      image_files['EC'] = ImageFile(self._args.ec_image, self._ec_version)
-      shutil.copy2(self._args.ec_image, self._BaseDirPath(IMAGE_EC))
-      if self._args.merge_bios_rw_image:
-        self._MergeRwEcFirmware(self._BaseDirPath(IMAGE_EC),
-                                self._BaseDirPath(IMAGE_MAIN), 'ecrw')
-        ec_rw_version = self._ExtractFrid(self._BaseDirPath(IMAGE_EC),
-                                          'RW_FRID')
+    if ec_image:
+      self._ec_version = self._ExtractFrid(ec_image)
+      if not self._ec_version and default_ec_version:
+        self._ec_version = default_ec_version
+      image_files['EC'] = ImageFile(ec_image, self._ec_version)
+      shutil.copy2(ec_image, image_ec)
+      if merge_bios_rw_image:
+        self._MergeRwEcFirmware(image_ec, image_main, 'ecrw')
+        ec_rw_version = self._ExtractFrid(image_ec, 'RW_FRID')
         image_files['EC (RW)'] = ImageFile(None, ec_rw_version)
 
-    if self._args.pd_image:
-      self._pd_version = self._ExtractFrid(self._args.pd_image)
-      image_files['PD'] = ImageFile(self._args.pd_image, self._pd_version)
-      shutil.copy2(self._args.pd_image, self._BaseDirPath(IMAGE_PD))
-      if self._args.merge_bios_rw_image:
-        self._MergeRwEcFirmware(self._BaseDirPath(IMAGE_PD),
-                                self._BaseDirPath(IMAGE_MAIN), 'pdrw')
-        pd_rw_version = self._ExtractFrid(self._BaseDirPath(IMAGE_PD),
-                                          'RW_FRID')
+    if pd_image:
+      self._pd_version = self._ExtractFrid(pd_image)
+      image_files['PD'] = ImageFile(pd_image, self._pd_version)
+      shutil.copy2(pd_image, image_pd)
+      if merge_bios_rw_image:
+        self._MergeRwEcFirmware(image_pd, image_main, 'pdrw')
+        pd_rw_version = self._ExtractFrid(image_pd, 'RW_FRID')
         image_files['PD (RW)'] = ImageFile(None, pd_rw_version)
     return image_files
 
@@ -695,7 +713,17 @@ class FirmwarePacker(object):
       self._tmpdir = self._CreateTmpDir()
       self._AddFlashromVersion(tool_base)
       extras = args.extra.split(':') if args.extra else None
-      image_files = self._CopyFirmwareFiles()
+      image_files = self._CopyFirmwareFiles(bios_image=args.bios_image,
+          bios_rw_image=args.bios_rw_image,
+          ec_image=args.ec_image,
+          pd_image=args.pd_image,
+          default_ec_version=args.ec_version,
+          create_bios_rw_image=args.create_bios_rw_image,
+          image_main=self._BaseDirPath(IMAGE_MAIN),
+          image_main_rw=self._BaseDirPath(IMAGE_MAIN_RW),
+          image_ec=self._BaseDirPath(IMAGE_EC),
+          image_pd=self._BaseDirPath(IMAGE_PD))
+
       self._WriteVersions(image_files)
       self._CopyBaseFiles(tool_base, args.tools.split(), args.script)
       if extras:
