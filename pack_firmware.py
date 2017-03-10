@@ -500,7 +500,7 @@ class FirmwarePacker(object):
   def _CopyFirmwareFiles(self):
     """Process firmware files and copy them into the working directory"""
     image_files = {}
-    bios_rw_bin = self._args.bios_rw_image
+    bios_rw_image = self._args.bios_rw_image
     if self._args.bios_image:
       self._bios_version = self._ExtractFrid(self._args.bios_image)
 
@@ -513,19 +513,19 @@ class FirmwarePacker(object):
     else:
       self._args.merge_bios_rw_image = False
 
-    if not bios_rw_bin and self._args.create_bios_rw_image:
-      bios_rw_bin = self._BaseDirPath(IMAGE_MAIN_RW)
-      self._CreateRwFirmware(self._args.bios_image, bios_rw_bin)
+    if not bios_rw_image and self._args.create_bios_rw_image:
+      bios_rw_image = self._BaseDirPath(IMAGE_MAIN_RW)
+      self._CreateRwFirmware(self._args.bios_image, bios_rw_image)
       self._args.merge_bios_rw_image = False
 
-    if bios_rw_bin:
-      self._CheckRwFirmware(bios_rw_bin)
-      self._bios_rw_version = self._ExtractFrid(bios_rw_bin)
+    if bios_rw_image:
+      self._CheckRwFirmware(bios_rw_image)
+      self._bios_rw_version = self._ExtractFrid(bios_rw_image)
       if self._args.merge_bios_rw_image:
-        self._MergeRwFirmware(self._BaseDirPath(IMAGE_MAIN), bios_rw_bin)
-      elif bios_rw_bin != self._BaseDirPath(IMAGE_MAIN_RW):
-        shutil.copy2(bios_rw_bin, self._BaseDirPath(IMAGE_MAIN_RW))
-      image_files['BIOS (RW)'] = ImageFile(bios_rw_bin, self._bios_rw_version)
+        self._MergeRwFirmware(self._BaseDirPath(IMAGE_MAIN), bios_rw_image)
+      elif bios_rw_image != self._BaseDirPath(IMAGE_MAIN_RW):
+        shutil.copy2(bios_rw_image, self._BaseDirPath(IMAGE_MAIN_RW))
+      image_files['BIOS (RW)'] = ImageFile(bios_rw_image, self._bios_rw_version)
     else:
       self._args.merge_bios_rw_image = False
 
