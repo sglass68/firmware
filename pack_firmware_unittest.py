@@ -189,9 +189,9 @@ class TestUnit(unittest.TestCase):
     """Check finding of required tools."""
     self.packer._args = self.packer.ParseArgs(['--tool_base', 'test'])
     with self.assertRaises(pack_firmware.PackError) as e:
-      self.packer._FindTool('does-not-exist')
+      self.packer._FindTool(['test'], 'does-not-exist')
     self.assertIn("'does-not-exist'", str(e.exception))
-    self.packer._FindTool('flashrom')
+    self.packer._FindTool(['test'], 'flashrom')
 
   def testTmpdirs(self):
     """Check creation and removal of temporary directories."""
@@ -209,7 +209,7 @@ class TestUnit(unittest.TestCase):
     with cros_build_lib_unittest.RunCommandMock() as rc:
       rc.AddCmdResult(partial_mock.ListRegex('file'), returncode=0,
                       output='ELF 64-bit LSB executable, etc.\n')
-      self.packer._AddFlashromVersion()
+      self.packer._AddFlashromVersion(self.packer._args.tool_base.split(':'))
     result = self.packer._versions.getvalue().splitlines()
     self.assertIn('flashrom(8)', result[1])
     self.assertIn('ELF 64-bit LSB executable', result[2])
