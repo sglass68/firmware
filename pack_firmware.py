@@ -639,22 +639,21 @@ class FirmwarePacker(object):
     Raises:
       PackError if any error occurs.
     """
-    self._args = self.ParseArgs(argv)
-    main_script = os.path.join(self._pack_dist, self._args.script)
-    if self._args.ec_version:
-      self._ec_version = self._args.ec_version
+    args = self._args = self.ParseArgs(argv)
+    main_script = os.path.join(self._pack_dist, args.script)
+    if args.ec_version:
+      self._ec_version = args.ec_version
 
     self._EnsureCommand('shar', 'sharutils')
     for fname in [main_script, self._stub_file]:
       if not os.path.exists(fname):
         raise PackError("Cannot find required file '%s'" % fname)
-    for tool in self._args.tools.split():
+    for tool in args.tools.split():
       self._FindTool(tool)
-    if not any((self._args.bios_image, self._args.ec_image,
-                self._args.pd_image)):
+    if not any((args.bios_image, args.ec_image, args.pd_image)):
       raise PackError('Must assign at least one of BIOS or EC or PD image')
     try:
-      if not self._args.output:
+      if not args.output:
         raise PackError('Missing output file')
       self._basedir = self._CreateTmpDir()
       self._tmpdir = self._CreateTmpDir()
@@ -665,8 +664,8 @@ class FirmwarePacker(object):
       self._WriteUpdateScript()
       self._WriteVersionFile()
       self._BuildShellball()
-      if not self._args.quiet:
-        print('Packed output image is: %s' % self._args.output)
+      if not args.quiet:
+        print('Packed output image is: %s' % args.output)
     finally:
       if remove_tmpdirs:
         self._RemoveTmpdirs()
