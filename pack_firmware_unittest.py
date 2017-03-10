@@ -372,7 +372,7 @@ class TestUnit(unittest.TestCase):
       Line found, as a string (or assertion failure if exactly one matching
         line was not found).
     """
-    found = [line for line in lines if line.startswith(start_text)]
+    found = [line for line in lines if line.strip().startswith(start_text)]
     self.assertEqual(len(found), 1)
     return found[0]
 
