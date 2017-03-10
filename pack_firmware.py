@@ -564,14 +564,15 @@ class FirmwarePacker(object):
     shutil.copy2(src, dst)
     os.chmod(dst, os.stat(dst).st_mode | mode)
 
-  def _CopyBaseFiles(self, tool_base):
+  def _CopyBaseFiles(self, tool_base, tools):
     """Copy base files that every firmware update needs.
 
     Args:
       tool_base: List of directories to check.
+      tools: List of tools to copy.
     """
     self._CopyFile(self._shflags_file, self._basedir)
-    for tool in self._args.tools.split():
+    for tool in tools:
       tool_fname = self._FindTool(tool_base, tool)
       # Most tools are dynamically linked, but if there is a statically
       # linked version (denoted by a '_s' suffix) use that in preference.
@@ -677,7 +678,7 @@ class FirmwarePacker(object):
       self._tmpdir = self._CreateTmpDir()
       self._AddFlashromVersion(tool_base)
       self._CopyFirmwareFiles()
-      self._CopyBaseFiles(tool_base)
+      self._CopyBaseFiles(tool_base, args.tools.split())
       self._CopyExtraFiles()
       self._WriteUpdateScript()
       self._WriteVersionFile()
