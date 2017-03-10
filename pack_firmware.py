@@ -188,13 +188,14 @@ class FirmwarePacker(object):
     if result.returncode:
       raise PackError("You need '%s' (package '%s')" % (cmd, package))
 
-  def _FindTool(self, tool):
+  def _FindTool(self, tool_base, tool):
     """Find a tool in the tool_base path list, raising an exception if missing.
 
     Args:
+      tool_base: List of directories to check.
       tool: Name of tool to find (just the name, not the full path).
     """
-    for path in self._args.tool_base.split(':'):
+    for path in tool_base:
       fname = os.path.join(path, tool)
       if os.path.exists(fname):
         return os.path.realpath(fname)
@@ -216,9 +217,13 @@ class FirmwarePacker(object):
       shutil.rmtree(fname)
     self._tmp_dirs = []
 
-  def _AddFlashromVersion(self):
-    """Add flashrom version info to the collection of version information."""
-    flashrom = self._FindTool('flashrom')
+  def _AddFlashromVersion(self, tool_base):
+    """Add flashrom version info to the collection of version information.
+
+    Args:
+      tool_base: List of directories to check.
+    """
+    flashrom = self._FindTool(tool_base, 'flashrom')
 
     # Look for a string ending in UTC.
     with open(flashrom, 'rb') as fd:
@@ -559,11 +564,15 @@ class FirmwarePacker(object):
     shutil.copy2(src, dst)
     os.chmod(dst, os.stat(dst).st_mode | mode)
 
-  def _CopyBaseFiles(self):
-    """Copy base files that every firmware update needs."""
+  def _CopyBaseFiles(self, tool_base):
+    """Copy base files that every firmware update needs.
+
+    Args:
+      tool_base: List of directories to check.
+    """
     self._CopyFile(self._shflags_file, self._basedir)
     for tool in self._args.tools.split():
-      tool_fname = self._FindTool(tool)
+      tool_fname = self._FindTool(tool_base, tool)
       # Most tools are dynamically linked, but if there is a statically
       # linked version (denoted by a '_s' suffix) use that in preference.
       # This helps to reduce run-time dependencies for firmware update,
@@ -656,8 +665,9 @@ class FirmwarePacker(object):
     for fname in [main_script, self._stub_file]:
       if not os.path.exists(fname):
         raise PackError("Cannot find required file '%s'" % fname)
+    tool_base = args.tool_base.split(':')
     for tool in args.tools.split():
-      self._FindTool(tool)
+      self._FindTool(tool_base, tool)
     if not any((args.bios_image, args.ec_image, args.pd_image)):
       raise PackError('Must assign at least one of BIOS or EC or PD image')
     try:
@@ -665,9 +675,9 @@ class FirmwarePacker(object):
         raise PackError('Missing output file')
       self._basedir = self._CreateTmpDir()
       self._tmpdir = self._CreateTmpDir()
-      self._AddFlashromVersion()
+      self._AddFlashromVersion(tool_base)
       self._CopyFirmwareFiles()
-      self._CopyBaseFiles()
+      self._CopyBaseFiles(tool_base)
       self._CopyExtraFiles()
       self._WriteUpdateScript()
       self._WriteVersionFile()
