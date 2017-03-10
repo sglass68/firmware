@@ -37,6 +37,7 @@ IMAGE_MAIN_RW = 'bios_rw.bin'
 IMAGE_EC = 'ec.bin'
 IMAGE_PD = 'pd.bin'
 Section = collections.namedtuple('Section', ['offset', 'size'])
+ImageFile = collections.namedtuple('ImageFile', ['filename', 'version'])
 
 # File execution permissions. We could use state.S_... but that's confusing.
 CHMOD_ALL_READ = 0444
@@ -495,12 +496,13 @@ class FirmwarePacker(object):
 
   def _CopyFirmwareFiles(self):
     """Process firmware files and copy them into the working directory"""
+    image_files = {}
     bios_rw_bin = self._args.bios_rw_image
     if self._args.bios_image:
       self._bios_version = self._ExtractFrid(self._args.bios_image)
       self._bios_rw_version = self._bios_version
       shutil.copy2(self._args.bios_image, self._BaseDirPath(IMAGE_MAIN))
-      self._AddVersionInfo('BIOS', self._args.bios_image, self._bios_version)
+      image_files['BIOS'] = ImageFile(self._args.bios_image, self._bios_version)
     else:
       self._args.merge_bios_rw_image = False
 
@@ -516,7 +518,7 @@ class FirmwarePacker(object):
         self._MergeRwFirmware(self._BaseDirPath(IMAGE_MAIN), bios_rw_bin)
       elif bios_rw_bin != self._BaseDirPath(IMAGE_MAIN_RW):
         shutil.copy2(bios_rw_bin, self._BaseDirPath(IMAGE_MAIN_RW))
-      self._AddVersionInfo('BIOS (RW)', bios_rw_bin, self._bios_rw_version)
+      image_files['BIOS (RW)'] = ImageFile(bios_rw_bin, self._bios_rw_version)
     else:
       self._args.merge_bios_rw_image = False
 
@@ -524,25 +526,37 @@ class FirmwarePacker(object):
       self._ec_version = self._ExtractFrid(self._args.ec_image)
       if not self._ec_version and self._args.ec_version:
         self._ec_version = self._args.ec_version
+      image_files['EC'] = ImageFile(self._args.ec_image, self._ec_version)
       shutil.copy2(self._args.ec_image, self._BaseDirPath(IMAGE_EC))
-      self._AddVersionInfo('EC', self._args.ec_image, self._ec_version)
       if self._args.merge_bios_rw_image:
         self._MergeRwEcFirmware(self._BaseDirPath(IMAGE_EC),
                                 self._BaseDirPath(IMAGE_MAIN), 'ecrw')
         ec_rw_version = self._ExtractFrid(self._BaseDirPath(IMAGE_EC),
                                           'RW_FRID')
-        print('EC (RW) version: %s' % ec_rw_version, file=self._versions)
+        image_files['EC (RW)'] = ImageFile(None, ec_rw_version)
 
     if self._args.pd_image:
       self._pd_version = self._ExtractFrid(self._args.pd_image)
+      image_files['PD'] = ImageFile(self._args.pd_image, self._pd_version)
       shutil.copy2(self._args.pd_image, self._BaseDirPath(IMAGE_PD))
-      self._AddVersionInfo('PD', self._args.pd_image, self._pd_version)
       if self._args.merge_bios_rw_image:
         self._MergeRwEcFirmware(self._BaseDirPath(IMAGE_PD),
                                 self._BaseDirPath(IMAGE_MAIN), 'pdrw')
         pd_rw_version = self._ExtractFrid(self._BaseDirPath(IMAGE_PD),
                                           'RW_FRID')
-        print('PD (RW) version: %s' % pd_rw_version, file=self._versions)
+        image_files['PD (RW)'] = ImageFile(None, pd_rw_version)
+    return image_files
+
+  def _WriteVersions(self, image_files):
+    """Write version information for all image files into the version file.
+
+    image_files: Dict with:
+        key: Image type (e.g. 'BIOS').
+        value: ImageFile object containing filename and version.
+    """
+    for name in sorted(image_files.keys()):
+      image_file = image_files[name]
+      self._AddVersionInfo(name, image_file.filename, image_file.version)
 
   def _CopyFile(self, src, dst, mode=CHMOD_ALL_READ):
     """Copy a file (to another file or into a directory) and set its mode.
@@ -674,7 +688,8 @@ class FirmwarePacker(object):
       self._tmpdir = self._CreateTmpDir()
       self._AddFlashromVersion(tool_base)
       extras = args.extra.split(':') if args.extra else None
-      self._CopyFirmwareFiles()
+      image_files = self._CopyFirmwareFiles()
+      self._WriteVersions(image_files)
       self._CopyBaseFiles(tool_base, args.tools.split(), args.script)
       if extras:
         self._CopyExtraFiles(extras)
