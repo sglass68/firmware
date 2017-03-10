@@ -136,11 +136,14 @@ class TestFunctional(unittest.TestCase):
         rel_path = os.path.join(dirpath, fname)[len(self.unpackdir) + 1:]
         files.append(rel_path)
 
-    # Read the start of the script to get the version information.
+    # Read the start of the script to get the version information. Use strip()
+    # where needed since some lines are indented.
     with open(outfile) as fd:
       lines = fd.read(1000).splitlines()[:30]
-    lines = [line for line in lines
-             if line.startswith('TARGET') or line.startswith('STABLE')]
+    lines = [line.strip() for line in lines
+             if line.strip().startswith('TARGET') or
+             line.strip().startswith('STABLE') or
+             line.startswith('UNIBUILD')]
     versions = {}
     for line in lines:
       varname, value = line.split('=')
@@ -182,6 +185,7 @@ class TestFunctional(unittest.TestCase):
     self.assertEqual(REEF_STABLE_MAIN_VERSION, versions['STABLE_FWID'])
     self.assertEqual('', versions['STABLE_ECID'])
     self.assertEqual('', versions['STABLE_PDID'])
+    self.assertEqual('', versions['UNIBUILD'])
     self.assertEqual(8, len(lines))
 
     # Run the shellball to make sure we can do a fake autoupdate.
