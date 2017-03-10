@@ -563,7 +563,7 @@ class FirmwarePacker(object):
     shutil.copy2(src, dst)
     os.chmod(dst, os.stat(dst).st_mode | mode)
 
-  def _CopyBaseFiles(self, tool_base, tools):
+  def _CopyBaseFiles(self, tool_base, tools, script):
     """Copy base files that every firmware update needs.
 
     Args:
@@ -582,7 +582,7 @@ class FirmwarePacker(object):
       self._CopyFile(tool_fname, self._BaseDirPath(tool), CHMOD_ALL_EXEC)
     for fname in glob.glob(os.path.join(self._pack_dist, '*')):
       if (self._args.remove_inactive_updaters and 'updater' in fname and
-          not self._args.script in fname):
+          not script in fname):
         continue
       self._CopyFile(fname, self._basedir, CHMOD_ALL_EXEC)
 
@@ -677,7 +677,7 @@ class FirmwarePacker(object):
       self._tmpdir = self._CreateTmpDir()
       self._AddFlashromVersion(tool_base)
       self._CopyFirmwareFiles()
-      self._CopyBaseFiles(tool_base, args.tools.split())
+      self._CopyBaseFiles(tool_base, args.tools.split(), args.script)
       self._CopyExtraFiles()
       self._WriteUpdateScript()
       self._WriteVersionFile()
