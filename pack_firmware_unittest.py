@@ -31,6 +31,7 @@ logging.getLogger().setLevel(logging.CRITICAL + 1)
 
 # Pre-set ID expected for test/image.bin.
 RO_FRID = 'Google_Reef.9264.0.2017_02_09_1240'
+RW_FRID = 'Google_Reef.9264.0.2017_02_09_1250'
 
 # Expected output from vbutil.
 VBUTIL_OUTPUT = '''Key block:
@@ -353,6 +354,8 @@ class TestUnit(unittest.TestCase):
       pack_firmware.main(args)
       result = pack_firmware.packer._versions.getvalue().splitlines()
       self.assertEqual(15, len(result))
+      self.assertIn(RO_FRID, self._FindLineInList(result, 'EC version'))
+      self.assertIn(RW_FRID, self._FindLineInList(result, 'EC (RW) version'))
 
   def _FindLineInList(self, lines, start_text):
     """Helper to find a single line starting with the given text and return it.
