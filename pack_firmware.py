@@ -36,6 +36,7 @@ IMAGE_MAIN = 'bios.bin'
 IMAGE_MAIN_RW = 'bios_rw.bin'
 IMAGE_EC = 'ec.bin'
 IMAGE_PD = 'pd.bin'
+IGNORE = 'IGNORE'
 Section = collections.namedtuple('Section', ['offset', 'size'])
 
 # File execution permissions. We could use state.S_... but that's confusing.
@@ -61,14 +62,14 @@ class FirmwarePacker(object):
     _args: Parsed arguments.
     _bios_version: Version string for BIOS (can be empty if none).
     _bios_rw_version: Version string for RW BIOS (can be empty if none).
-    _ec_version: Version string for EC. Can be empty or 'IGNORE' if there is
+    _ec_version: Version string for EC. Can be empty or IGNORE if there is
         no EC firmware. Note from hungte@chromium.org: This is for backwards
         compatibility with updater2.sh since reinauer@chromium.org wanted a
         way to specify "we don't want to check version", which is useful for
         firmware having developer/normal parts in different blobs.
-    _pd_version: Version string for PD. Can be empty or 'IGNORE' if there is
+    _pd_version: Version string for PD. Can be empty or IGNORE if there is
         no PD firmware.
-        TODO(sjg@chromium.org): Do we have the same need for 'IGNORE' here?
+        TODO(sjg@chromium.org): Do we have the same need for IGNORE here?
         PD firmware was not supported in updater2.sh.
     _pack_dist: Path to 'pack_dist' directory.
     _script_base: Base directory with useful files (src/platform/firmware).
@@ -86,10 +87,12 @@ class FirmwarePacker(object):
     # we can access the script files using the same path as the script.
     self._script_base = os.path.dirname(progname)
     self._args = None
-    self._bios_version = ''
-    self._bios_rw_version = ''
-    self._ec_version = 'IGNORE'
-    self._pd_version = 'IGNORE'
+    # b/36104199 Setting this to IGNORE for bios_version and bios_rw_version
+    # is a work-around required for x86-mario.
+    self._bios_version = IGNORE
+    self._bios_rw_version = IGNORE
+    self._ec_version = IGNORE
+    self._pd_version = IGNORE
     self._pack_dist = os.path.join(self._script_base, 'pack_dist')
     self._stub_file = os.path.join(self._script_base, 'pack_stub')
     self._shflags_file = os.path.join(self._script_base, 'lib/shflags/shflags')
@@ -261,7 +264,8 @@ class FirmwarePacker(object):
       print('%s image:%s%s *%s' % (name, ' ' * max(3, 7 - len(name)),
                                    digest.hexdigest(), short_fname),
             file=self._versions)
-    if version:
+    # b/36104199 Handling of IGNORE is a work-around required for x86-mario.
+    if version and version != IGNORE:
       print('%s version:%s%s' % (name, ' ' * max(1, 5 - len(name)), version),
             file=self._versions)
 
@@ -493,6 +497,10 @@ class FirmwarePacker(object):
     bios_rw_bin = self._args.bios_rw_image
     if self._args.bios_image:
       self._bios_version = self._ExtractFrid(self._args.bios_image)
+
+      # b/36104199 This work-around is required for x86-mario.
+      if not self._bios_version:
+        self._bios_version = IGNORE
       self._bios_rw_version = self._bios_version
       shutil.copy2(self._args.bios_image, self._BaseDirPath(IMAGE_MAIN))
       self._AddVersionInfo('BIOS', self._args.bios_image, self._bios_version)
