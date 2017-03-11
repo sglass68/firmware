@@ -86,8 +86,10 @@ class FirmwarePacker(object):
     # we can access the script files using the same path as the script.
     self._script_base = os.path.dirname(progname)
     self._args = None
-    self._bios_version = ''
-    self._bios_rw_version = ''
+    # b/36104199 Setting this to 'IGNORE' for bios_version and bios_rw_version
+    # is a work-around required for x86-mario.
+    self._bios_version = 'IGNORE'
+    self._bios_rw_version = 'IGNORE'
     self._ec_version = 'IGNORE'
     self._pd_version = 'IGNORE'
     self._pack_dist = os.path.join(self._script_base, 'pack_dist')
@@ -261,7 +263,8 @@ class FirmwarePacker(object):
       print('%s image:%s%s *%s' % (name, ' ' * max(3, 7 - len(name)),
                                    digest.hexdigest(), short_fname),
             file=self._versions)
-    if version:
+    # b/36104199 Handling of 'IGNORE' is a work-around required for x86-mario.
+    if version and version != 'IGNORE':
       print('%s version:%s%s' % (name, ' ' * max(1, 5 - len(name)), version),
             file=self._versions)
 
@@ -493,6 +496,10 @@ class FirmwarePacker(object):
     bios_rw_bin = self._args.bios_rw_image
     if self._args.bios_image:
       self._bios_version = self._ExtractFrid(self._args.bios_image)
+
+      # b/36104199 This work-around is required for x86-mario.
+      if not self._bios_version:
+        self._bios_version = 'IGNORE'
       self._bios_rw_version = self._bios_version
       shutil.copy2(self._args.bios_image, self._BaseDirPath(IMAGE_MAIN))
       self._AddVersionInfo('BIOS', self._args.bios_image, self._bios_version)

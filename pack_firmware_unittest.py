@@ -128,6 +128,10 @@ class TestUnit(unittest.TestCase):
     self.packer = pack_firmware.FirmwarePacker('.')
     # Limit the resolution of timestamps to aid comparison.
     os.stat_float_times(False)
+    self._ExtractFrid = pack_firmware.FirmwarePacker._ExtractFrid
+
+  def tearDown(self):
+    pack_firmware.FirmwarePacker._ExtractFrid = self._ExtractFrid
 
   def testBadStartup(self):
     """Test various bad start-up conditions"""
@@ -414,6 +418,36 @@ class TestUnit(unittest.TestCase):
     with open('out') as fd:
       lines = fd.read().splitlines()
     self.assertIn('IGNORE', self._FindLineInList(lines, 'TARGET_ECID'))
+
+  # b/36104199 Should be able to be removed once mario is turned down.
+  def testMario(self):
+    """Test the special cases required by mario."""
+    def _MockExtractFrid(image_file):
+      return ''
+
+    pack_firmware.FirmwarePacker._GetPreambleFlags = (
+        mock.Mock(side_effect=self._MockGetPreambleFlags))
+    pack_firmware.FirmwarePacker._ExtractFrid = (
+        mock.Mock(side_effect=_MockExtractFrid))
+
+    args = COMMON_FLAGS
+    with cros_build_lib_unittest.RunCommandMock() as rc:
+      self._AddMocks(rc)
+      self.packer.Start(args)
+
+    # There should be a BIOS image but no version in the VERSION file.
+    result = self.packer._versions.getvalue()
+    result_lines = result.splitlines()
+    print('result', result)
+    self.assertIn('test/image.bin', self._FindLineInList(result_lines, 'BIOS'))
+    self.assertNotIn('BIOS version', result)
+    self.assertEqual(7, len(result.splitlines()))
+
+    # In the script, the versions should be 'IGNORE'.
+    with open('out') as fd:
+      lines = fd.read().splitlines()
+    for item in 'RO_FWID FWID ECID PDID PLATFORM'.split():
+      self.assertIn('IGNORE', self._FindLineInList(lines, 'TARGET_%s' % item))
 
 
 if __name__ == '__main__':
