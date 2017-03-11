@@ -696,6 +696,50 @@ class FirmwarePacker(object):
         with open(fname) as fd:
           print(fd.read())
 
+  def _ProcessModel(self, model, bios_image, bios_rw_image, ec_image, pd_image,
+                    default_ec_version, create_bios_rw_image, tools, tool_base,
+                    script, extras):
+    """Set up the firmware update for one model.
+
+    Args:
+      model: name of model to set up for (e.g. 'reef'). If this is not a
+          unified build then this should be ''.
+      bios_image: Input filename of main BIOS (main) image.
+      bios_rw_image: Input filename of RW BIOS image, or None if none.
+      ec_image: Input filename of EC (Embedded Controller) image.
+      pd_image: Input filename of PD (Power Delivery) image.
+      default_ec_version: Default EC version string to use if no version
+          can be detected in ec_image.
+      create_bios_rw_image: True to create a RW BIOS image from the main one
+          if not provided.
+      tools: List of tools to include in the update (e.g. ['mosys', 'ectool'].
+      tool_base: List of directories to look in for tools.
+      script: Update script to use (e.g. 'updater4.sh').
+      extras: List of extra files/directories to include.
+    """
+    main_script = os.path.join(self._pack_dist, script)
+    if not os.path.exists(main_script):
+      raise PackError("Cannot find required file '%s'" % main_script)
+    for tool in tools:
+      self._FindTool(tool_base, tool)
+    if not bios_image and not ec_image and not pd_image:
+      raise PackError('Must assign at least one of BIOS or EC or PD image')
+    image_files = self._CopyFirmwareFiles(
+        bios_image=bios_image,
+        bios_rw_image=bios_rw_image,
+        ec_image=ec_image,
+        pd_image=pd_image,
+        default_ec_version=default_ec_version,
+        create_bios_rw_image=create_bios_rw_image,
+        image_main=os.path.join(self._basedir, model, IMAGE_MAIN),
+        image_main_rw=os.path.join(self._basedir, model, IMAGE_MAIN_RW),
+        image_ec=os.path.join(self._basedir, model, IMAGE_EC),
+        image_pd=os.path.join(self._basedir, model, IMAGE_PD))
+    self._WriteVersions(image_files)
+    self._CopyBaseFiles(tool_base, tools, script)
+    if extras:
+      self._CopyExtraFiles(extras)
+
   def Start(self, argv, remove_tmpdirs=True):
     """Handle the creation of a firmware shell-ball.
 
@@ -705,40 +749,31 @@ class FirmwarePacker(object):
       PackError if any error occurs.
     """
     args = self._args = self.ParseArgs(argv)
-    main_script = os.path.join(self._pack_dist, args.script)
     if args.ec_version:
       self._ec_version = args.ec_version
 
     self._EnsureCommand('shar', 'sharutils')
-    for fname in [main_script, self._stub_file]:
-      if not os.path.exists(fname):
-        raise PackError("Cannot find required file '%s'" % fname)
+    if not os.path.exists(self._stub_file):
+      raise PackError("Cannot find required file '%s'" % self._stub_file)
     tool_base = args.tool_base.split(':')
-    for tool in args.tools.split():
-      self._FindTool(tool_base, tool)
-    if not any((args.bios_image, args.ec_image, args.pd_image)):
-      raise PackError('Must assign at least one of BIOS or EC or PD image')
     try:
       if not args.output:
         raise PackError('Missing output file')
       self._basedir = self._CreateTmpDir()
       self._tmpdir = self._CreateTmpDir()
       self._AddFlashromVersion(tool_base)
-      image_files = self._CopyFirmwareFiles(
+      self._ProcessModel(
+          model='',
           bios_image=args.bios_image,
           bios_rw_image=args.bios_rw_image,
           ec_image=args.ec_image,
           pd_image=args.pd_image,
           default_ec_version=args.ec_version,
           create_bios_rw_image=args.create_bios_rw_image,
-          image_main=self._BaseDirPath(IMAGE_MAIN),
-          image_main_rw=self._BaseDirPath(IMAGE_MAIN_RW),
-          image_ec=self._BaseDirPath(IMAGE_EC),
-          image_pd=self._BaseDirPath(IMAGE_PD))
-
-      self._WriteVersions(image_files)
-      self._CopyBaseFiles(tool_base, args.tools.split(), args.script)
-      self._CopyExtraFiles(args.extra.split(':') if args.extra else [])
+          tools=args.tools.split(),
+          tool_base=tool_base,
+          script=args.script,
+          extras=args.extra.split(':') if args.extra else [])
       self._WriteUpdateScript()
       self._WriteVersionFile()
       self._BuildShellball()
