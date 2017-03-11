@@ -135,7 +135,12 @@ class TestUnit(unittest.TestCase):
     # Starting up in another directory (without required files) should fail.
     with self.assertRaises(pack_firmware.PackError) as e:
       pack_firmware.main(['/'])
-    self.assertIn("'/pack_dist/updater.sh'", str(e.exception))
+    self.assertIn("'/pack_stub'", str(e.exception))
+
+    # Comment
+    with self.assertRaises(pack_firmware.PackError) as e:
+      pack_firmware.main(['test', '-o', 'out', '--tool_base', 'test'])
+    self.assertIn("'pack_dist/updater.sh'", str(e.exception))
 
     # Should check for 'shar' tool.
     with cros_build_lib_unittest.RunCommandMock() as rc:
@@ -146,14 +151,14 @@ class TestUnit(unittest.TestCase):
 
     # Should complain about missing tools.
     with self.assertRaises(pack_firmware.PackError) as e:
-      pack_firmware.main(['.', '--script=updater5.sh',
-                          '--tools', 'missing-tool',])
+      pack_firmware.main(['.', '--script=updater5.sh', '--tool_base', 'test',
+                          '--tools', 'missing-tool', '-o', 'out'])
     self.assertIn("'missing-tool'", str(e.exception))
 
     # Should complain if we don't provide at least one image.
     with self.assertRaises(pack_firmware.PackError) as e:
       args = ['.', '--script=updater5.sh', '--tools', 'ls',
-              '--tool_base', '/bin']
+              '--tool_base', '/bin:test', '-o', 'out']
       pack_firmware.main(args)
     self.assertIn('Must assign at least one', str(e.exception))
 
