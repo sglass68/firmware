@@ -71,6 +71,8 @@ class FirmwarePacker(object):
     _tmpdir: Temporary directory for use for running tools.
     _tmp_dirs: List of temporary directories created.
     _versions: Collected version information (StringIO).
+    _force_dash: Replace the /bin/sh shebang at the top of all scripts with
+        /bin/dash. This is only used for testing.
   """
 
   def __init__(self, progname):
@@ -86,6 +88,7 @@ class FirmwarePacker(object):
     self._tmpdir = None
     self._tmp_dirs = []
     self._versions = StringIO()
+    self._force_dash = False
 
   def ParseArgs(self, argv):
     """Parse the available arguments.
@@ -611,14 +614,19 @@ class FirmwarePacker(object):
   def _CopyFile(self, src, dst, mode=CHMOD_ALL_READ):
     """Copy a file (to another file or into a directory) and set its mode.
 
-    src: Source filename (relative or absolute path).
-    dst: Destination filename or directory (relative or absolute path).
-    mode: File mode to OR with the existing mode.
+    Args:
+      src: Source filename (relative or absolute path).
+      dst: Destination filename or directory (relative or absolute path).
+      mode: File mode to OR with the existing mode.
+
+    Returns:
+      Full pathname of the new file.
     """
     if os.path.isdir(dst):
       dst = os.path.join(dst, os.path.basename(src))
     shutil.copy2(src, dst)
     os.chmod(dst, os.stat(dst).st_mode | mode)
+    return dst
 
   def _CopyBaseFiles(self, tool_base, tools, script):
     """Copy base files that every firmware update needs.
@@ -643,7 +651,13 @@ class FirmwarePacker(object):
       if (self._args.remove_inactive_updaters and 'updater' in fname and
           not script in fname):
         continue
-      self._CopyFile(fname, self._basedir, CHMOD_ALL_EXEC)
+      newfile = self._CopyFile(fname, self._basedir, CHMOD_ALL_EXEC)
+      if self._force_dash and fname.endswith('.sh'):
+        with open(newfile) as fd:
+          lines = fd.read().splitlines()
+        lines = ['#!/bin/dash'] + lines[1:]
+        with open(newfile, 'w') as fd:
+          fd.write('\n'.join(lines))
 
   def _CopyExtraFiles(self, extras):
     """Copy extra files into the base directory.

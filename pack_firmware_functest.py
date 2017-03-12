@@ -26,7 +26,8 @@ UPDATER = 'updater4.sh'
 
 # Firmware update runs on the device using the dash shell. Try to use this if
 # available.
-SHELL = '/bin/dash' if os.path.exists('/bin/dash') else '/bin/sh'
+HAVE_DASH = os.path.exists('/bin/dash')
+SHELL = '/bin/dash' if HAVE_DASH else '/bin/sh'
 
 
 class TestFunctional(unittest.TestCase):
@@ -52,6 +53,7 @@ class TestFunctional(unittest.TestCase):
       self.chroot = os.path.join(self.basedir, '../../../chroot')
     self.outdir = tempfile.mkdtemp(tmp_base)
     self.unpackdir = tempfile.mkdtemp(tmp_base)
+    self.packer._force_dash = HAVE_DASH
 
   def _ExpectedFiles(self, extra_files):
     """Get a sorted list of files that we expect to see in the shellball.
