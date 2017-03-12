@@ -52,6 +52,7 @@ class TestFunctional(unittest.TestCase):
       self.chroot = os.path.join(self.basedir, '../../../chroot')
     self.outdir = tempfile.mkdtemp(tmp_base)
     self.unpackdir = tempfile.mkdtemp(tmp_base)
+    self.packer._force_dash = True
 
   def _ExpectedFiles(self, extra_files):
     """Get a sorted list of files that we expect to see in the shellball.
