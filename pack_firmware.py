@@ -639,22 +639,27 @@ class FirmwarePacker(object):
         self._CopyFile(extra, self._basedir)
         print('Extra file: %s' % extra, file=self._versions)
 
-  def _WriteUpdateScript(self):
+  def _WriteUpdateScript(self, image_files, script, stable_main_version,
+                         stable_ec_version, stable_pd_version):
     """Create and write the update script which will run on the device."""
+    empty = ImageFile(None, '')
     with open(self._stub_file) as fd:
       data = fd.read()
+    bios_rw_version = image_files.get('BIOS (RW)', empty).version
+    if not bios_rw_version:
+      bios_rw_version = image_files['BIOS'].version
     replace_dict = {
-        'REPLACE_RO_FWID': self._bios_version,
-        'REPLACE_FWID': self._bios_rw_version,
-        'REPLACE_ECID': self._ec_version,
-        'REPLACE_PDID': self._pd_version,
+        'REPLACE_RO_FWID': image_files['BIOS'].version,
+        'REPLACE_FWID': bios_rw_version,
+        'REPLACE_ECID': image_files.get('EC', empty).version or 'IGNORE',
+        'REPLACE_PDID': image_files.get('PD', empty).version or 'IGNORE',
         # Set platform to first field of firmware version
         # (ex: Google_Link.1234 -> Google_Link).
-        'REPLACE_PLATFORM': self._bios_version.split('.')[0],
+        'REPLACE_PLATFORM': image_files['BIOS'].version.split('.')[0],
         'REPLACE_SCRIPT': self._args.script,
-        'REPLACE_STABLE_FWID': self._args.stable_main_version,
-        'REPLACE_STABLE_ECID': self._args.stable_ec_version,
-        'REPLACE_STABLE_PDID': self._args.stable_pd_version,
+        'REPLACE_STABLE_FWID': stable_main_version,
+        'REPLACE_STABLE_ECID': stable_ec_version,
+        'REPLACE_STABLE_PDID': stable_pd_version,
     }
     rep = dict((re.escape(k), v) for k, v in replace_dict.iteritems())
     pattern = re.compile('|'.join(rep.keys()))
@@ -732,6 +737,7 @@ class FirmwarePacker(object):
     self._CopyBaseFiles(tool_base, tools, script)
     if extras:
       self._CopyExtraFiles(extras)
+    return image_files
 
   def Start(self, argv, remove_tmpdirs=True):
     """Handle the creation of a firmware shell-ball.
@@ -756,7 +762,7 @@ class FirmwarePacker(object):
       self._tmpdir = self._CreateTmpDir()
       self._AddFlashromVersion(tool_base)
       extras = args.extra.split(':') if args.extra else None
-      self._ProcessModel(
+      image_files = self._ProcessModel(
           model='',
           bios_image=args.bios_image,
           bios_rw_image=args.bios_rw_image,
@@ -768,7 +774,12 @@ class FirmwarePacker(object):
           tool_base=tool_base,
           script=args.script,
           extras=extras)
-      self._WriteUpdateScript()
+      self._WriteUpdateScript(
+          image_files=image_files,
+          script=args.script,
+          stable_main_version=args.stable_main_version,
+          stable_ec_version=args.stable_ec_version,
+          stable_pd_version=args.stable_pd_version)
       self._WriteVersionFile()
       self._BuildShellball()
       if not args.quiet:
