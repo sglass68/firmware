@@ -598,22 +598,26 @@ class FirmwarePacker(object):
         continue
       self._CopyFile(fname, self._basedir, CHMOD_ALL_EXEC)
 
-  def _CopyExtraFiles(self):
-    """Copy extra files, if any."""
-    if self._args.extra:
-      for extra in self._args.extra.split(':'):
-        if os.path.isdir(extra):
-          fnames = glob.glob(os.path.join(extra, '*'))
-          if not fnames:
-            raise PackError("cannot copy extra files from folder '%s'" %
-                            extra)
-          for fname in fnames:
-            self._CopyFile(fname, self._basedir)
-          print('Extra files from folder: %s' % extra,
-                file=self._versions)
-        else:
-          self._CopyFile(extra, self._basedir)
-          print('Extra file: %s' % extra, file=self._versions)
+  def _CopyExtraFiles(self, extras):
+    """Copy extra files into the base directory.
+
+    extras: List of extra files / directories to copy. If the item is a
+        directory, then the files in that directory are copied into the
+        base directory.
+    """
+    for extra in extras:
+      if os.path.isdir(extra):
+        fnames = glob.glob(os.path.join(extra, '*'))
+        if not fnames:
+          raise PackError("cannot copy extra files from folder '%s'" %
+                          extra)
+        for fname in fnames:
+          self._CopyFile(fname, self._basedir)
+        print('Extra files from folder: %s' % extra,
+              file=self._versions)
+      else:
+        self._CopyFile(extra, self._basedir)
+        print('Extra file: %s' % extra, file=self._versions)
 
   def _WriteUpdateScript(self):
     """Create and write the update script which will run on the device."""
@@ -690,7 +694,7 @@ class FirmwarePacker(object):
       self._AddFlashromVersion(tool_base)
       self._CopyFirmwareFiles()
       self._CopyBaseFiles(tool_base, args.tools.split(), args.script)
-      self._CopyExtraFiles()
+      self._CopyExtraFiles(args.extra.split(':') if args.extra else [])
       self._WriteUpdateScript()
       self._WriteVersionFile()
       self._BuildShellball()
