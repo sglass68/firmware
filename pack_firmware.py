@@ -631,16 +631,25 @@ class FirmwarePacker(object):
         self._CopyFile(extra, self._basedir)
         print('Extra file: %s' % extra, file=self._versions)
 
+  def _CreateVarsFromTemplate(self, infile, outfile, replace_dict):
+    with open(infile) as fd:
+      data = fd.read()
+    rep = dict((re.escape(k), v) for k, v in replace_dict.iteritems())
+    pattern = re.compile("|".join(rep.keys()))
+    data = pattern.sub(lambda m: rep[re.escape(m.group(0))], data)
+
+    with open(outfile, 'w') as fd:
+      fd.write(data)
+    os.chmod(outfile, os.stat(outfile).st_mode | 0555)
+
   def _WriteUpdateScript(self, image_files, script, stable_main_version,
                          stable_ec_version, stable_pd_version):
     """Create and write the update script which will run on the device."""
     empty = ImageFile(None, '')
-    with open(self._stub_file) as fd:
-      data = fd.read()
     bios_rw_version = image_files.get('BIOS (RW)', empty).version
     if not bios_rw_version:
       bios_rw_version = image_files['BIOS'].version
-    replace_dict = {
+    full_dict = {
         'REPLACE_RO_FWID': image_files['BIOS'].version,
         'REPLACE_FWID': bios_rw_version,
         'REPLACE_ECID': image_files.get('EC', empty).version or 'IGNORE',
@@ -648,19 +657,15 @@ class FirmwarePacker(object):
         # Set platform to first field of firmware version
         # (ex: Google_Link.1234 -> Google_Link).
         'REPLACE_PLATFORM': image_files['BIOS'].version.split('.')[0],
-        'REPLACE_SCRIPT': self._args.script,
         'REPLACE_STABLE_FWID': stable_main_version,
         'REPLACE_STABLE_ECID': stable_ec_version,
         'REPLACE_STABLE_PDID': stable_pd_version,
     }
-    rep = dict((re.escape(k), v) for k, v in replace_dict.iteritems())
-    pattern = re.compile('|'.join(rep.keys()))
-    data = pattern.sub(lambda m: rep[re.escape(m.group(0))], data)
-
-    fname = self._args.output
-    with open(fname, 'w') as fd:
-      fd.write(data)
-    os.chmod(fname, os.stat(fname).st_mode | 0555)
+    replace_dict = dict(full_dict)
+    replace_dict['REPLACE_SCRIPT'] = script
+    self._CreateVarsFromTemplate(self._stub_file, self._args.output,
+                                 replace_dict)
+    return full_dict
 
   def _WriteVersionFile(self):
     """Write out the VERSION file with our collected version information."""
