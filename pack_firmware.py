@@ -60,17 +60,6 @@ class FirmwarePacker(object):
 
   Private members:
     _args: Parsed arguments.
-    _bios_version: Version string for BIOS (can be empty if none).
-    _bios_rw_version: Version string for RW BIOS (can be empty if none).
-    _ec_version: Version string for EC. Can be empty or 'IGNORE' if there is
-        no EC firmware. Note from hungte@chromium.org: This is for backwards
-        compatibility with updater2.sh since reinauer@chromium.org wanted a
-        way to specify "we don't want to check version", which is useful for
-        firmware having developer/normal parts in different blobs.
-    _pd_version: Version string for PD. Can be empty or 'IGNORE' if there is
-        no PD firmware.
-        TODO(sjg@chromium.org): Do we have the same need for 'IGNORE' here?
-        PD firmware was not supported in updater2.sh.
     _pack_dist: Path to 'pack_dist' directory.
     _script_base: Base directory with useful files (src/platform/firmware).
     _stub_file: Path to 'pack_stub'.
@@ -87,10 +76,6 @@ class FirmwarePacker(object):
     # we can access the script files using the same path as the script.
     self._script_base = os.path.dirname(progname)
     self._args = None
-    self._bios_version = ''
-    self._bios_rw_version = ''
-    self._ec_version = 'IGNORE'
-    self._pd_version = 'IGNORE'
     self._pack_dist = os.path.join(self._script_base, 'pack_dist')
     self._stub_file = os.path.join(self._script_base, 'pack_stub')
     self._shflags_file = os.path.join(self._script_base, 'lib/shflags/shflags')
@@ -521,10 +506,10 @@ class FirmwarePacker(object):
     image_files = {}
     merge_bios_rw_image = self._args.merge_bios_rw_image
     if bios_image:
-      self._bios_version = self._ExtractFrid(bios_image)
-      self._bios_rw_version = self._bios_version
+      bios_version = self._ExtractFrid(bios_image)
+      bios_rw_version = bios_version
       shutil.copy2(bios_image, image_main)
-      image_files['BIOS'] = ImageFile(bios_image, self._bios_version)
+      image_files['BIOS'] = ImageFile(bios_image, bios_version)
     else:
       merge_bios_rw_image = False
 
@@ -535,20 +520,20 @@ class FirmwarePacker(object):
 
     if bios_rw_image:
       self._CheckRwFirmware(bios_rw_image)
-      self._bios_rw_version = self._ExtractFrid(bios_rw_image)
+      bios_rw_version = self._ExtractFrid(bios_rw_image)
       if merge_bios_rw_image:
         self._MergeRwFirmware(image_main, bios_rw_image)
       elif bios_rw_image != image_main_rw:
         shutil.copy2(bios_rw_image, image_main_rw)
-      image_files['BIOS (RW)'] = ImageFile(bios_rw_image, self._bios_rw_version)
+      image_files['BIOS (RW)'] = ImageFile(bios_rw_image, bios_rw_version)
     else:
       merge_bios_rw_image = False
 
     if ec_image:
-      self._ec_version = self._ExtractFrid(ec_image)
-      if not self._ec_version and default_ec_version:
-        self._ec_version = default_ec_version
-      image_files['EC'] = ImageFile(ec_image, self._ec_version)
+      ec_version = self._ExtractFrid(ec_image)
+      if not ec_version and default_ec_version:
+        ec_version = default_ec_version
+      image_files['EC'] = ImageFile(ec_image, ec_version)
       shutil.copy2(ec_image, image_ec)
       if merge_bios_rw_image:
         self._MergeRwEcFirmware(image_ec, image_main, 'ecrw')
@@ -556,8 +541,8 @@ class FirmwarePacker(object):
         image_files['EC (RW)'] = ImageFile(None, ec_rw_version)
 
     if pd_image:
-      self._pd_version = self._ExtractFrid(pd_image)
-      image_files['PD'] = ImageFile(pd_image, self._pd_version)
+      pd_version = self._ExtractFrid(pd_image)
+      image_files['PD'] = ImageFile(pd_image, pd_version)
       shutil.copy2(pd_image, image_pd)
       if merge_bios_rw_image:
         self._MergeRwEcFirmware(image_pd, image_main, 'pdrw')
@@ -741,8 +726,6 @@ class FirmwarePacker(object):
       PackError if any error occurs.
     """
     args = self._args = self.ParseArgs(argv)
-    if args.ec_version:
-      self._ec_version = args.ec_version
 
     self._EnsureCommand('shar', 'sharutils')
     if not os.path.exists(self._stub_file):
