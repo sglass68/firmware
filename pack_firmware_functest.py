@@ -163,7 +163,8 @@ class TestFunctional(unittest.TestCase):
   def testFirmwareUpdate(self):
     """Run the firmware packer, unpack the result and check it."""
     extra_args = ['-b', os.path.join(self.indir, 'image.bin'),
-                  '--stable_main_version', REEF_STABLE_MAIN_VERSION]
+                  '--stable_main_version', REEF_STABLE_MAIN_VERSION,
+                  '--script', UPDATER]
     outfile, files, versions = self._RunPackFirmware(extra_args)
 
     # Check that we got the right files.

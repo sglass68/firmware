@@ -255,6 +255,10 @@ class TestUnit(unittest.TestCase):
       rc.AddCmdResult(partial_mock.ListRegex('dump_fmap'), returncode=0)
       self.assertEqual(RO_FRID, self.packer._ExtractFrid('image.bin'))
 
+  def testBaseFilename(self):
+    self.packer._basedir = 'base'
+    self.assertEqual('base/fred', self.packer._BaseDirPath('fred'))
+
   def _AddMocks(self, rc):
     def _CopySections(_, **kwargs):
       destdir = kwargs['cwd']
@@ -264,7 +268,7 @@ class TestUnit(unittest.TestCase):
     rc.AddCmdResult(partial_mock.Regex('type shar'), returncode=0)
     rc.AddCmdResult(partial_mock.ListRegex('file'), returncode=0,
                     output='ELF 64-bit LSB executable, etc.\n')
-    rc.AddCmdResult(partial_mock.ListRegex('dump_fmap -x test/image.bin'),
+    rc.AddCmdResult(partial_mock.ListRegex('dump_fmap -x .*image.bin'),
                     side_effect=_CopySections, returncode=0)
     rc.AddCmdResult(partial_mock.ListRegex('gbb_utility'), returncode=0,
                     output=' - exported root_key to file: rootkey.bin')
@@ -361,6 +365,27 @@ class TestUnit(unittest.TestCase):
       self.assertEqual(15, len(result))
       self.assertIn(RO_FRID, self._FindLineInList(result, 'EC version'))
       self.assertIn(RW_FRID, self._FindLineInList(result, 'EC (RW) version'))
+
+  def testMockedRunUnibuildBad(self):
+    """Try unified build options with invalid arguments."""
+
+    args = ['.', '-m', 'reef', '-o', 'output', '--tool_base', 'test']
+    with self.assertRaises(pack_firmware.PackError) as e:
+      pack_firmware.main(args)
+    self.assertIn("Missing master configuration file", str(e.exception))
+
+  def testMockedRunWithUnibuild(self):
+    """Start up with a valid updater script and BIOS."""
+
+    args = ['.', '-m', 'reef', '-m', 'pyro', '-q', '-o' 'out',
+            '-c', 'test/config.dtb', '--tool_base', 'test',
+            '--tools', 'flashrom dump_fmap', '-i', 'functest']
+    os.environ['SYSROOT'] = 'test'
+    os.environ['FILESDIR'] = 'test'
+    with cros_build_lib_unittest.RunCommandMock() as rc:
+      self._AddMocks(rc)
+      pack_firmware.main(args)
+      pack_firmware.packer._versions.getvalue().splitlines()
 
   def _FindLineInList(self, lines, start_text):
     """Helper to find a single line starting with the given text and return it.
