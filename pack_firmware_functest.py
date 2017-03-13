@@ -54,7 +54,7 @@ class TestFunctional(unittest.TestCase):
     self.unpackdir = tempfile.mkdtemp(tmp_base)
     self.packer._force_dash = True
 
-  def _ExpectedFiles(self, extra_files):
+  def _ExpectedFiles(self, extra_files, models=[]):
     """Get a sorted list of files that we expect to see in the shellball.
 
     Args:
@@ -69,6 +69,10 @@ class TestFunctional(unittest.TestCase):
     expected_files.append(UPDATER)
     if extra_files:
       expected_files += extra_files
+    for model in models:
+      expected_files.append(os.path.join(model, 'bios.bin'))
+      expected_files.append(os.path.join(model, 'ec.bin'))
+      expected_files.append(os.path.join(model, 'setvars.sh'))
     return sorted(expected_files)
 
   def _RunScript(self, outfile, hwid, stable_main_version):
@@ -101,6 +105,19 @@ class TestFunctional(unittest.TestCase):
               if not line.startswith(' (DEBUG')]
     self.assertEqual(errors, [])
 
+  def _ReadVersions(self, fname):
+    with open(fname) as fd:
+      lines = fd.read(1000).splitlines()[:30]
+    lines = [line.strip() for line in lines
+             if line.strip().startswith('TARGET') or
+             line.strip().startswith('STABLE') or
+             line.startswith('UNIBUILD')]
+    versions = {}
+    for line in lines:
+      varname, value = line.split('=')
+      versions[varname] = value[1:-1]
+    return versions
+
   def _RunPackFirmware(self, extra_args):
     """Run the FirmwarePacker process and read the resulting shellball.
 
@@ -128,6 +145,8 @@ class TestFunctional(unittest.TestCase):
     ]
 
     # Create the shellball, extract it, and get a list of files it contains.
+    os.environ['SYSROOT'] = 'test'
+    os.environ['FILESDIR'] = 'test'
     self.packer.Start(argv)
     cros_build_lib.RunCommand([outfile, '--sb_extract', self.unpackdir],
                               quiet=True, mute_output=True)
@@ -138,16 +157,7 @@ class TestFunctional(unittest.TestCase):
         files.append(rel_path)
 
     # Read the start of the script to get the version information.
-    with open(outfile) as fd:
-      lines = fd.read(1000).splitlines()[:30]
-    lines = [line.strip() for line in lines
-             if line.strip().startswith('TARGET') or
-             line.strip().startswith('STABLE') or
-             line.startswith('UNIBUILD')]
-    versions = {}
-    for line in lines:
-      varname, value = line.split('=')
-      versions[varname] = value[1:-1]
+    versions = self._ReadVersions(outfile)
     return outfile, sorted(files), versions
 
   def testFirmwareUpdate(self):
@@ -190,6 +200,60 @@ class TestFunctional(unittest.TestCase):
 
     # Run the shellball to make sure we can do a fake autoupdate.
     self._RunScript(outfile, REEF_HWID, REEF_STABLE_MAIN_VERSION)
+
+  def testFirmwareUpdateUnibuild(self):
+    """Run the firmware packer, unpack the result and check it."""
+    models = ['reef', 'pyro']
+    extra_args = [
+        '-m', 'reef', '-m', 'pyro', '-c', 'test/config.dtb', '-i', 'functest']
+    outfile, files, versions = self._RunPackFirmware(extra_args)
+
+    self.assertEqual(22, len(files))
+    self.assertEqual(self._ExpectedFiles(
+        ['fake_extra_tool', 'ectool', 'image.bin'], models), files)
+    with open(os.path.join(self.unpackdir, 'VERSION')) as fd:
+      lines = fd.read().splitlines()
+    self.assertEqual(18, len(lines))
+    self.assertEqual('flashrom(8): dad068d5533fbfca9fdf42054a1ca26c '
+                     '*%s/functest/flashrom' % self.basedir, lines[1])
+    self.assertEqual('             data', lines[2])
+    self.assertEqual('             0.9.4  : 1bb61e1 : Feb 07 2017 18:29:17 UTC',
+                     lines[3])
+    self.assertEqual('', lines[4])
+
+    self.assertIn('reef/image.bin', lines[5])
+    self.assertEqual('BIOS version: Google_Reef.9042.50.0', lines[6])
+    self.assertIn('/reef/ec.bin', lines[7])
+    self.assertEqual('EC version:   reef_v1.1.5857-77f6ed7', lines[8])
+    self.assertEqual('Extra files from folder: test/extra', lines[9])
+    self.assertEqual('Extra file: test/usr/sbin/ectool', lines[10])
+    self.assertIn('Extra BCS file: bcs://Reef.9000.0.0.tbz2: /tmp', lines[11])
+
+    self.assertIn('pyro/image.bin', lines[13])
+    self.assertEqual('BIOS version: Google_Pyro.9042.41.0', lines[14])
+    self.assertIn('/pyro/ec.bin', lines[15])
+    self.assertEqual('EC version:   pyro_v1.1.5840-f0d7761', lines[16])
+
+    self.assertEqual('yes', versions['UNIBUILD'])
+
+    versions = self._ReadVersions(os.path.join(self.unpackdir,
+                                               'reef/setvars.sh'))
+    self.assertEqual(8, len(versions))
+    self.assertEqual('Google_Reef.9042.50.0', versions['TARGET_FWID'])
+    self.assertEqual('Google_Reef.9042.50.0', versions['TARGET_RO_FWID'])
+    self.assertEqual('reef_v1.1.5857-77f6ed7', versions['TARGET_ECID'])
+
+    # TODO(sjg@chromium.org): Better if this is an empty string?
+    self.assertEqual('IGNORE', versions['TARGET_PDID'])
+    self.assertEqual('Google_Reef.9042.43.0', versions['STABLE_FWID'])
+    self.assertEqual('reef-v1.1.5840-f0d7761', versions['STABLE_ECID'])
+    self.assertEqual('', versions['STABLE_PDID'])
+    self.assertEqual('Google_Reef', versions['TARGET_PLATFORM'])
+
+    # Run the firmware update for Reef and Pyro.
+    self._RunScript(outfile, REEF_HWID, REEF_STABLE_MAIN_VERSION)
+    self._RunScript(outfile, 'Pyro C25-R45-W23-H63-M33',
+                    'Google_Pyro.9021.00.0')
 
   def tearDown(self):
     """Remove temporary directories"""
