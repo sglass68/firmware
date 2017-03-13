@@ -24,10 +24,15 @@ import shutil
 import struct
 import sys
 from StringIO import StringIO
+import tarfile
 import tempfile
 
 from chromite.lib import cros_build_lib
 from chromite.lib import osutils
+
+sys.path.append('/home/sglass/cosarm/dtc/pylibfdt')
+sys.path.append('/home/sjg/c/dtc/pylibfdt')
+import libfdt
 
 sys.path.append('utils')
 import merge_file
@@ -80,6 +85,8 @@ class FirmwarePacker(object):
     self._args = None
     self._pack_dist = os.path.join(self._script_base, 'pack_dist')
     self._stub_file = os.path.join(self._script_base, 'pack_stub')
+    self._setvars_template_file = os.path.join(self._script_base,
+                                               'setvars_template')
     self._shflags_file = os.path.join(self._script_base, 'lib/shflags/shflags')
     self._testing = False
     self._basedir = None
@@ -101,6 +108,20 @@ class FirmwarePacker(object):
     """
     parser = argparse.ArgumentParser(
         description='Produce a firmware update shell-ball')
+    parser.add_argument('-m', '--model', type=str, dest='models',
+                        action='append',
+                        help='Model name to include in firmware update')
+    parser.add_argument('-c', '--config', type=str,
+                        help='Filename of master configuration .dtb file')
+    parser.add_argument(
+        '-l', '--local', action='store_true',
+        help='Build a local firmware image. With this option you must provide '
+             '-b, -e and -p flags to indicate where to find the images for '
+             'each model. You can use MODEL in the filenames as a placeholder '
+             'for the model name. For example '
+             '-b "${root}/firmware/image-MODEL.bin"')
+    parser.add_argument('-i', '--imagedir', type=str, default='.',
+                        help='Default locations for source images')
     parser.add_argument('-b', '--bios_image', type=str,
                         help='Path of input AP (BIOS) firmware image')
     parser.add_argument('-w', '--bios_rw_image', type=str,
@@ -223,7 +244,7 @@ class FirmwarePacker(object):
     digest = md5.new()
     digest.update(data)
     result = cros_build_lib.RunCommand(['file', '-b', flashrom], quiet=True)
-    print('\nflashrom(8): %s *%s\n             %s\n             %s\n' %
+    print('\nflashrom(8): %s *%s\n             %s\n             %s' %
           (digest.hexdigest(), flashrom, result.output.strip(), version),
           file=self._versions)
 
@@ -564,9 +585,22 @@ class FirmwarePacker(object):
         key: Image type (e.g. 'BIOS').
         value: ImageFile object containing filename and version.
     """
+    print(file=self._versions)
     for name in sorted(image_files.keys()):
       image_file = image_files[name]
       self._AddVersionInfo(name, image_file.filename, image_file.version)
+
+  def _UntarFile(self, pathname, dst_dirname):
+    with tarfile.open(pathname) as tar:
+      members = tar.getmembers()
+      if len(members) != 1:
+        raise PackError("Expected 1 member in file '%s' but found %d" %
+                        (pathname, len(members)))
+      if '..' in members[0].name or '/' in members[0].name:
+        raise PackError("Tar file '%s' member '%s' should be a simple name" %
+                        (pathname, members[0].name))
+      tar.extractall(dst_dirname, members)
+      return os.path.join(dst_dirname, members[0].name)
 
   def _CopyFile(self, src, dst, mode=CHMOD_ALL_READ):
     """Copy a file (to another file or into a directory) and set its mode.
@@ -631,24 +665,16 @@ class FirmwarePacker(object):
           self._CopyFile(fname, self._basedir)
         print('Extra files from folder: %s' % extra,
               file=self._versions)
+      elif extra.startswith('bcs://'):
+        src = os.path.join(self._args.imagedir, extra.replace('bcs://', ''))
+        fname = self._UntarFile(src, self._basedir)
+        print("Extra BCS file: %s: %s" % (extra, fname), file=self._versions)
       else:
         self._CopyFile(extra, self._basedir)
         print('Extra file: %s' % extra, file=self._versions)
 
-  def _CreateVarsFromTemplate(self, infile, outfile, replace_dict):
-    with open(infile) as fd:
-      data = fd.read()
-    rep = dict((re.escape(k), v) for k, v in replace_dict.iteritems())
-    pattern = re.compile("|".join(rep.keys()))
-    data = pattern.sub(lambda m: rep[re.escape(m.group(0))], data)
-
-    with open(outfile, 'w') as fd:
-      fd.write(data)
-    os.chmod(outfile, os.stat(outfile).st_mode | 0555)
-
-  def _WriteUpdateScript(self, image_files, script, stable_main_version,
-                         stable_ec_version, stable_pd_version):
-    """Create and write the update script which will run on the device."""
+  def _GetReplaceDict(self, image_files, stable_main_version, stable_ec_version,
+                      stable_pd_version):
     empty = ImageFile(None, '')
     bios_rw_version = image_files.get('BIOS (RW)', empty).version
     if not bios_rw_version:
@@ -665,10 +691,34 @@ class FirmwarePacker(object):
         'REPLACE_STABLE_ECID': stable_ec_version,
         'REPLACE_STABLE_PDID': stable_pd_version,
     }
+    return full_dict
+
+  def _CreateVarsFromTemplate(self, infile, outfile, replace_dict, unibuild):
+    with open(infile) as fd:
+      data = fd.read()
+    rep = dict((re.escape(k), v) for k, v in replace_dict.iteritems())
+    pattern = re.compile("|".join(rep.keys()))
+    data = pattern.sub(lambda m: rep[re.escape(m.group(0))], data)
+
+    if unibuild:
+      data = re.sub('UNIBUILD=', 'UNIBUILD="yes"', data)
+
+    with open(outfile, 'w') as fd:
+      fd.write(data)
+    os.chmod(outfile, os.stat(outfile).st_mode | 0555)
+
+  def _WriteUpdateScript(self, image_files, script, stable_main_version,
+                         stable_ec_version, stable_pd_version, unibuild):
+    """Create and write the update script which will run on the device."""
+    full_dict = self._GetReplaceDict(image_files, stable_main_version,
+                                     stable_ec_version, stable_pd_version)
     replace_dict = dict(full_dict)
+    if unibuild:
+      for key in replace_dict:
+        replace_dict[key] = '<unused with unified builds>'
     replace_dict['REPLACE_SCRIPT'] = script
     self._CreateVarsFromTemplate(self._stub_file, self._args.output,
-                                 replace_dict)
+                                 replace_dict, unibuild)
     return full_dict
 
   def _WriteVersionFile(self):
@@ -684,7 +734,7 @@ class FirmwarePacker(object):
     """
     cros_build_lib.RunCommand(
         ['sh', self._args.output, '--sb_repack', self._basedir],
-        mute_output=False)
+        quiet=self._args.quiet, mute_output=not self._args.quiet)
     if not self._args.quiet:
       for fname in glob.glob(self._BaseDirPath('VERSION*')):
         with open(fname) as fd:
@@ -748,6 +798,38 @@ class FirmwarePacker(object):
     Raises:
       PackError if any error occurs.
     """
+    def _GetString(fdt, node, prop_name):
+      prop = fdt.getprop(node, prop_name, libfdt.QUIET_NOTFOUND)
+      if type(prop) == int or prop[-1]:
+        return ''
+      return str(prop[:-1])
+
+    def _GetStringList(node, prop_name):
+      prop = fdt.getprop(node, prop_name, libfdt.QUIET_NOTFOUND)
+      if type(prop) == int or prop[-1]:
+        return []
+      return str(prop[:-1]).split('\0')
+
+    def _GetBool(node, prop_name):
+      prop = fdt.getprop(node, prop_name, libfdt.QUIET_NOTFOUND)
+      if type(prop) == int:
+        return False
+      return True
+
+    def _GetFilename(fdt, node, prop_name):
+      uri = _GetString(fdt, node, prop_name)
+      if not uri:
+        return ''
+      return uri.replace('bcs://', '')
+
+    def _ExtractFile(fdt, model, node, dirname, prop_name, fname_template):
+      fname = _GetFilename(fdt, node, prop_name)
+      if not fname:
+        return None
+      if self._args.local:
+        return fname_template.replace('MODEL', model)
+      return self._UntarFile(os.path.join(self._args.imagedir, fname), dirname)
+
     args = self._args = self.ParseArgs(argv)
 
     self._EnsureCommand('shar', 'sharutils')
@@ -760,25 +842,99 @@ class FirmwarePacker(object):
       self._basedir = self._CreateTmpDir()
       self._tmpdir = self._CreateTmpDir()
       self._AddFlashromVersion(tool_base)
-      extras = args.extra.split(':') if args.extra else None
-      image_files = self._ProcessModel(
-          model='',
-          bios_image=args.bios_image,
-          bios_rw_image=args.bios_rw_image,
-          ec_image=args.ec_image,
-          pd_image=args.pd_image,
-          default_ec_version=args.ec_version,
-          create_bios_rw_image=args.create_bios_rw_image,
-          tools=args.tools.split(),
-          tool_base=tool_base,
-          script=args.script,
-          extras=extras)
+      if args.models:
+        # Most of the arguments are meaningless with unified builds since we
+        # get the information from the master configuration. Add checks here
+        # to avoid confusion. We could possibly do some of this using
+        # mutual exclusivity in the argparser, but I'm not sure it is better.
+        image_args = [args.bios_image, args.ec_image, args.pd_image]
+        if any(image_args) and not args.local:
+          raise PackError('Cannot use -b/-p/-e with -m')
+        elif args.local and not all(image_args):
+          raise PackError('Must provide -b, -e, -p with -l')
+        if args.create_bios_rw_image:
+          raise PackError('Cannot use --create_bios_rw_image with -m')
+        if (args.stable_main_version or args.stable_ec_version or
+            args.stable_pd_version):
+          raise PackError('Cannot set stable versions with -m')
+        if args.ec_version:
+          raise PackError('Cannot use --ec_version with -m')
+        if not args.config:
+          raise PackError('Missing master configuration file (use -c)')
+
+        # Use this FDT fallback library for now. We will replace this with an
+        # upstream libfdt version when it is available. which should be in 2017.
+        fdt = libfdt.Fdt(open(args.config).read())
+        models_node = fdt.path_offset('/chromeos/models')
+        for model in args.models:
+          node = fdt.path_offset('/chromeos/models/%s/firmware' % model)
+          os.mkdir(self._BaseDirPath(model))
+
+          # Put all model files in a separate subdirectory.
+          dirname = os.path.join(self._tmpdir, model)
+          if not os.path.exists(dirname):
+            os.mkdir(dirname)
+          bios_image = _ExtractFile(fdt, model, node, dirname, 'main-image',
+                                    args.bios_image)
+          bios_rw_image = _ExtractFile(fdt, model, node, dirname,
+                                       'main-rw-image', None)
+          ec_image = _ExtractFile(fdt, model, node, dirname, 'ec-image',
+                                  args.ec_image)
+          pd_image = _ExtractFile(fdt, model, node, dirname, 'pd-image',
+                                  args.pd_image)
+          extras = _GetStringList(node, 'extra')
+          if extras:
+            extras = [os.path.expandvars(extra) for extra in extras]
+          create_bios_rw_image = _GetBool(node, 'create-bios-rw-image')
+          if args.local:
+            create_bios_rw_image = False
+
+          tools = _GetStringList(node, 'tools')
+          for tool in args.tools.split():
+            tools.append(tool)
+
+          image_files = self._ProcessModel(
+              bios_image=bios_image,
+              bios_rw_image=bios_rw_image,
+              ec_image=ec_image,
+              pd_image=pd_image,
+              default_ec_version='',
+              create_bios_rw_image=create_bios_rw_image,
+              tools=tools,
+              tool_base=tool_base,
+              script=_GetString(fdt, node, 'script'),
+              extras=extras,
+              model=model)
+          replace_dict = self._GetReplaceDict(
+              image_files=image_files,
+              stable_main_version=_GetString(fdt, node, 'stable-main-version'),
+              stable_ec_version=_GetString(fdt, node, 'stable-ec-version'),
+              stable_pd_version=_GetString(fdt, node, 'stable-pd-version'))
+          replace_dict['REPLACE_MODEL'] = model
+          fname = os.path.join(self._basedir, model, 'setvars.sh')
+          self._CreateVarsFromTemplate(self._setvars_template_file, fname,
+                                       replace_dict, True)
+      else:
+        extras = args.extra.split(':') if args.extra else None
+        image_files = self._ProcessModel(
+            model='',
+            bios_image=args.bios_image,
+            bios_rw_image=args.bios_rw_image,
+            ec_image=args.ec_image,
+            pd_image=args.pd_image,
+            default_ec_version=args.ec_version,
+            create_bios_rw_image=args.create_bios_rw_image,
+            tools=args.tools.split(),
+            tool_base=tool_base,
+            script=args.script,
+            extras=extras)
       self._WriteUpdateScript(
           image_files=image_files,
           script=args.script,
           stable_main_version=args.stable_main_version,
           stable_ec_version=args.stable_ec_version,
-          stable_pd_version=args.stable_pd_version)
+          stable_pd_version=args.stable_pd_version,
+          unibuild=args.models is not None)
       self._WriteVersionFile()
       self._BuildShellball()
       if not args.quiet:
