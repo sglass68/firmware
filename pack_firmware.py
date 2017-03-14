@@ -460,7 +460,7 @@ class FirmwarePacker(object):
       ecrw_fname: Filename to put EC binary into (relative or absolute path).
     """
     cros_build_lib.RunCommand(
-        ['cbfstool', fname, 'extract', '-n', cbfs_name, '-f', ecrw_fname, 'r',
+        ['cbfstool', fname, 'extract', '-n', cbfs_name, '-f', ecrw_fname, '-r',
          'FW_MAIN_A'], quiet=True, cwd=self._tmpdir)
 
   def _ExtractEcRw(self, fname, cbfs_name, ecrw_fname):
