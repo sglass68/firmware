@@ -707,9 +707,8 @@ class FirmwarePacker(object):
         'REPLACE_STABLE_ECID': stable_ec_version,
         'REPLACE_STABLE_PDID': stable_pd_version,
     }
-    return full_dict
 
-  def _CreateFileFromTemplate(self, infile, outfile, replace_dict):
+  def _CreateFileFromTemplate(self, infile, outfile, replace_dict, unibuild):
     """Create a new file based on a template and some string replacements.
 
     Args:
@@ -718,6 +717,8 @@ class FirmwarePacker(object):
       replace_dict: Dict with:
           key: String to replace.
           value: Value to replace with.
+      unibuild: True if this is for a unified build, in which case the UNIBUILD
+          variable will be set to 'yes' in outfile.
     """
     with open(infile) as fd:
       data = fd.read()
@@ -725,11 +726,14 @@ class FirmwarePacker(object):
     pattern = re.compile("|".join(rep.keys()))
     data = pattern.sub(lambda m: rep[re.escape(m.group(0))], data)
 
+    if unibuild:
+      data = re.sub('UNIBUILD=', 'UNIBUILD="yes"', data)
+
     with open(outfile, 'w') as fd:
       fd.write(data)
     os.chmod(outfile, os.stat(outfile).st_mode | 0555)
 
-  def _WriteUpdateScript(self, script, replace_dict):
+  def _WriteUpdateScript(self, script, replace_dict, unibuild):
     """Create and write the update script which will run on the device.
 
     This generates the beginnings of the output file (shellball) based on the
@@ -743,10 +747,16 @@ class FirmwarePacker(object):
       replace_dict: Modified by this function to add the script. Dict with:
           key: String to replace.
           value: Value to replace with.
+      unibuild: True if this is for a unified build, in which case the UNIBUILD
+          variable will be set to 'yes' in the output and the other
+          replacements will be marked unused.
     """
+    if unibuild:
+      for key in replace_dict:
+        replace_dict[key] = '<unused with unified builds>'
     replace_dict['REPLACE_SCRIPT'] = script
     self._CreateFileFromTemplate(self._stub_file, self._args.output,
-                                 replace_dict)
+                                 replace_dict, unibuild)
 
   def _WriteVersionFile(self):
     """Write out the VERSION file with our collected version information."""
@@ -852,7 +862,7 @@ class FirmwarePacker(object):
       replace_dict = self._GetReplaceDict(image_files, args.stable_main_version,
                                           args.stable_ec_version,
                                           args.stable_pd_version)
-      self._WriteUpdateScript(args.script, replace_dict)
+      self._WriteUpdateScript(args.script, replace_dict, unibuild=False)
       self._WriteVersionFile()
       self._BuildShellball()
       if not args.quiet:
