@@ -724,8 +724,7 @@ class FirmwarePacker(object):
       fd.write(data)
     os.chmod(outfile, os.stat(outfile).st_mode | 0555)
 
-  def _WriteUpdateScript(self, image_files, script, stable_main_version,
-                         stable_ec_version, stable_pd_version):
+  def _WriteUpdateScript(self, script, replace_dict):
     """Create and write the update script which will run on the device.
 
     This generates the beginnings of the output file (shellball) based on the
@@ -735,21 +734,14 @@ class FirmwarePacker(object):
     of the settings.
 
     Args:
-      image_files: Dict with:
-          key: Image type (e.g. 'BIOS').
-          value: ImageFile object containing filename and version.
       script: Filename of update script being used (e.g. 'updater4.sh').
-      stable_main_version: Version name of stable main firmware, or None.
-      stable_ec_version: Version name of stable EC firmware, or None.
-      stable_pd_version: Version name of stable PD firmware, or None.
+      replace_dict: Modified by this function to add the script. Dict with:
+          key: String to replace.
+          value: Value to replace with.
     """
-    full_dict = self._GetReplaceDict(image_files, stable_main_version,
-                                     stable_ec_version, stable_pd_version)
-    replace_dict = dict(full_dict)
     replace_dict['REPLACE_SCRIPT'] = script
     self._CreateFileFromTemplate(self._stub_file, self._args.output,
                                  replace_dict)
-    return full_dict
 
   def _WriteVersionFile(self):
     """Write out the VERSION file with our collected version information."""
@@ -852,12 +844,10 @@ class FirmwarePacker(object):
           tool_base=tool_base,
           script=args.script,
           extras=args.extra.split(':') if args.extra else [])
-      self._WriteUpdateScript(
-          image_files=image_files,
-          script=args.script,
-          stable_main_version=args.stable_main_version,
-          stable_ec_version=args.stable_ec_version,
-          stable_pd_version=args.stable_pd_version)
+      replace_dict = self._GetReplaceDict(image_files, args.stable_main_version,
+                                          args.stable_ec_version,
+                                          args.stable_pd_version)
+      self._WriteUpdateScript(args.script, replace_dict)
       self._WriteVersionFile()
       self._BuildShellball()
       if not args.quiet:
