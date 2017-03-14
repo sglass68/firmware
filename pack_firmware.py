@@ -221,7 +221,7 @@ class FirmwarePacker(object):
     digest = md5.new()
     digest.update(data)
     result = cros_build_lib.RunCommand(['file', '-b', flashrom], quiet=True)
-    print('\nflashrom(8): %s *%s\n             %s\n             %s\n' %
+    print('\nflashrom(8): %s *%s\n             %s\n             %s' %
           (digest.hexdigest(), flashrom, result.output.strip(), version),
           file=self._versions)
 
@@ -573,6 +573,7 @@ class FirmwarePacker(object):
         key: Image type (e.g. 'BIOS').
         value: ImageFile object containing filename and version.
     """
+    print(file=self._versions)  # Blank line.
     for name in sorted(image_files.keys()):
       image_file = image_files[name]
       self._AddVersionInfo(name, image_file.filename, image_file.version)
