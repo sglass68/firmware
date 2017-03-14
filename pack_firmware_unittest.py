@@ -360,6 +360,60 @@ class TestUnit(unittest.TestCase):
     self.packer._basedir = 'base'
     self.assertEqual('base/fred', self.packer._BaseDirPath('fred'))
 
+  def _SetUpConfigNode(self):
+    """Set up ready our test configuration ready for use.
+
+    Returns:
+      Integer offset of the firmware node.
+    """
+    self.packer._SetUpConfig('test/config.dtb')
+    return self.packer._config.path_offset('/chromeos/models/reef/firmware')
+
+  def testGetString(self):
+    """Check that we can read strings from the master configuration."""
+    node = self._SetUpConfigNode()
+    self.assertEqual(self.packer._GetString(node, 'bcs-overlay'),
+                     'overlay-reef-private')
+    self.assertEqual(self.packer._GetString(node, 'missing'), '')
+
+  def testGetStringList(self):
+    """Check that we can read string lists from the master configuration."""
+    node = self._SetUpConfigNode()
+    self.assertEqual(self.packer._GetStringList(node, 'extra'),
+                     ['${FILESDIR}/extra', '${SYSROOT}/usr/sbin/ectool',
+                      'bcs://Reef.9000.0.0.tbz2'])
+    self.assertEqual(self.packer._GetStringList(node, 'missing'), [])
+
+  def testGetBool(self):
+    """Check that we can read booleans from the master configuration."""
+    node = self._SetUpConfigNode()
+    self.assertEqual(self.packer._GetBool(node, 'script'), True)
+    self.assertEqual(self.packer._GetBool(node, 'missing'), False)
+
+  def testExtractFileLocal(self):
+    """Test handling file extraction based on a configuration property,"""
+    self.packer._args = self.packer.ParseArgs(['-l'])
+    self.assertEqual(
+        self.packer._ExtractFile('reef', 'test/MODEL-files/MODEL_fake_extra',
+                                 None, None, None),
+        'test/reef-files/reef_fake_extra')
+
+  def testExtractFileBcs(self):
+    """Test handling file extraction based on a configuration property,"""
+    self.packer._args = self.packer.ParseArgs(['--imagedir', 'functest'])
+    dirname = self.packer._CreateTmpDir()
+    node = self._SetUpConfigNode()
+
+    # This should look up main-image, find that file in functest/, copy it to
+    # our directory and return its filename.
+    self.assertEqual(
+        self.packer._ExtractFile(None, None, node, 'main-image', dirname),
+        os.path.join(dirname, 'image.bin'))
+    self.assertEqual(
+        self.packer._ExtractFile(None, None, node, 'ec-image', dirname),
+        os.path.join(dirname, 'ec.bin'))
+    self.packer._RemoveTmpdirs()
+
   def _AddMocks(self, rc):
     def _CopySections(_, **kwargs):
       destdir = kwargs['cwd']

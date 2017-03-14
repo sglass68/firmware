@@ -30,6 +30,8 @@ import tempfile
 from chromite.lib import cros_build_lib
 from chromite.lib import osutils
 
+import libfdt
+
 sys.path.append('utils')
 import merge_file
 
@@ -73,6 +75,7 @@ class FirmwarePacker(object):
     _versions: Collected version information (StringIO).
     _force_dash: Replace the /bin/sh shebang at the top of all scripts with
         /bin/dash. This is only used for testing.
+    _config: Master configuration file Fdt object.
   """
 
   def __init__(self, progname):
@@ -89,6 +92,7 @@ class FirmwarePacker(object):
     self._tmp_dirs = []
     self._versions = StringIO()
     self._force_dash = False
+    self._config = None
 
   def ParseArgs(self, argv):
     """Parse the available arguments.
@@ -103,6 +107,15 @@ class FirmwarePacker(object):
     """
     parser = argparse.ArgumentParser(
         description='Produce a firmware update shell-ball')
+    parser.add_argument('-c', '--config', type=str,
+                        help='Filename of master configuration .dtb file')
+    parser.add_argument(
+        '-l', '--local', action='store_true',
+        help='Build a local firmware image. With this option you must provide '
+             '-b, -e and -p flags to indicate where to find the images for '
+             'each model. You can use MODEL in the filenames as a placeholder '
+             'for the model name. For example '
+             '-b "${root}/firmware/image-MODEL.bin"')
     parser.add_argument('-i', '--imagedir', type=str, default='.',
                         help='Default locations for source images')
     parser.add_argument('-b', '--bios_image', type=str,
@@ -848,6 +861,89 @@ class FirmwarePacker(object):
     if extras:
       self._CopyExtraFiles(extras)
     return image_files
+
+  def _SetUpConfig(self, fname):
+    """Set up the master configuration ready for use.
+
+    Args:
+      fname: Filename of master configuration.
+    """
+    self._config = libfdt.Fdt(open(fname).read())
+
+  def _GetString(self, node, prop_name):
+    """Get a string from a node in the master configuration.
+
+    Args:
+      node: Integer offset of node to read.
+      prop_name: Property name within that node to read.
+
+    Returns:
+      Value of property as a string, or ''.
+    """
+    prop = self._config.getprop(node, prop_name, libfdt.QUIET_NOTFOUND)
+    if type(prop) == int or prop[-1]:
+      return ''
+    return str(prop[:-1])
+
+  def _GetStringList(self, node, prop_name):
+    """Get a string list from a node in the master configuration.
+
+    Args:
+      node: Integer offset of node to read.
+      prop_name: Property name within that node to read.
+
+    Returns:
+      Value of property as a list of strings, which may be empty.
+    """
+    prop = self._config.getprop(node, prop_name, libfdt.QUIET_NOTFOUND)
+    if type(prop) == int or prop[-1]:
+      return []
+    return str(prop[:-1]).split('\0')
+
+  def _GetBool(self, node, prop_name):
+    """Get a boolean value from a node in the master configuration.
+
+    Args:
+      node: Integer offset of node to read.
+      prop_name: Property name within that node to read.
+
+    Returns:
+      True if the property is True (i.e. present), else False.
+    """
+    prop = self._config.getprop(node, prop_name, libfdt.QUIET_NOTFOUND)
+    if type(prop) == int:
+      return False
+    return True
+
+  def _ExtractFile(self, model, fname_template, node, prop_name, dirname):
+    """Obtain a file based on provided information.
+
+    This obtains the file in one of two ways:
+      - if we are building local firmware, it creates a filename using the
+          provided template, with MODEL replaced with the current model. This
+          is used to build a firmware update from the firmware ebuilds.
+      - otherwise it finds a tar file, unpacks it and returns the filename of
+          the resulting unpacked file. There is only one file in the archive.
+          This is used to build a firmware update from the configured firmware
+          versions, downloaded from BCS.
+
+    Args:
+      model: Model name being processed (e.g. 'reef').
+      fname_template: Filename template to use in local model.
+      node: Integer offset of node to read.
+      prop_name: Property name in that node which contains the image path.
+      dirname: Output directory where the unpacked file should be placed.
+
+    Returns:
+      Filename of the resulting image file.
+    """
+    if self._args.local:
+      return fname_template.replace('MODEL', model)
+    uri = self._GetString(node, prop_name)
+    if not uri:
+      return None
+    fname = uri.replace('bcs://', '')
+    return self._UntarFile(os.path.join(self._args.imagedir, fname), dirname)
 
   def Start(self, argv, remove_tmpdirs=True):
     """Handle the creation of a firmware shell-ball.
