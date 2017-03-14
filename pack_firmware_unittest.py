@@ -10,6 +10,7 @@ This mocks out all tools so it can run fairly quickly.
 from __future__ import print_function
 
 from contextlib import contextmanager
+import glob
 import mock
 import os
 import shutil
@@ -275,6 +276,66 @@ class TestUnit(unittest.TestCase):
       rc.AddCmdResult(partial_mock.ListRegex('dump_fmap'), returncode=0,
                       side_effect=_SetupImage)
       self.assertEqual('TESTING', self.packer._ExtractFrid('image.bin'))
+    self.packer._RemoveTmpdirs()
+
+  def testUntarFile(self):
+    """Test operation of the tar file unpacker."""
+    dirname = self.packer._CreateTmpDir()
+    fname = self.packer._UntarFile('functest/Reef.9042.50.0.tbz2', dirname)
+    self.assertEqual(os.path.basename(fname), 'image.bin')
+
+    # This tar file has two files in it.
+    # -rw-r----- sjg/eng          64 2017-03-03 16:12 RO_FRID
+    # -rw-r----- sjg/eng          64 2017-03-15 13:38 RW_FRID
+    with self.assertRaises(pack_firmware.PackError) as e:
+      fname = self.packer._UntarFile('test/two_files.tbz2', dirname)
+    self.assertIn('Expected 1 member', str(e.exception))
+
+    # This tar file has as directory name in its member's filename.
+    # -rw-r----- sjg/eng          64 2017-03-03 16:12 test/RO_FRID
+    with self.assertRaises(pack_firmware.PackError) as e:
+      fname = self.packer._UntarFile('test/path.tbz2', dirname)
+    self.assertIn('should be a simple name', str(e.exception))
+
+    self.packer._RemoveTmpdirs()
+
+  def _FilesInDir(self, dirname):
+    """Get a list of files in a directory.
+
+    Args:
+      dirname: Directory name to check.
+
+    Returns:
+      List of files in that directory (basename only). Any subdirectories are
+          ignored.
+    """
+    return sorted([os.path.basename(fname)
+                   for fname in glob.glob(os.path.join(dirname, '*'))
+                   if not os.path.isdir(fname)])
+
+  def testCopyExtraFiles(self):
+    """Test that we can copy 'extra' files."""
+    self.packer._basedir = dirname = self.packer._CreateTmpDir()
+    self.packer._CopyExtraFiles(['test/RO_FRID', 'test/RW_FWID'])
+    self.assertEqual(self._FilesInDir(dirname), ['RO_FRID', 'RW_FWID'])
+    self.packer._RemoveTmpdirs()
+
+  def testCopyExtraDir(self):
+    """Test that we can copy 'extra' directories."""
+    self.packer._basedir = dirname = self.packer._CreateTmpDir()
+    self.packer._CopyExtraFiles(['test'])
+    self.assertEqual(self._FilesInDir(dirname), self._FilesInDir('test'))
+    self.packer._RemoveTmpdirs()
+
+  def testCopyExtraTarfile(self):
+    """Test that we can extract 'extra' tarfile contents."""
+    self.packer._basedir = dirname = self.packer._CreateTmpDir()
+    self.packer._args = self.packer.ParseArgs(['--imagedir', 'functest'])
+
+    # The bcs:// prefix tells us that the file was downloaded from BCS, and
+    # that we should unpack its contents. This file contains 'image.bin'.
+    self.packer._CopyExtraFiles(['bcs://Reef.9042.50.0.tbz2'])
+    self.assertEqual(self._FilesInDir(dirname), ['image.bin'])
     self.packer._RemoveTmpdirs()
 
   def _AddMocks(self, rc):

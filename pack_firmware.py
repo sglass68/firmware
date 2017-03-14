@@ -24,6 +24,7 @@ import shutil
 import struct
 import sys
 from StringIO import StringIO
+import tarfile
 import tempfile
 
 from chromite.lib import cros_build_lib
@@ -99,6 +100,8 @@ class FirmwarePacker(object):
     """
     parser = argparse.ArgumentParser(
         description='Produce a firmware update shell-ball')
+    parser.add_argument('-i', '--imagedir', type=str, default='.',
+                        help='Default locations for source images')
     parser.add_argument('-b', '--bios_image', type=str,
                         help='Path of input AP (BIOS) firmware image')
     parser.add_argument('-w', '--bios_rw_image', type=str,
@@ -578,6 +581,30 @@ class FirmwarePacker(object):
       image_file = image_files[name]
       self._AddVersionInfo(name, image_file.filename, image_file.version)
 
+  def _UntarFile(self, pathname, dst_dirname):
+    """Unpack the only item in a tar file.
+
+    Read a file from a tar file. It must contain just a single member and its
+    filename may not include a path.
+
+    Args:
+      pathname: Pathname of tar file to unpack.
+      dst_dirname: Destination directory to place the unpacked file.
+
+    Returns:
+      Pathname of unpacked file.
+    """
+    with tarfile.open(pathname) as tar:
+      members = tar.getmembers()
+      if len(members) != 1:
+        raise PackError("Expected 1 member in file '%s' but found %d" %
+                        (pathname, len(members)))
+      if '/' in members[0].name:
+        raise PackError("Tar file '%s' member '%s' should be a simple name" %
+                        (pathname, members[0].name))
+      tar.extractall(dst_dirname, members)
+      return os.path.join(dst_dirname, members[0].name)
+
   def _CopyFile(self, src, dst, mode=CHMOD_ALL_READ):
     """Copy a file (to another file or into a directory) and set its mode.
 
@@ -618,16 +645,24 @@ class FirmwarePacker(object):
 
     extras: List of extra files / directories to copy. If the item is a
         directory, then the files in that directory are copied into the
-        base directory.
+        base directory. If the item starts with "bcs://" then this indicates a
+        tar file: the prefix is stripped, the file is picked up from the
+        image directory (--imagedir) and unpacked to obtain the (single-file)
+        contents.
     """
     for extra in extras:
-      if os.path.isdir(extra):
+      if extra.startswith('bcs://'):
+        src = os.path.join(self._args.imagedir, extra.replace('bcs://', ''))
+        fname = self._UntarFile(src, self._basedir)
+        print("Extra BCS file: %s: %s" % (extra, fname), file=self._versions)
+      elif os.path.isdir(extra):
         fnames = glob.glob(os.path.join(extra, '*'))
         if not fnames:
           raise PackError("cannot copy extra files from folder '%s'" %
                           extra)
         for fname in fnames:
-          self._CopyFile(fname, self._basedir)
+          if not os.path.isdir(fname):
+            self._CopyFile(fname, self._basedir)
         print('Extra files from folder: %s' % extra,
               file=self._versions)
       else:
