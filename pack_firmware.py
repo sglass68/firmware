@@ -669,6 +669,41 @@ class FirmwarePacker(object):
         self._CopyFile(extra, self._basedir)
         print('Extra file: %s' % extra, file=self._versions)
 
+  def _GetReplaceDict(self, image_files, stable_main_version, stable_ec_version,
+                      stable_pd_version):
+    """Build a dictionary of string replacements for use with the update script.
+
+    Args:
+      image_files: Dict with:
+          key: Image type (e.g. 'BIOS').
+          value: ImageFile object containing filename and version.
+      stable_main_version: Version name of stable main firmware, or None.
+      stable_ec_version: Version name of stable EC firmware, or None.
+      stable_pd_version: Version name of stable PD firmware, or None.
+
+    Returns:
+      Dict with:
+          key: String to replace.
+          value: Value to replace with.
+    """
+    empty = ImageFile(None, '')
+    bios_rw_version = image_files.get('BIOS (RW)', empty).version
+    if not bios_rw_version:
+      bios_rw_version = image_files['BIOS'].version
+    return {
+        'REPLACE_RO_FWID': image_files['BIOS'].version,
+        'REPLACE_FWID': bios_rw_version,
+        'REPLACE_ECID': image_files.get('EC', empty).version or IGNORE,
+        'REPLACE_PDID': image_files.get('PD', empty).version or IGNORE,
+        # Set platform to first field of firmware version
+        # (ex: Google_Link.1234 -> Google_Link).
+        'REPLACE_PLATFORM': image_files['BIOS'].version.split('.')[0],
+        'REPLACE_STABLE_FWID': stable_main_version,
+        'REPLACE_STABLE_ECID': stable_ec_version,
+        'REPLACE_STABLE_PDID': stable_pd_version,
+    }
+    return full_dict
+
   def _CreateFileFromTemplate(self, infile, outfile, replace_dict):
     """Create a new file based on a template and some string replacements.
 
@@ -708,22 +743,8 @@ class FirmwarePacker(object):
       stable_ec_version: Version name of stable EC firmware, or None.
       stable_pd_version: Version name of stable PD firmware, or None.
     """
-    empty = ImageFile(None, '')
-    bios_rw_version = image_files.get('BIOS (RW)', empty).version
-    if not bios_rw_version:
-      bios_rw_version = image_files['BIOS'].version
-    full_dict = {
-        'REPLACE_RO_FWID': image_files['BIOS'].version,
-        'REPLACE_FWID': bios_rw_version,
-        'REPLACE_ECID': image_files.get('EC', empty).version or IGNORE,
-        'REPLACE_PDID': image_files.get('PD', empty).version or IGNORE,
-        # Set platform to first field of firmware version
-        # (ex: Google_Link.1234 -> Google_Link).
-        'REPLACE_PLATFORM': image_files['BIOS'].version.split('.')[0],
-        'REPLACE_STABLE_FWID': stable_main_version,
-        'REPLACE_STABLE_ECID': stable_ec_version,
-        'REPLACE_STABLE_PDID': stable_pd_version,
-    }
+    full_dict = self._GetReplaceDict(image_files, stable_main_version,
+                                     stable_ec_version, stable_pd_version)
     replace_dict = dict(full_dict)
     replace_dict['REPLACE_SCRIPT'] = script
     self._CreateFileFromTemplate(self._stub_file, self._args.output,
