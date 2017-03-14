@@ -369,6 +369,9 @@ class FirmwarePacker(object):
   def _CheckRwFirmware(self, fname):
     """Check that the firmware file is RW firmware.
 
+    Args:
+      fname: Filename of firmware image to check.
+
     Raises:
       PackError or RunCommandError if the flags could not be read or indicate
         that the firmware file is not RW firmware.
@@ -623,6 +626,8 @@ class FirmwarePacker(object):
     Args:
       tool_base: List of directories to check.
       tools: List of tools to copy.
+      script: Update script being used (so that we can avoid copying the
+          other update scripts over).
     """
     self._CopyFile(self._shflags_file, self._basedir)
     for tool in tools:
