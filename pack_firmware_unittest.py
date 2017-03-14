@@ -338,6 +338,11 @@ class TestUnit(unittest.TestCase):
     self.assertEqual(self._FilesInDir(dirname), ['image.bin'])
     self.packer._RemoveTmpdirs()
 
+  def testBaseDirPath(self):
+    """Check that _BaseDirPath() works as expected."""
+    self.packer._basedir = 'base'
+    self.assertEqual('base/fred', self.packer._BaseDirPath('fred'))
+
   def _AddMocks(self, rc):
     def _CopySections(_, **kwargs):
       destdir = kwargs['cwd']
