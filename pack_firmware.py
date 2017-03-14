@@ -743,7 +743,7 @@ class FirmwarePacker(object):
     """
     cros_build_lib.RunCommand(
         ['sh', self._args.output, '--sb_repack', self._basedir],
-        mute_output=False)
+        quiet=self._args.quiet, mute_output=not self._args.quiet)
     if not self._args.quiet:
       for fname in glob.glob(self._BaseDirPath('VERSION*')):
         with open(fname) as fd:
