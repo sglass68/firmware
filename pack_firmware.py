@@ -40,6 +40,7 @@ IMAGE_MAIN_RW = 'bios_rw.bin'
 IMAGE_EC = 'ec.bin'
 IMAGE_PD = 'pd.bin'
 IGNORE = 'IGNORE'
+MODELS_DIR = 'models'
 Section = collections.namedtuple('Section', ['offset', 'size'])
 ImageFile = collections.namedtuple('ImageFile', ['filename', 'version'])
 
@@ -85,6 +86,8 @@ class FirmwarePacker(object):
     self._args = None
     self._pack_dist = os.path.join(self._script_base, 'pack_dist')
     self._stub_file = os.path.join(self._script_base, 'pack_stub')
+    self._setvars_template_file = os.path.join(self._script_base,
+                                               'setvars_template')
     self._shflags_file = os.path.join(self._script_base, 'lib/shflags/shflags')
     self._testing = False
     self._basedir = None
@@ -107,6 +110,9 @@ class FirmwarePacker(object):
     """
     parser = argparse.ArgumentParser(
         description='Produce a firmware update shell-ball')
+    parser.add_argument('-m', '--model', type=str, dest='models',
+                        action='append',
+                        help='Model name to include in firmware update')
     parser.add_argument('-c', '--config', type=str,
                         help='Filename of master configuration .dtb file')
     parser.add_argument(
@@ -845,6 +851,7 @@ class FirmwarePacker(object):
       self._FindTool(tool_base, tool)
     if not bios_image and not ec_image and not pd_image:
       raise PackError('Must assign at least one of BIOS or EC or PD image')
+    models_dir = MODELS_DIR if model else ''
     image_files = self._CopyFirmwareFiles(
         bios_image=bios_image,
         bios_rw_image=bios_rw_image,
@@ -852,10 +859,11 @@ class FirmwarePacker(object):
         pd_image=pd_image,
         default_ec_version=default_ec_version,
         create_bios_rw_image=create_bios_rw_image,
-        image_main=os.path.join(self._basedir, model, IMAGE_MAIN),
-        image_main_rw=os.path.join(self._basedir, model, IMAGE_MAIN_RW),
-        image_ec=os.path.join(self._basedir, model, IMAGE_EC),
-        image_pd=os.path.join(self._basedir, model, IMAGE_PD))
+        image_main=os.path.join(self._basedir, models_dir, model, IMAGE_MAIN),
+        image_main_rw=os.path.join(self._basedir, models_dir, model,
+                                   IMAGE_MAIN_RW),
+        image_ec=os.path.join(self._basedir, models_dir, model, IMAGE_EC),
+        image_pd=os.path.join(self._basedir, models_dir, model, IMAGE_PD))
     self._WriteVersions(image_files)
     self._CopyBaseFiles(tool_base, tools, script)
     if extras:
@@ -969,22 +977,100 @@ class FirmwarePacker(object):
       self._basedir = self._CreateTmpDir()
       self._tmpdir = self._CreateTmpDir()
       self._AddFlashromVersion(tool_base)
-      image_files = self._ProcessModel(
-          model='',
-          bios_image=args.bios_image,
-          bios_rw_image=args.bios_rw_image,
-          ec_image=args.ec_image,
-          pd_image=args.pd_image,
-          default_ec_version=args.ec_version,
-          create_bios_rw_image=args.create_bios_rw_image,
-          tools=args.tools.split(),
-          tool_base=tool_base,
-          script=args.script,
-          extras=args.extra.split(':') if args.extra else [])
+      if args.models:
+        # Most of the arguments are meaningless with unified builds since we
+        # get the information from the master configuration. Add checks here
+        # to avoid confusion. We could possibly do some of this using
+        # mutual exclusivity in the argparser, but I'm not sure it is better.
+        image_args = [args.bios_image, args.ec_image, args.pd_image]
+        if any(image_args) and not args.local:
+          raise PackError('Cannot use -b/-p/-e with -m')
+        elif args.local and not all(image_args):
+          raise PackError('Must provide -b, -e, -p with -l')
+        if args.create_bios_rw_image:
+          raise PackError('Cannot use --create_bios_rw_image with -m')
+        if (args.stable_main_version or args.stable_ec_version or
+            args.stable_pd_version):
+          raise PackError('Cannot set stable versions with -m')
+        if args.ec_version:
+          raise PackError('Cannot use --ec_version with -m')
+        if not args.config:
+          raise PackError('Missing master configuration file (use -c)')
+
+        # This relies on an upstream pylibfdt which does not yet exist.
+        # See here:
+        # https://www.spinics.net/lists/devicetree-compiler/index.html#01166
+        # Series starts: [PATCH v9 0/5] Introduce Python bindings for libfdt
+        self._config = libfdt.Fdt(open(args.config).read())
+        os.mkdir(self._BaseDirPath(MODELS_DIR))
+        os.mkdir(os.path.join(self._tmpdir, MODELS_DIR))
+        for model in args.models:
+          node = self._config.path_offset('/chromeos/models/%s/firmware' %
+                                          model)
+          os.mkdir(self._BaseDirPath(os.path.join(MODELS_DIR, model)))
+
+          # Put all model files in a separate subdirectory.
+          dirname = os.path.join(self._tmpdir, MODELS_DIR, model)
+          if not os.path.exists(dirname):
+            os.mkdir(dirname)
+          bios_image = self._ExtractFile(model, args.bios_image, node,
+                                         'main-image', dirname)
+          bios_rw_image = self._ExtractFile(model, None, node, 'main-rw-image',
+                                            dirname)
+          ec_image = self._ExtractFile(model, args.ec_image, node, 'ec-image',
+                                       dirname)
+          pd_image = self._ExtractFile(model, args.pd_image, node, 'pd-image',
+                                       dirname)
+          extras = self._GetStringList(node, 'extra')
+          if extras:
+            extras = [os.path.expandvars(extra) for extra in extras]
+          create_bios_rw_image = self._GetBool(node, 'create-bios-rw-image')
+          if args.local:
+            create_bios_rw_image = False
+
+          tools = self._GetStringList(node, 'tools')
+          for tool in args.tools.split():
+            tools.append(tool)
+
+          image_files = self._ProcessModel(
+              bios_image=bios_image,
+              bios_rw_image=bios_rw_image,
+              ec_image=ec_image,
+              pd_image=pd_image,
+              default_ec_version='',
+              create_bios_rw_image=create_bios_rw_image,
+              tools=tools,
+              tool_base=tool_base,
+              script=self._GetString(node, 'script'),
+              extras=extras,
+              model=model)
+          replace_dict = self._GetReplaceDict(
+              image_files,
+              self._GetString(node, 'stable-main-version'),
+              self._GetString(node, 'stable-ec-version'),
+              self._GetString(node, 'stable-pd-version'))
+          replace_dict['REPLACE_MODEL'] = model
+          fname = os.path.join(self._basedir, MODELS_DIR, model, 'setvars.sh')
+          self._CreateFileFromTemplate(self._setvars_template_file, fname,
+                                       replace_dict, True)
+      else:
+        image_files = self._ProcessModel(
+            model='',
+            bios_image=args.bios_image,
+            bios_rw_image=args.bios_rw_image,
+            ec_image=args.ec_image,
+            pd_image=args.pd_image,
+            default_ec_version=args.ec_version,
+            create_bios_rw_image=args.create_bios_rw_image,
+            tools=args.tools.split(),
+            tool_base=tool_base,
+            script=args.script,
+            extras=args.extra.split(':') if args.extra else [])
       replace_dict = self._GetReplaceDict(image_files, args.stable_main_version,
                                           args.stable_ec_version,
                                           args.stable_pd_version)
-      self._WriteUpdateScript(args.script, replace_dict, unibuild=False)
+      self._WriteUpdateScript(args.script, replace_dict,
+                              unibuild=args.models is not None)
       self._WriteVersionFile()
       self._BuildShellball()
       if not args.quiet:

@@ -23,8 +23,10 @@ from chromite.lib import cros_build_lib
 from pack_firmware import FirmwarePacker
 
 REEF_HWID = 'Reef A12-B3C-D5E-F6G-H7I'
+REEF_MODEL = 'reef'
 REEF_STABLE_MAIN_VERSION = 'Google_Reef.9042.43.0'
 UPDATER = 'updater4.sh'
+MODELS_DIR = 'models'
 
 # We are looking for KEY="VALUE", or KEY=
 RE_KEY_VALUE = re.compile('(?P<key>[A-Z_]+)=("(?P<value>.*)")?$')
@@ -60,11 +62,12 @@ class TestFunctional(unittest.TestCase):
     self.unpackdir = tempfile.mkdtemp(tmp_base)
     self.packer._force_dash = HAVE_DASH
 
-  def _ExpectedFiles(self, extra_files):
+  def _ExpectedFiles(self, extra_files, models=[]):
     """Get a sorted list of files that we expect to see in the shellball.
 
     Args:
       extra_files: A list of extra files to include.
+      models: A list of models whose files need to be included.
 
     Returns:
       A sorted list of files to expect.
@@ -75,9 +78,13 @@ class TestFunctional(unittest.TestCase):
     expected_files.append(UPDATER)
     if extra_files:
       expected_files += extra_files
+    for model in models:
+      expected_files.append(os.path.join(MODELS_DIR, model, 'bios.bin'))
+      expected_files.append(os.path.join(MODELS_DIR, model, 'ec.bin'))
+      expected_files.append(os.path.join(MODELS_DIR, model, 'setvars.sh'))
     return sorted(expected_files)
 
-  def _RunScript(self, outfile, hwid, stable_main_version):
+  def _RunScript(self, outfile, hwid, model, stable_main_version):
     """Run an autoupdate with the shellball and check that it works.
 
     This relies on fake tools, principally crossystem which is controlled by
@@ -86,6 +93,7 @@ class TestFunctional(unittest.TestCase):
     Args:
       outfile: Shellball output file to test.
       hwid: Hardware ID to provide when the script asks for the hardware ID
+      model: Model name to provide when the script asks for it.
       stable_main_version: Value to return when RO_FWID is requested.
     """
     # These are used by our fake crossystem script (see functest/ directory).
@@ -93,6 +101,7 @@ class TestFunctional(unittest.TestCase):
     os.environ['FAKE_FWID'] = stable_main_version
     os.environ['FAKE_FW_VBOOT2'] = '0'
     os.environ['FAKE_HWID'] = hwid
+    os.environ['FAKE_MODEL'] = model
     os.environ['FAKE_MAINFW_ACT'] = 'A'
     os.environ['FAKE_RO_FWID'] = stable_main_version
     os.environ['FAKE_TPM_FWVER'] = '1'
@@ -133,7 +142,6 @@ class TestFunctional(unittest.TestCase):
       m = RE_KEY_VALUE.match(line)
       value = m.group('value')
       versions[m.group('key')] = value if value else ''
-
     return versions
 
   def _RunPackFirmware(self, extra_args):
@@ -163,6 +171,8 @@ class TestFunctional(unittest.TestCase):
     ]
 
     # Create the shellball, extract it, and get a list of files it contains.
+    os.environ['SYSROOT'] = 'test'
+    os.environ['FILESDIR'] = 'test'
     self.packer.Start(argv)
     cros_build_lib.RunCommand([outfile, '--sb_extract', self.unpackdir],
                               quiet=True, mute_output=True)
@@ -178,7 +188,8 @@ class TestFunctional(unittest.TestCase):
   def testFirmwareUpdate(self):
     """Run the firmware packer, unpack the result and check it."""
     extra_args = ['-b', os.path.join(self.indir, 'image.bin'),
-                  '--stable_main_version', REEF_STABLE_MAIN_VERSION]
+                  '--stable_main_version', REEF_STABLE_MAIN_VERSION,
+                  '--script', UPDATER]
     outfile, files, versions = self._RunPackFirmware(extra_args)
 
     # Check that we got the right files.
@@ -214,7 +225,71 @@ class TestFunctional(unittest.TestCase):
     self.assertEqual(8, len(lines))
 
     # Run the shellball to make sure we can do a fake autoupdate.
-    self._RunScript(outfile, REEF_HWID, REEF_STABLE_MAIN_VERSION)
+    self._RunScript(outfile, REEF_HWID, REEF_MODEL, REEF_STABLE_MAIN_VERSION)
+
+  def testFirmwareUpdateUnibuild(self):
+    """Run the firmware packer, unpack the result and check it."""
+    models = ['reef', 'pyro']
+    extra_args = [
+        '-m', 'reef', '-m', 'pyro', '-c', 'test/config.dtb', '-i', 'functest']
+    outfile, files, versions = self._RunPackFirmware(extra_args)
+
+    self.assertEqual(22, len(files))
+    self.assertEqual(self._ExpectedFiles(
+        ['fake_extra_tool', 'ectool', 'image.bin'], models), files)
+    with open(os.path.join(self.unpackdir, 'VERSION')) as fd:
+      lines = fd.read().splitlines()
+
+    # Each assertion matches to a line:
+    assertions = [
+      None,  # Skip testing first line.
+      lambda(x): self.assertEqual(
+          'flashrom(8): dad068d5533fbfca9fdf42054a1ca26c *%s/functest/flashrom'
+          % self.basedir, x),
+      lambda(x): self.assertEqual('             data', x),
+      lambda(x): self.assertEqual(
+          '             0.9.4  : 1bb61e1 : Feb 07 2017 18:29:17 UTC', x),
+      lambda(x): self.assertEqual('', x),
+      lambda(x): self.assertIn('reef/image.bin', x),
+      lambda(x): self.assertEqual('BIOS version: Google_Reef.9042.50.0', x),
+      lambda(x): self.assertIn('/reef/ec.bin', x),
+      lambda(x): self.assertEqual('EC version:   reef_v1.1.5857-77f6ed7', x),
+      lambda(x): self.assertEqual('Extra files from folder: test/extra', x),
+      lambda(x): self.assertEqual('Extra file: test/usr/sbin/ectool', x),
+      lambda(x): self.assertIn('Extra BCS file: bcs://Reef.9000.0.0.tbz2: /tmp',
+                               x),
+      lambda(x): self.assertEqual('', x),
+      lambda(x): self.assertIn('pyro/image.bin', x),
+      lambda(x): self.assertEqual('BIOS version: Google_Pyro.9042.41.0', x),
+      lambda(x): self.assertIn('/pyro/ec.bin', x),
+      lambda(x): self.assertEqual('EC version:   pyro_v1.1.5840-f0d7761', x),
+      lambda(x): self.assertEqual('', x),
+    ]
+    self.assertEqual(len(assertions), len(lines))
+    for i, assertion in enumerate(assertions):
+      if assertion:
+        assertion(lines[i])
+
+    self.assertEqual('yes', versions['UNIBUILD'])
+
+    versions = self._ReadVersions(os.path.join(self.unpackdir, MODELS_DIR,
+                                               'reef/setvars.sh'))
+    self.assertEqual(8, len(versions))
+    self.assertEqual('Google_Reef.9042.50.0', versions['TARGET_FWID'])
+    self.assertEqual('Google_Reef.9042.50.0', versions['TARGET_RO_FWID'])
+    self.assertEqual('reef_v1.1.5857-77f6ed7', versions['TARGET_ECID'])
+
+    # TODO(sjg@chromium.org): Better if this is an empty string?
+    self.assertEqual('IGNORE', versions['TARGET_PDID'])
+    self.assertEqual('Google_Reef.9042.43.0', versions['STABLE_FWID'])
+    self.assertEqual('reef-v1.1.5840-f0d7761', versions['STABLE_ECID'])
+    self.assertEqual('', versions['STABLE_PDID'])
+    self.assertEqual('Google_Reef', versions['TARGET_PLATFORM'])
+
+    # Run the firmware update for Reef and Pyro.
+    self._RunScript(outfile, REEF_HWID, REEF_MODEL, REEF_STABLE_MAIN_VERSION)
+    self._RunScript(outfile, 'Pyro C25-R45-W23-H63-M33', 'pyro',
+                    'Google_Pyro.9021.00.0')
 
   def _MakeImage(self, outfile, ro_id, rw_id=''):
     """Create a new firmware image with the given IDs."
