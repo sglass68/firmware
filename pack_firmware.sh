@@ -369,7 +369,7 @@ if [ "$ec_bin" != "" ]; then
     # Read EC RW from merged RW image.
     merge_rw_ec_firmware "$tmpbase/$IMAGE_EC" "$tmpbase/$IMAGE_MAIN" "ecrw"
     ec_rw_version="$(extract_frid "$tmpbase/$IMAGE_EC" "" "RW_FWID")"
-    echo "EC (RW) version:   $ec_rw_version" >>"$version_file"
+    echo "EC (RW) version: $ec_rw_version" >>"$version_file"
   fi
 fi
 if [ "$pd_bin" != "" ]; then
@@ -383,7 +383,7 @@ if [ "$pd_bin" != "" ]; then
     # Read EC RW from merged RW image.
     merge_rw_ec_firmware "$tmpbase/$IMAGE_PD" "$tmpbase/$IMAGE_MAIN" "pdrw"
     pd_rw_version="$(extract_frid "$tmpbase/$IMAGE_PD" "" "RW_FWID")"
-    echo "PD (RW) version:   $pd_rw_version" >>"$version_file"
+    echo "PD (RW) version: $pd_rw_version" >>"$version_file"
   fi
 fi
 
