@@ -492,9 +492,10 @@ class FirmwarePacker(object):
     ecrw_fname = os.path.join(self._tmpdir, 'ecrw')
     self._ExtractEcRw(rw_fname, cbfs_name, ecrw_fname)
     section = self._GetFMAP(ec_fname)['EC_RW']
-    if section.size > os.stat(ecrw_fname).st_size:
-      raise PackError('New RW payload larger than preserved FMAP section, '
-                      'cannot merge')
+    ecrw_size = os.stat(ecrw_fname).st_size
+    if section.size < ecrw_size:
+      raise PackError('New RW payload size %#x is larger than preserved FMAP '
+                      'section %#x, cannot merge' % (section.size, ecrw_size))
     merge_file.merge_file(ec_fname, ecrw_fname, section.offset)
 
   def _CopyFirmwareFiles(self):

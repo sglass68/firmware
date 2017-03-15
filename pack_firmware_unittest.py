@@ -90,7 +90,7 @@ UNUSED_HOLE 16773120 4096
 '''
 
 # Size of dummy 'ecrw' file.
-ECRW_SIZE = 0xb7f00
+ECRW_SIZE = 0x38000
 
 # Expected output from 'dump_fmap -p' for EC image.
 FMAP_OUTPUT_EC = '''EC_RO 64 229376
