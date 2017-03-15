@@ -207,6 +207,7 @@ merge_rw_firmware() {
 
   clone_firmware_section "$rw_image_file" "$ro_image_file" RW_SECTION_A
   clone_firmware_section "$rw_image_file" "$ro_image_file" RW_SECTION_B
+  touch -r "${rw_image_file}" "${ro_image_file}"
 }
 
 extract_ecrw_fmap() {
@@ -263,6 +264,7 @@ merge_rw_ec_firmware() {
    "$UTILS/merge_file.py" "$ec_image_file" ecrw "$offset" ||
      die "Failed to change firmware section.") ||
      die "Failed to merge RW firmware to $ec_image_file."
+   touch -r "${rw_image_file}" "${ec_image_file}"
 }
 
 trap do_cleanup EXIT
