@@ -549,7 +549,7 @@ class FirmwarePacker(object):
         self._MergeRwEcFirmware(self._BaseDirPath(IMAGE_EC),
                                 self._BaseDirPath(IMAGE_MAIN), 'ecrw')
         ec_rw_version = self._ExtractFrid(self._BaseDirPath(IMAGE_EC),
-                                          'RW_FRID')
+                                          'RW_FWID')
         print('EC (RW) version: %s' % ec_rw_version, file=self._versions)
 
     if self._args.pd_image:
@@ -560,7 +560,7 @@ class FirmwarePacker(object):
         self._MergeRwEcFirmware(self._BaseDirPath(IMAGE_PD),
                                 self._BaseDirPath(IMAGE_MAIN), 'pdrw')
         pd_rw_version = self._ExtractFrid(self._BaseDirPath(IMAGE_PD),
-                                          'RW_FRID')
+                                          'RW_FWID')
         print('PD (RW) version: %s' % pd_rw_version, file=self._versions)
 
   def _CopyFile(self, src, dst, mode=CHMOD_ALL_READ):

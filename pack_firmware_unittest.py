@@ -29,9 +29,11 @@ import pack_firmware
 # Disable all logging as it's confusing to get log output from tests.
 logging.getLogger().setLevel(logging.CRITICAL + 1)
 
-# Pre-set ID expected for test/image.bin.
+# Pre-set ID expected for test/image.bin. Note the 'R' in the first is a 'W'
+# in the second. It is confusing but this is how the firmware images are
+# currently created.
 RO_FRID = 'Google_Reef.9264.0.2017_02_09_1240'
-RW_FRID = 'Google_Reef.9264.0.2017_02_09_1250'
+RW_FWID = 'Google_Reef.9264.0.2017_02_09_1250'
 
 # Expected output from vbutil.
 VBUTIL_OUTPUT = '''Key block:
@@ -257,7 +259,7 @@ class TestUnit(unittest.TestCase):
   def _AddMocks(self, rc):
     def _CopySections(_, **kwargs):
       destdir = kwargs['cwd']
-      for fname in ['RO_FRID', 'RW_FRID']:
+      for fname in ['RO_FRID', 'RW_FWID']:
         shutil.copy2(os.path.join('test', fname), destdir)
 
     rc.AddCmdResult(partial_mock.Regex('type shar'), returncode=0)
@@ -359,7 +361,7 @@ class TestUnit(unittest.TestCase):
     result = self.packer._versions.getvalue().splitlines()
     self.assertEqual(15, len(result))
     self.assertIn(RO_FRID, self._FindLineInList(result, 'EC version'))
-    self.assertIn(RW_FRID, self._FindLineInList(result, 'EC (RW) version'))
+    self.assertIn(RW_FWID, self._FindLineInList(result, 'EC (RW) version'))
     rw_fname = self.packer._BaseDirPath(pack_firmware.IMAGE_EC)
     self.assertEqual(os.stat(rw_fname).st_mtime,
                      os.stat('test/image_rw.bin').st_mtime)
