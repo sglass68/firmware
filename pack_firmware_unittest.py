@@ -337,7 +337,7 @@ class TestUnit(unittest.TestCase):
 
     pack_firmware.FirmwarePacker._GetPreambleFlags = (
         mock.Mock(side_effect=self._MockGetPreambleFlags))
-    args = ['.', '--bios_rw_image', 'test/image_rw.bin',
+    args = ['--bios_rw_image', 'test/image_rw.bin',
             '--merge_bios_rw_image', '-e', 'test/ec.bin', '-p', 'test/pd.bin',
             '--remove_inactive_updaters'] + COMMON_FLAGS
     with cros_build_lib_unittest.RunCommandMock() as rc:
@@ -355,11 +355,18 @@ class TestUnit(unittest.TestCase):
                       side_effect=_CreateFile)
       rc.AddCmdResult(partial_mock.ListRegex('dump_fmap -p .*pd.bin'),
                       returncode=0, output=FMAP_OUTPUT_EC)
-      pack_firmware.main(args)
-      result = pack_firmware.packer._versions.getvalue().splitlines()
-      self.assertEqual(15, len(result))
-      self.assertIn(RO_FRID, self._FindLineInList(result, 'EC version'))
-      self.assertIn(RW_FRID, self._FindLineInList(result, 'EC (RW) version'))
+      self.packer.Start(args, remove_tmpdirs=False)
+    result = self.packer._versions.getvalue().splitlines()
+    self.assertEqual(15, len(result))
+    self.assertIn(RO_FRID, self._FindLineInList(result, 'EC version'))
+    self.assertIn(RW_FRID, self._FindLineInList(result, 'EC (RW) version'))
+    rw_fname = self.packer._BaseDirPath(pack_firmware.IMAGE_EC)
+    self.assertEqual(os.stat(rw_fname).st_mtime,
+                     os.stat('test/image_rw.bin').st_mtime)
+    ec_fname = self.packer._BaseDirPath(pack_firmware.IMAGE_EC)
+    self.assertEqual(os.stat(ec_fname).st_mtime,
+                     os.stat('test/image_rw.bin').st_mtime)
+    self.packer._RemoveTmpdirs()
 
   def _FindLineInList(self, lines, start_text):
     """Helper to find a single line starting with the given text and return it.

@@ -351,6 +351,15 @@ class FirmwarePacker(object):
          '0', str(preamble_flags)],
         quiet=True, cwd=self._tmpdir)
 
+  def _CopyTimestamp(self, reference_fname, fname):
+    """Copy the timestamp from a reference file to another file.
+
+    reference_fname: Reference file for timestamp.
+    fname: File to copy timestamp to.
+    """
+    mtime = os.stat(reference_fname).st_mtime
+    os.utime(fname, (mtime, mtime))
+
   def _CreateRwFirmware(self, ro_fname, rw_fname):
     """Build a RW firmware file from an input RO file.
 
@@ -366,8 +375,7 @@ class FirmwarePacker(object):
       raise PackError("Firmware image '%s' is NOT RO_NORMAL firmware" %
                       ro_fname)
     self._SetPreambleFlags(ro_fname, rw_fname, preamble_flags ^ 1)
-    mtime = os.stat(ro_fname).st_mtime
-    os.utime(rw_fname, (mtime, mtime))
+    self._CopyTimestamp(ro_fname, rw_fname)
     if not self._args.quiet:
       print("RW firmware image '%s' created" % rw_fname)
 
@@ -430,6 +438,7 @@ class FirmwarePacker(object):
     """
     self._CloneFirmwareSection(ro_fname, rw_fname, 'RW_SECTION_A')
     self._CloneFirmwareSection(ro_fname, rw_fname, 'RW_SECTION_B')
+    self._CopyTimestamp(rw_fname, ro_fname)
 
   def _ExtractEcRwUsingFMAP(self, fname, ecrw_fname):
     """Use the FMAP to extract the EC_MAIN_A section containing an EC binary.
@@ -497,6 +506,7 @@ class FirmwarePacker(object):
       raise PackError('New RW payload size %#x is larger than preserved FMAP '
                       'section %#x, cannot merge' % (section.size, ecrw_size))
     merge_file.merge_file(ec_fname, ecrw_fname, section.offset)
+    self._CopyTimestamp(rw_fname, ec_fname)
 
   def _CopyFirmwareFiles(self):
     """Process firmware files and copy them into the working directory"""
