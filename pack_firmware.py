@@ -294,7 +294,7 @@ class FirmwarePacker(object):
                               cwd=self._tmpdir, error_code_ok=True)
     if os.path.exists(fname):
       with open(fname) as fd:
-        return fd.read().strip().replace('\x00', '')
+        return fd.read().replace('\x00', '').strip()
     return ''
 
   def _BaseDirPath(self, basename):

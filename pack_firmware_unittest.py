@@ -256,6 +256,22 @@ class TestUnit(unittest.TestCase):
       rc.AddCmdResult(partial_mock.ListRegex('dump_fmap'), returncode=0)
       self.assertEqual(RO_FRID, self.packer._ExtractFrid('image.bin'))
 
+  def testExtractFridTrailingSpace(self):
+    """Check extracting a firmware ID with a trailing space."""
+    def _SetupImage(_, **kwargs):
+      destdir = kwargs['cwd']
+      with open(os.path.join(destdir, 'RO_FRID'), 'wb') as fd:
+        fd.write('TESTING \0\0\0')
+
+    self.packer._tmpdir = self.packer._CreateTmpDir()
+    self.packer._testing = True
+    self.packer._args = self.packer.ParseArgs(['--bios_image', 'image.bin'])
+    with cros_build_lib_unittest.RunCommandMock() as rc:
+      rc.AddCmdResult(partial_mock.ListRegex('dump_fmap'), returncode=0,
+                      side_effect=_SetupImage)
+      self.assertEqual('TESTING', self.packer._ExtractFrid('image.bin'))
+    self.packer._RemoveTmpdirs()
+
   def _AddMocks(self, rc):
     def _CopySections(_, **kwargs):
       destdir = kwargs['cwd']
