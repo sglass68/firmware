@@ -11,6 +11,7 @@ with a few fake tools.
 from __future__ import print_function
 
 import os
+import re
 import shutil
 import tarfile
 import tempfile
@@ -23,6 +24,9 @@ from pack_firmware import FirmwarePacker
 REEF_HWID = 'Reef A12-B3C-D5E-F6G-H7I'
 REEF_STABLE_MAIN_VERSION = 'Google_Reef.9042.43.0'
 UPDATER = 'updater4.sh'
+
+# We are looking for KEY="VALUE", or KEY=
+RE_KEY_VALUE = re.compile('(?P<key>[A-Z_]+)=("(?P<value>.*)")?$')
 
 # Firmware update runs on the device using the dash shell. Try to use this if
 # available.
@@ -102,6 +106,35 @@ class TestFunctional(unittest.TestCase):
               if not line.startswith(' (DEBUG')]
     self.assertEqual(errors, [])
 
+  def _ReadVersions(self, fname):
+    """Read the start of the supplied script to get the version information.
+
+    This picks up various shell variable assignments from the script and
+    returns them so their values can be checked.
+
+    Args:
+      fname: Filename of script file.
+
+    Returns:
+      Dict with:
+         key: Shell variable.
+         value: Value of that shell variable.
+    """
+    with open(fname) as fd:
+      lines = fd.read(1000).splitlines()[:30]
+    # Use strip() where needed since some lines are indented.
+    lines = [line.strip() for line in lines
+             if line.strip().startswith('TARGET') or
+             line.strip().startswith('STABLE') or
+             line.startswith('UNIBUILD')]
+    versions = {}
+    for line in lines:
+      m = RE_KEY_VALUE.match(line)
+      value = m.group('value')
+      versions[m.group('key')] = value if value else ''
+
+    return versions
+
   def _RunPackFirmware(self, extra_args):
     """Run the FirmwarePacker process and read the resulting shellball.
 
@@ -138,18 +171,7 @@ class TestFunctional(unittest.TestCase):
         rel_path = os.path.join(dirpath, fname)[len(self.unpackdir) + 1:]
         files.append(rel_path)
 
-    # Read the start of the script to get the version information. Use strip()
-    # where needed since some lines are indented.
-    with open(outfile) as fd:
-      lines = fd.read(1000).splitlines()[:30]
-    lines = [line.strip() for line in lines
-             if line.strip().startswith('TARGET') or
-             line.strip().startswith('STABLE') or
-             line.startswith('UNIBUILD')]
-    versions = {}
-    for line in lines:
-      varname, value = line.split('=')
-      versions[varname] = value[1:-1]
+    versions = self._ReadVersions(outfile)
     return outfile, sorted(files), versions
 
   def testFirmwareUpdate(self):
