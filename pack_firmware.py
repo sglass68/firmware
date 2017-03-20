@@ -220,7 +220,10 @@ class FirmwarePacker(object):
       data = fd.read()
       m = re.search(r'([0-9.]+ +: +[a-z0-9]+ +: +.+UTC)', data)
       if not m:
-        raise PackError('Could not find flashrom version number')
+        # As a fallback, look for a version without git hash / date.
+        m = re.search(r'([0-9.]+ +:  +: +)', data)
+        if not m:
+          raise PackError('Could not find flashrom version number')
       version = m.group(1)
 
     # crbug.com/695904: Can we use a SHA2-based algorithm?

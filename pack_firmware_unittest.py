@@ -228,6 +228,23 @@ class TestUnit(unittest.TestCase):
     self.assertEqual('%s0.9.4  : 1bb61e1 : Feb 07 2017 18:29:17 UTC' %
                      (' ' * 13), result[3])
 
+  def testAddFlashromMissingVersion(self):
+    """Test we can add the local flashrom version to the version information.
+
+    A local flashrom is built with cros_workon enabled for the flashrom ebuild.
+    It does not include the git hash or date, but is still considered to be
+    valid.
+    """
+    self.packer._args = self.packer.ParseArgs(['--tool_base', 'local_flashrom'])
+    with cros_build_lib_unittest.RunCommandMock() as rc:
+      rc.AddCmdResult(partial_mock.ListRegex('file'), returncode=0,
+                      output='ELF 64-bit LSB executable, etc.\n')
+      self.packer._AddFlashromVersion(self.packer._args.tool_base.split(':'))
+    result = self.packer._versions.getvalue().splitlines()
+    self.assertIn('flashrom(8)', result[1])
+    self.assertIn('ELF 64-bit LSB executable', result[2])
+    self.assertEqual('%s0.9.4  :  : ' % (' ' * 13), result[3])
+
   def testAddVersionInfoMissingFile(self):
     """Trying to add version info for a missing file should be detected."""
     with self.assertRaises(IOError) as e:
