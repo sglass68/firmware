@@ -13,6 +13,7 @@ from __future__ import print_function
 import os
 import re
 import shutil
+import sys
 import tarfile
 import tempfile
 import unittest
@@ -214,6 +215,60 @@ class TestFunctional(unittest.TestCase):
 
     # Run the shellball to make sure we can do a fake autoupdate.
     self._RunScript(outfile, REEF_HWID, REEF_STABLE_MAIN_VERSION)
+
+  def _MakeImage(self, outfile, ro_id, rw_id=''):
+    """Create a new firmware image with the given IDs."
+
+    This uses the existing flashmap defined in functest/base.fmd. It has two
+    256-byte ID sections followed by an FMAP section. We can easily create a
+    file that conforms to this map by padding our ID strings to 256 bytes.
+
+    Note fmap.bin can be created with:
+      $ fmaptool functest/base.fmd functtest.fmap.bin
+
+    The binary file is checked in since fmaptool is not installed by the
+    coreboot-utils ebuild.
+
+    Args:
+      outfile: Destination file (within the unpack directory) for output image.
+      ro_id: Read-only firmware ID to use.
+      rw_id: Read-write firmware ID to use, empty string if none.
+    """
+    with open(os.path.join(self.unpackdir, outfile), 'wb') as fd:
+      fd.write(ro_id + chr(0) * (256 - len(ro_id)))
+      fd.write(rw_id + chr(0) * (256 - len(rw_id)))
+      fd.write(open('functest/fmap.bin').read())
+
+  def testRepack(self):
+    """Repacking the shellball with new images should update versions."""
+    extra_args = ['-b', os.path.join(self.indir, 'image.bin')]
+    outfile, files, versions = self._RunPackFirmware(extra_args)
+    self.assertEqual('Google_Reef.9042.50.0', versions['TARGET_RO_FWID'])
+    self.assertEqual('Google_Reef.9042.50.0', versions['TARGET_FWID'])
+    self.assertEqual('IGNORE', versions['TARGET_ECID'])
+    self.assertEqual('IGNORE', versions['TARGET_PDID'])
+
+    # Extract the file into a directory, then overwrite various files with new
+    # images with a different IDs.
+    cros_build_lib.RunCommand([outfile, '--sb_extract', self.unpackdir],
+                              quiet=True, mute_output=True)
+    ro_id = 'Google_Veyron_Mickey.6588.197.0'
+    rw_id = 'Google_Veyron_Mickey.6588.197.1'
+    ec_id = 'GoogleEC_Veyron_Mickey.6588.197.0'
+    pd_id = 'GooglePD_Veyron_Mickey.6588.197.0'
+
+    self._MakeImage('bios.bin', ro_id, rw_id)
+    self._MakeImage('ec.bin', ec_id)
+    self._MakeImage('pd.bin', pd_id)
+
+    # Repack the file and make sure that the versions update.
+    cros_build_lib.RunCommand([outfile, '--sb_repack', self.unpackdir],
+                              quiet=True, mute_output=True)
+    versions = self._ReadVersions(outfile)
+    self.assertEqual(ro_id, versions['TARGET_RO_FWID'])
+    self.assertEqual(rw_id, versions['TARGET_FWID'])
+    self.assertEqual(ec_id, versions['TARGET_ECID'])
+    self.assertEqual(pd_id, versions['TARGET_PDID'])
 
   def tearDown(self):
     """Remove temporary directories"""

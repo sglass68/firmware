@@ -215,9 +215,9 @@ perform_shar_repack() {
   # unified builds since the variables are in separate files.
   if [ -z "${UNIBUILD}" ]; then
     if [ -n "$fw_ver" ]; then
-      sed -i 's/^TARGET_FWID=".*"/TARGET_FWID="'"$fw_ver"'"/' "$SELF" &&
+      sed -i 's/^\( *TARGET_FWID=\)".*"/\1"'"$fw_ver"'"/' "$SELF" &&
         echo "Changed TARGET_FWID to $fw_ver"
-      sed -i 's/^TARGET_RO_FWID=".*"/TARGET_RO_FWID="'"$ro_fw_ver"'"/' \
+      sed -i 's/^\( *TARGET_RO_FWID=\)".*"/\1"'"$ro_fw_ver"'"/' \
           "$SELF" &&
         echo "Changed TARGET_ROFWID to $ro_fw_ver"
       if [ -s "$new_source/VERSION" ]; then
@@ -226,13 +226,13 @@ perform_shar_repack() {
       fi
     fi
     if [ -n "$ec_ver" ]; then
-      sed -i 's/^TARGET_ECID=".*"/TARGET_ECID="'"$ec_ver"'"/' "$SELF" &&
+      sed -i 's/^\( *TARGET_ECID=\)".*"/\1"'"$ec_ver"'"/' "$SELF" &&
         echo "Changed TARGET_ECID to $ec_ver"
       [ -s "$new_source/VERSION" ] &&
         sed -i "s/^\(EC version:*\).*/\1$ec_ver/" "$new_source/VERSION"
     fi
     if [ -n "$pd_ver" ]; then
-      sed -i 's/^TARGET_PDID=".*"/TARGET_PDID="'"$pd_ver"'"/' "$SELF" &&
+      sed -i 's/^\( *TARGET_PDID=\)".*"/\1"'"$pd_ver"'"/' "$SELF" &&
         echo "Changed TARGET_PDID to $pd_ver"
       [ -s "$new_source/VERSION" ] &&
         sed -i "s/^\(PD version:*\).*/\1$pd_ver/" "$new_source/VERSION"
