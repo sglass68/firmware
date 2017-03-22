@@ -250,9 +250,10 @@ perform_shar_repack() {
   # differences.
   touch -t 201701010000 "$new_source/VERSION" "$md5_file"
 
-  # Build shar content
+  # Build shar content with files in sorted order for repeatability.
   (cd "$new_source" &&
-   shar -Q -q -x -m --no-character-count -D --no-i18n -z -g 1 . |
+   find . -type f | sort |
+   shar -Q -q -x -m --no-character-count -D --no-i18n -z -g 1 |
    sed -r 's/^lock_dir=_sh.*/lock_dir=_fwupdate/;
            s"^begin ([0-9]+) _sh[^/]*"begin \1 _fwupdate"
            /^# Made on .* by/d;

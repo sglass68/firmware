@@ -270,6 +270,21 @@ class TestFunctional(unittest.TestCase):
     self.assertEqual(ec_id, versions['TARGET_ECID'])
     self.assertEqual(pd_id, versions['TARGET_PDID'])
 
+  def testFilesSorted(self):
+    """Files in the shellball should be sorted by filename."""
+    extra_args = ['-b', os.path.join(self.indir, 'image.bin')]
+    outfile, files, versions = self._RunPackFirmware(extra_args)
+
+    # The shellball shows files in a comment with this format:
+    # 16777216 -rw-r--r-- bios.bin
+    re_files = re.compile('^# +[0-9]+ [-rwx]+ \(.*\)$')
+    with open(outfile) as fd:
+      for line in fd.read().splitlines():
+        m = re_files.match(line)
+        if m:
+          files.append(m.group(1))
+    self.assertEqual(files, sorted(files))
+
   def tearDown(self):
     """Remove temporary directories"""
     shutil.rmtree(self.indir)
