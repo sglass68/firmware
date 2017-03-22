@@ -243,7 +243,7 @@ class TestUnit(unittest.TestCase):
     result = self.packer._versions.getvalue().splitlines()
     self.assertIn('flashrom(8)', result[1])
     self.assertIn('ELF 64-bit LSB executable', result[2])
-    self.assertEqual('%s0.9.4  :  : ' % (' ' * 13), result[3])
+    self.assertEqual(' ' * 13, result[3])
 
   def testAddVersionInfoMissingFile(self):
     """Trying to add version info for a missing file should be detected."""
