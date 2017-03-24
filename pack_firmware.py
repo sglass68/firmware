@@ -921,7 +921,9 @@ class FirmwarePacker(object):
     This obtains the file in one of two ways:
       - if we are building local firmware, it creates a filename using the
           provided template, with MODEL replaced with the current model. This
-          is used to build a firmware update from the firmware ebuilds.
+          is used to build a firmware update from the firmware ebuilds. The
+          file is only used if there is a valid property value, since that is
+          what indicates that the file is needed in the update.
       - otherwise it finds a tar file, unpacks it and returns the filename of
           the resulting unpacked file. There is only one file in the archive.
           This is used to build a firmware update from the configured firmware
@@ -937,11 +939,13 @@ class FirmwarePacker(object):
     Returns:
       Filename of the resulting image file.
     """
-    if self._args.local:
-      return fname_template.replace('MODEL', model)
     uri = self._GetString(node, prop_name)
     if not uri:
       return None
+    if self._args.local:
+      if not fname_template:
+        return None
+      return fname_template.replace('MODEL', model)
     fname = uri.replace('bcs://', '')
     return self._UntarFile(os.path.join(self._args.imagedir, fname), dirname)
 

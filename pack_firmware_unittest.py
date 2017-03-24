@@ -392,11 +392,19 @@ class TestUnit(unittest.TestCase):
 
   def testExtractFileLocal(self):
     """Test handling file extraction based on a configuration property,"""
+    node = self._SetUpConfigNode()
     self.packer._args = self.packer.ParseArgs(['-l'])
+    # Since the 'extra' property exists, this should give as a valid file.
     self.assertEqual(
         self.packer._ExtractFile('reef', 'test/MODEL-files/MODEL_fake_extra',
-                                 None, None, None),
+                                 node, 'extra', None),
         'test/reef-files/reef_fake_extra')
+
+    # Since 'missing-prop' does not exist, this should return None.
+    self.assertEqual(
+        self.packer._ExtractFile('reef', 'test/MODEL-files/MODEL_fake_extra',
+                                 node, 'missing-prop', None),
+        None)
 
   def testExtractFileBcs(self):
     """Test handling file extraction based on a configuration property,"""
