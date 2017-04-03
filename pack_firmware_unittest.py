@@ -27,6 +27,9 @@ from chromite.lib import partial_mock
 import chromite.lib.cros_logging as logging
 import pack_firmware
 
+# We need to poke around in internal members of PackFirmware.
+# pylint: disable=W0212
+
 # Disable all logging as it's confusing to get log output from tests.
 logging.getLogger().setLevel(logging.CRITICAL + 1)
 
@@ -107,8 +110,8 @@ RW_FWID 262468 32
 
 # Common flags that we use in several tests.
 COMMON_FLAGS = [
-  '--script=updater5.sh', '--tools', 'flashrom dump_fmap',
-  '--tool_base', 'test', '-b', 'test/image.bin', '-q',  '-o' 'out',
+    '--script=updater5.sh', '--tools', 'flashrom dump_fmap',
+    '--tool_base', 'test', '-b', 'test/image.bin', '-q', '-o' 'out',
 ]
 
 
@@ -316,7 +319,8 @@ class TestUnit(unittest.TestCase):
 
     self.packer._RemoveTmpdirs()
 
-  def _FilesInDir(self, dirname):
+  @staticmethod
+  def _FilesInDir(dirname):
     """Get a list of files in a directory.
 
     Args:
@@ -422,7 +426,8 @@ class TestUnit(unittest.TestCase):
         os.path.join(dirname, 'ec.bin'))
     self.packer._RemoveTmpdirs()
 
-  def _AddMocks(self, rc):
+  @staticmethod
+  def _AddMocks(rc):
     def _CopySections(_, **kwargs):
       destdir = kwargs['cwd']
       for fname in ['RO_FRID', 'RW_FWID']:
@@ -445,8 +450,13 @@ class TestUnit(unittest.TestCase):
     rc.AddCmdResult(partial_mock.ListRegex('dump_fmap -x .*pd.bin'),
                     side_effect=_CopySections, returncode=0)
 
+  # If we use _ to indicate an unused parameter, cros lint wants us to call it
+  # 'kwargs'. If we call it 'kwargs' it complains about an unused parameter.
+  # We need the kwargs paramter since the caller provides it and the real
+  # implementation of this function (that we are mocking) needs it.
+  # pylint: disable=C9011
   @classmethod
-  def _ResignFirmware(self, cmd, **_):
+  def _ResignFirmware(cls, cmd, **_):
     """Called as a side effect to emulate the effect of resign_firmwarefd.sh.
 
     This copies the input file to the output file.
@@ -459,7 +469,8 @@ class TestUnit(unittest.TestCase):
     infile, outfile = cmd[1], cmd[2]
     shutil.copy(infile, outfile)
 
-  def _MockGetPreambleFlags(self, fname, **_):
+  @staticmethod
+  def _MockGetPreambleFlags(fname, **_):
     """Mock of _GetPreambleFlags(). Uses the filename to determine value.
 
     Args:
@@ -562,7 +573,7 @@ class TestUnit(unittest.TestCase):
 
     Args:
       lines: List of lines to check.
-      text: Text to find.
+      start_text: Text to find.
 
     Returns:
       Line found, as a string (or assertion failure if exactly one matching
@@ -621,7 +632,7 @@ class TestUnit(unittest.TestCase):
   # b/36104199 Should be able to be removed once mario is turned down.
   def testMario(self):
     """Test the special cases required by mario."""
-    def _MockExtractFrid(image_file):
+    def _MockExtractFrid(_):
       return ''
 
     pack_firmware.FirmwarePacker._GetPreambleFlags = (

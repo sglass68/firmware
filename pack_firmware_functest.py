@@ -13,7 +13,6 @@ from __future__ import print_function
 import os
 import re
 import shutil
-import sys
 import tarfile
 import tempfile
 import unittest
@@ -21,6 +20,9 @@ import unittest
 from chromite.lib import cros_build_lib
 
 from pack_firmware import FirmwarePacker
+
+# We need to poke around in internal members of PackFirmware.
+# pylint: disable=W0212
 
 REEF_HWID = 'Reef A12-B3C-D5E-F6G-H7I'
 REEF_MODEL = 'reef'
@@ -62,7 +64,8 @@ class TestFunctional(unittest.TestCase):
     self.unpackdir = tempfile.mkdtemp(tmp_base)
     self.packer._force_dash = HAVE_DASH
 
-  def _ExpectedFiles(self, extra_files, models=[]):
+  @staticmethod
+  def _ExpectedFiles(extra_files, models=None):
     """Get a sorted list of files that we expect to see in the shellball.
 
     Args:
@@ -78,10 +81,11 @@ class TestFunctional(unittest.TestCase):
     expected_files.append(UPDATER)
     if extra_files:
       expected_files += extra_files
-    for model in models:
-      expected_files.append(os.path.join(MODELS_DIR, model, 'bios.bin'))
-      expected_files.append(os.path.join(MODELS_DIR, model, 'ec.bin'))
-      expected_files.append(os.path.join(MODELS_DIR, model, 'setvars.sh'))
+    if models:
+      for model in models:
+        expected_files.append(os.path.join(MODELS_DIR, model, 'bios.bin'))
+        expected_files.append(os.path.join(MODELS_DIR, model, 'ec.bin'))
+        expected_files.append(os.path.join(MODELS_DIR, model, 'setvars.sh'))
     return sorted(expected_files)
 
   def _RunScript(self, outfile, hwid, model, stable_main_version):
@@ -116,7 +120,8 @@ class TestFunctional(unittest.TestCase):
               if not line.startswith(' (DEBUG')]
     self.assertEqual(errors, [])
 
-  def _ReadVersions(self, fname):
+  @staticmethod
+  def _ReadVersions(fname):
     """Read the start of the supplied script to get the version information.
 
     This picks up various shell variable assignments from the script and
@@ -242,28 +247,28 @@ class TestFunctional(unittest.TestCase):
 
     # Each assertion matches to a line:
     assertions = [
-      None,  # Skip testing first line.
-      lambda(x): self.assertEqual(
-          'flashrom(8): dad068d5533fbfca9fdf42054a1ca26c *%s/functest/flashrom'
-          % self.basedir, x),
-      lambda(x): self.assertEqual('             data', x),
-      lambda(x): self.assertEqual(
-          '             0.9.4  : 1bb61e1 : Feb 07 2017 18:29:17 UTC', x),
-      lambda(x): self.assertEqual('', x),
-      lambda(x): self.assertIn('reef/image.bin', x),
-      lambda(x): self.assertEqual('BIOS version: Google_Reef.9042.50.0', x),
-      lambda(x): self.assertIn('/reef/ec.bin', x),
-      lambda(x): self.assertEqual('EC version:   reef_v1.1.5857-77f6ed7', x),
-      lambda(x): self.assertEqual('Extra files from folder: test/extra', x),
-      lambda(x): self.assertEqual('Extra file: test/usr/sbin/ectool', x),
-      lambda(x): self.assertIn('Extra BCS file: bcs://Reef.9000.0.0.tbz2: /tmp',
-                               x),
-      lambda(x): self.assertEqual('', x),
-      lambda(x): self.assertIn('pyro/image.bin', x),
-      lambda(x): self.assertEqual('BIOS version: Google_Pyro.9042.41.0', x),
-      lambda(x): self.assertIn('/pyro/ec.bin', x),
-      lambda(x): self.assertEqual('EC version:   pyro_v1.1.5840-f0d7761', x),
-      lambda(x): self.assertEqual('', x),
+        None,  # Skip testing first line.
+        lambda(x): self.assertEqual(
+            'flashrom(8): dad068d5533fbfca9fdf42054a1ca26c '
+            '*%s/functest/flashrom' % self.basedir, x),
+        lambda(x): self.assertEqual('             data', x),
+        lambda(x): self.assertEqual(
+            '             0.9.4  : 1bb61e1 : Feb 07 2017 18:29:17 UTC', x),
+        lambda(x): self.assertEqual('', x),
+        lambda(x): self.assertIn('reef/image.bin', x),
+        lambda(x): self.assertEqual('BIOS version: Google_Reef.9042.50.0', x),
+        lambda(x): self.assertIn('/reef/ec.bin', x),
+        lambda(x): self.assertEqual('EC version:   reef_v1.1.5857-77f6ed7', x),
+        lambda(x): self.assertEqual('Extra files from folder: test/extra', x),
+        lambda(x): self.assertEqual('Extra file: test/usr/sbin/ectool', x),
+        lambda(x): self.assertIn('Extra BCS file: bcs://Reef.9000.0.0.tbz2: '
+                                 '/tmp', x),
+        lambda(x): self.assertEqual('', x),
+        lambda(x): self.assertIn('pyro/image.bin', x),
+        lambda(x): self.assertEqual('BIOS version: Google_Pyro.9042.41.0', x),
+        lambda(x): self.assertIn('/pyro/ec.bin', x),
+        lambda(x): self.assertEqual('EC version:   pyro_v1.1.5840-f0d7761', x),
+        lambda(x): self.assertEqual('', x),
     ]
     self.assertEqual(len(assertions), len(lines))
     for i, assertion in enumerate(assertions):
@@ -317,7 +322,7 @@ class TestFunctional(unittest.TestCase):
   def testRepack(self):
     """Repacking the shellball with new images should update versions."""
     extra_args = ['-b', os.path.join(self.indir, 'image.bin')]
-    outfile, files, versions = self._RunPackFirmware(extra_args)
+    outfile, _, versions = self._RunPackFirmware(extra_args)
     self.assertEqual('Google_Reef.9042.50.0', versions['TARGET_RO_FWID'])
     self.assertEqual('Google_Reef.9042.50.0', versions['TARGET_FWID'])
     self.assertEqual('IGNORE', versions['TARGET_ECID'])
@@ -348,11 +353,11 @@ class TestFunctional(unittest.TestCase):
   def testFilesSorted(self):
     """Files in the shellball should be sorted by filename."""
     extra_args = ['-b', os.path.join(self.indir, 'image.bin')]
-    outfile, files, versions = self._RunPackFirmware(extra_args)
+    outfile, files, _ = self._RunPackFirmware(extra_args)
 
     # The shellball shows files in a comment with this format:
     # 16777216 -rw-r--r-- bios.bin
-    re_files = re.compile('^# +[0-9]+ [-rwx]+ \(.*\)$')
+    re_files = re.compile(r'^# +[0-9]+ [-rwx]+ \(.*\)$')
     with open(outfile) as fd:
       for line in fd.read().splitlines():
         m = re_files.match(line)

@@ -3,7 +3,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-"""Packages firmware images into an executale "shell-ball".
+"""Packages firmware images into an executable "shell-ball".
 
 It requires:
  - at least one firmware image (*.bin, should be AP or EC or ...)
@@ -97,7 +97,8 @@ class FirmwarePacker(object):
     self._force_dash = False
     self._config = None
 
-  def ParseArgs(self, argv):
+  @staticmethod
+  def ParseArgs(argv):
     """Parse the available arguments.
 
     Invalid arguments or -h cause this function to print a message and exit.
@@ -185,7 +186,8 @@ class FirmwarePacker(object):
                         help='Avoid output except for warnings/errors')
     return parser.parse_args(argv)
 
-  def _EnsureCommand(self, cmd, package):
+  @staticmethod
+  def _EnsureCommand(cmd, package):
     """Ensure that a command is available, raising an exception if not.
 
     Args:
@@ -197,7 +199,8 @@ class FirmwarePacker(object):
     if result.returncode:
       raise PackError("You need '%s' (package '%s')" % (cmd, package))
 
-  def _FindTool(self, tool_base, tool):
+  @staticmethod
+  def _FindTool(tool_base, tool):
     """Find a tool in the tool_base path list, raising an exception if missing.
 
     Args:
@@ -368,7 +371,8 @@ class FirmwarePacker(object):
          '0', str(preamble_flags)],
         quiet=True, cwd=self._tmpdir)
 
-  def _CopyTimestamp(self, reference_fname, fname):
+  @staticmethod
+  def _CopyTimestamp(reference_fname, fname):
     """Copy the timestamp from a reference file to another file.
 
     reference_fname: Reference file for timestamp.
@@ -388,7 +392,7 @@ class FirmwarePacker(object):
       rw_fname: Filename of RW firmware (relative or absolute path).
     """
     preamble_flags = self._GetPreambleFlags(ro_fname)
-    if not (preamble_flags & 1):
+    if not preamble_flags & 1:
       raise PackError("Firmware image '%s' is NOT RO_NORMAL firmware" %
                       ro_fname)
     self._SetPreambleFlags(ro_fname, rw_fname, preamble_flags ^ 1)
@@ -614,7 +618,8 @@ class FirmwarePacker(object):
       image_file = image_files[name]
       self._AddVersionInfo(name, image_file.filename, image_file.version)
 
-  def _UntarFile(self, pathname, dst_dirname):
+  @staticmethod
+  def _UntarFile(pathname, dst_dirname):
     """Unpack the only item in a tar file.
 
     Read a file from a tar file. It must contain just a single member and its
@@ -638,7 +643,8 @@ class FirmwarePacker(object):
       tar.extractall(dst_dirname, members)
       return os.path.join(dst_dirname, members[0].name)
 
-  def _CopyFile(self, src, dst, mode=CHMOD_ALL_READ):
+  @staticmethod
+  def _CopyFile(src, dst, mode=CHMOD_ALL_READ):
     """Copy a file (to another file or into a directory) and set its mode.
 
     Args:
@@ -715,7 +721,8 @@ class FirmwarePacker(object):
         self._CopyFile(extra, self._basedir)
         print('Extra file: %s' % extra, file=self._versions)
 
-  def _GetReplaceDict(self, image_files, stable_main_version, stable_ec_version,
+  @staticmethod
+  def _GetReplaceDict(image_files, stable_main_version, stable_ec_version,
                       stable_pd_version):
     """Build a dictionary of string replacements for use with the update script.
 
@@ -749,7 +756,8 @@ class FirmwarePacker(object):
         'REPLACE_STABLE_PDID': stable_pd_version,
     }
 
-  def _CreateFileFromTemplate(self, infile, outfile, replace_dict, unibuild):
+  @staticmethod
+  def _CreateFileFromTemplate(infile, outfile, replace_dict, unibuild):
     """Create a new file based on a template and some string replacements.
 
     Args:
@@ -1083,6 +1091,7 @@ class FirmwarePacker(object):
 # The style guide says that we cannot pass in sys.argv[0]. That makes testing
 # a pain, so this is a full argv.
 def main(argv):
+  # pylint: disable=W0603
   global packer
 
   packer = FirmwarePacker(argv[0])
