@@ -202,6 +202,9 @@ class ModelConverter(object):
 
     Args:
       model: Model to process.
+
+    Returns:
+      Filename of the ebuild that was processed.
     """
     pathname = os.path.join(self._srcpath, self._path_format % {'model': model})
     ebuild = [fname for fname in glob.glob(pathname) if '9999' not in fname]
@@ -228,6 +231,7 @@ class ModelConverter(object):
     self._OutputNode(model, shell_vars)
     self._AddLine('};')
     self._AddLine('')
+    return fname
 
   def Start(self):
     """Start processing ebuilds.
@@ -237,9 +241,17 @@ class ModelConverter(object):
     """
     if self._models:
       self._AddLine('&models {')
+      board_ebuild_pathname = None
       for model in self._models:
         self._ProcessModel(model)
+        fname = self._ProcessModel(model)
+        if not board_ebuild_pathname:
+          board_ebuild_pathname = fname
       self._AddLine('};')
+      if board_ebuild_pathname:
+        print()
+        print('FORCE_MANIFEST="%s" ebuild %s manifest' %
+              (' '.join(self._urls), board_ebuild_pathname))
     else:
       pathname = os.path.join(self._srcpath,
                               'private-overlays/overlay-*-private')
